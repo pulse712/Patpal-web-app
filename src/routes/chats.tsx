@@ -77,8 +77,9 @@ function Chats() {
           </div>
         ) : (
           convos.map((c) => {
-            const otherName = (me === c.client_id ? c.pal?.full_name : c.client?.full_name) ?? "Chat";
+            const otherName = c.otherName;
             return (
+
               <Link
                 key={c.id}
                 to="/chat/$conversationId"

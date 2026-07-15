@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users } from "lucide-react";
+import { useIsOnline, useOnlineUsers } from "@/lib/presence";
 
 export const Route = createFileRoute("/")({
   head: () => ({

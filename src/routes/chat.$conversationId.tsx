@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Send, Phone, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsOnline } from "@/lib/presence";
 
 export const Route = createFileRoute("/chat/$conversationId")({
   head: () => ({ meta: [{ title: "Chat — Pat My Back" }, { name: "robots", content: "noindex" }] }),

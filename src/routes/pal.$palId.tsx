@@ -202,7 +202,7 @@ function PalProfile() {
 
   const name = pal.profiles?.full_name ?? "Pat Pal";
   const availLabel = pal.availability ?? "offline";
-  const isOnline = availLabel === "available";
+  const isOnline = palPresenceOnline;
   const tierLabel = TIER_LABEL[pal.tier ?? ""] ?? "Supporter";
   const isFree = pal.price_cents_per_minute === 0;
   const rating = Number(pal.rating_avg ?? 0);

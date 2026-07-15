@@ -277,9 +277,13 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 
 function TeamRow({ pal }: { pal: Pal }) {
   const name = pal.full_name ?? "Team";
+  const isOnline = useIsOnline(pal.user_id);
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary-soft/50 p-3">
-      <Avatar name={name} url={pal.avatar_url} />
+      <div className="relative">
+        <Avatar name={name} url={pal.avatar_url} />
+        <PresenceDot online={isOnline} />
+      </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="truncate font-semibold">{name}</p>
@@ -288,7 +292,9 @@ function TeamRow({ pal }: { pal: Pal }) {
           </span>
         </div>
         <p className="truncate text-xs text-muted-foreground">{pal.headline ?? "Here to help."}</p>
-        <p className="mt-0.5 text-[10px] font-medium text-success">● Online now</p>
+        <p className={`mt-0.5 text-[10px] font-medium ${isOnline ? "text-success" : "text-muted-foreground"}`}>
+          {isOnline ? "● Online now" : "○ Offline"}
+        </p>
       </div>
       <Link to="/pal/$palId" params={{ palId: pal.user_id }}>
         <Button size="sm" className="h-8 rounded-full px-4 text-xs font-bold">
@@ -299,15 +305,30 @@ function TeamRow({ pal }: { pal: Pal }) {
   );
 }
 
-function PalRow({ pal, online }: { pal: Pal; online?: boolean }) {
+function PresenceDot({ online }: { online: boolean }) {
+  return (
+    <span
+      className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+        online ? "bg-success" : "bg-muted-foreground/50"
+      }`}
+      aria-label={online ? "Online" : "Offline"}
+    />
+  );
+}
+
+function PalRow({ pal }: { pal: Pal }) {
   const name = pal.full_name ?? "Pat Pal";
+  const isOnline = useIsOnline(pal.user_id);
   return (
     <Link
       to="/pal/$palId"
       params={{ palId: pal.user_id }}
       className="flex items-center gap-3 px-3 py-3"
     >
-      <Avatar name={name} url={pal.avatar_url} />
+      <div className="relative">
+        <Avatar name={name} url={pal.avatar_url} />
+        <PresenceDot online={isOnline} />
+      </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="truncate text-sm font-semibold">{name}</p>
@@ -318,7 +339,7 @@ function PalRow({ pal, online }: { pal: Pal; online?: boolean }) {
       </div>
       <div className="shrink-0 text-right">
         <p className="text-sm font-bold text-primary">${(pal.price_cents_per_minute / 100).toFixed(0)}/min</p>
-        {online ? (
+        {isOnline ? (
           <p className="text-[10px] font-medium text-success">Online now</p>
         ) : pal.rating_avg ? (
           <p className="flex items-center justify-end gap-0.5 text-[10px] text-muted-foreground">
@@ -328,5 +349,7 @@ function PalRow({ pal, online }: { pal: Pal; online?: boolean }) {
         ) : null}
       </div>
     </Link>
+  );
+}
   );
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { MessageCircle } from "lucide-react";
+import { useIsOnline } from "@/lib/presence";
 
 export const Route = createFileRoute("/chats")({
   head: () => ({ meta: [{ title: "Chats — Pat My Back" }, { name: "robots", content: "noindex" }] }),

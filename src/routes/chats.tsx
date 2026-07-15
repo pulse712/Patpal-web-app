@@ -51,10 +51,14 @@ function Chats() {
         nameMap = new Map((profs ?? []).map((p) => [p.id, p.full_name ?? "Chat"]));
       }
       setConvos(
-        rows.map((r) => ({
-          ...r,
-          otherName: nameMap.get(r.client_id === myId ? r.pal_id : r.client_id) ?? "Chat",
-        })),
+        rows.map((r) => {
+          const otherId = r.client_id === myId ? r.pal_id : r.client_id;
+          return {
+            ...r,
+            otherId,
+            otherName: nameMap.get(otherId) ?? "Chat",
+          };
+        }),
       );
       setLoading(false);
     })();
@@ -78,28 +82,7 @@ function Chats() {
             </div>
           </div>
         ) : (
-          convos.map((c) => {
-            const otherName = c.otherName;
-            return (
-
-              <Link
-                key={c.id}
-                to="/chat/$conversationId"
-                params={{ conversationId: c.id }}
-                className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-card hover:border-primary/30"
-              >
-                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
-                  {otherName.slice(0, 1).toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{otherName}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {c.last_message_at ? new Date(c.last_message_at).toLocaleString() : "No messages yet"}
-                  </p>
-                </div>
-              </Link>
-            );
-          })
+          convos.map((c) => <ConvoItem key={c.id} convo={c} />)
         )}
       </section>
     </AppShell>

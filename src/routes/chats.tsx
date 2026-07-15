@@ -14,8 +14,7 @@ type ConvoRow = {
   client_id: string;
   pal_id: string;
   last_message_at: string | null;
-  client: { full_name: string | null } | null;
-  pal: { full_name: string | null } | null;
+  otherName: string;
 };
 
 function Chats() {
@@ -31,15 +30,34 @@ function Chats() {
         navigate({ to: "/auth" });
         return;
       }
-      setMe(sess.session.user.id);
+      const myId = sess.session.user.id;
+      setMe(myId);
       const { data } = await supabase
         .from("conversations")
-        .select("id, client_id, pal_id, last_message_at, client:profiles!conversations_client_id_fkey(full_name), pal:profiles!conversations_pal_id_fkey(full_name)")
+        .select("id, client_id, pal_id, last_message_at")
         .order("last_message_at", { ascending: false, nullsFirst: false });
-      setConvos((data ?? []) as unknown as ConvoRow[]);
+      const rows = data ?? [];
+      const otherIds = Array.from(
+        new Set(rows.map((r) => (r.client_id === myId ? r.pal_id : r.client_id))),
+      );
+      let nameMap = new Map<string, string>();
+      if (otherIds.length) {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", otherIds);
+        nameMap = new Map((profs ?? []).map((p) => [p.id, p.full_name ?? "Chat"]));
+      }
+      setConvos(
+        rows.map((r) => ({
+          ...r,
+          otherName: nameMap.get(r.client_id === myId ? r.pal_id : r.client_id) ?? "Chat",
+        })),
+      );
       setLoading(false);
     })();
   }, [navigate]);
+
 
   return (
     <AppShell>
@@ -59,8 +77,9 @@ function Chats() {
           </div>
         ) : (
           convos.map((c) => {
-            const otherName = (me === c.client_id ? c.pal?.full_name : c.client?.full_name) ?? "Chat";
+            const otherName = c.otherName;
             return (
+
               <Link
                 key={c.id}
                 to="/chat/$conversationId"

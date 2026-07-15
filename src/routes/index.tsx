@@ -351,5 +351,4 @@ function PalRow({ pal }: { pal: Pal }) {
     </Link>
   );
 }
-  );
-}
+

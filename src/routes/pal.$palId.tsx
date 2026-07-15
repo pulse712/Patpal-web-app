@@ -97,6 +97,7 @@ function labelForSlug(slug: string) {
 
 function PalProfile() {
   const { palId } = Route.useParams();
+  const palPresenceOnline = useIsOnline(palId);
   const navigate = useNavigate();
   const [pal, setPal] = useState<Pal | null>(null);
   const [loading, setLoading] = useState(true);

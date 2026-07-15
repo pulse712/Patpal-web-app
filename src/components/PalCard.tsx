@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
+import { useIsOnline } from "@/lib/presence";
 
 export type PalCardData = {
   user_id: string;
@@ -9,15 +10,9 @@ export type PalCardData = {
   profiles: { full_name: string | null; avatar_url: string | null } | null;
 };
 
-const statusColor: Record<string, string> = {
-  available: "bg-success",
-  busy: "bg-accent",
-  offline: "bg-muted-foreground/40",
-};
-
 export function PalCard({ pal }: { pal: PalCardData }) {
   const name = pal.profiles?.full_name ?? "Pat Pal";
-  const dot = statusColor[pal.availability ?? "offline"] ?? statusColor.offline;
+  const isOnline = useIsOnline(pal.user_id);
   return (
     <Link
       to="/pal/$palId"
@@ -28,11 +23,20 @@ export function PalCard({ pal }: { pal: PalCardData }) {
         <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
           {name.slice(0, 1).toUpperCase()}
         </div>
-        <span className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card", dot)} />
+        <span
+          className={cn(
+            "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card",
+            isOnline ? "bg-success" : "bg-muted-foreground/40",
+          )}
+          aria-label={isOnline ? "Online" : "Offline"}
+        />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold">{name}</p>
         <p className="truncate text-xs text-muted-foreground">{pal.headline ?? "Here to listen."}</p>
+        <p className={cn("mt-0.5 text-[10px] font-medium", isOnline ? "text-success" : "text-muted-foreground")}>
+          {isOnline ? "● Online now" : "○ Offline"}
+        </p>
       </div>
       <div className="shrink-0 text-right">
         <p className="text-sm font-bold text-primary">${(pal.price_cents_per_minute / 100).toFixed(2)}</p>

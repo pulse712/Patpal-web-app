@@ -22,7 +22,9 @@ function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [otherName, setOtherName] = useState("Chat");
+  const [otherId, setOtherId] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const isOnline = useIsOnline(otherId);
 
   useEffect(() => {
     (async () => {
@@ -40,6 +42,7 @@ function Chat() {
         .maybeSingle<ConvoParty>();
       if (convo) {
         const other = convo.client_id === sess.session.user.id ? convo.pal_id : convo.client_id;
+        setOtherId(other);
         const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", other).maybeSingle();
         setOtherName(prof?.full_name ?? "Chat");
       }

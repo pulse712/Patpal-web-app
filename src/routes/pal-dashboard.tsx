@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { MessageCircle, DollarSign, Star, Clock } from "lucide-react";
+import { useIsOnline } from "@/lib/presence";
 
 export const Route = createFileRoute("/pal-dashboard")({
   component: PalDashboard,

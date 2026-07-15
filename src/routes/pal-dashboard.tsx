@@ -125,7 +125,8 @@ function PalDashboard() {
     );
   }
 
-  const online = pal?.availability === "available";
+  const acceptingCalls = pal?.availability === "available";
+  const livePresence = useIsOnline(user?.id ?? null);
 
   return (
     <AppShell>
@@ -133,12 +134,20 @@ function PalDashboard() {
         <header className="rounded-2xl bg-gradient-to-br from-primary to-accent p-5 text-primary-foreground shadow-lg">
           <p className="text-xs uppercase tracking-wide opacity-80">Pat Pal</p>
           <h1 className="text-2xl font-bold">Your dashboard</h1>
+          <div className="mt-3 flex items-center gap-2 text-xs">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${livePresence ? "bg-success" : "bg-white/40"}`}
+            />
+            <span className="opacity-90">
+              {livePresence ? "You're online right now" : "You appear offline"}
+            </span>
+          </div>
           <div className="mt-4 flex items-center justify-between rounded-xl bg-white/15 px-4 py-3 backdrop-blur">
             <div>
-              <p className="text-xs opacity-80">Status</p>
-              <p className="text-sm font-semibold">{online ? "Available for calls" : "Offline"}</p>
+              <p className="text-xs opacity-80">Accepting calls</p>
+              <p className="text-sm font-semibold">{acceptingCalls ? "Available for calls" : "Not accepting"}</p>
             </div>
-            <Switch checked={online} onCheckedChange={toggleAvailability} />
+            <Switch checked={acceptingCalls} onCheckedChange={toggleAvailability} />
           </div>
         </header>
 

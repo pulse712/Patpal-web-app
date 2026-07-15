@@ -209,7 +209,7 @@ function Home() {
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
             {online.map((p) => (
-              <PalRow key={p.user_id} pal={p} online />
+              <PalRow key={p.user_id} pal={p} />
             ))}
           </div>
         )}

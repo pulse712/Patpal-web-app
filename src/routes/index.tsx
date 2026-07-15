@@ -40,8 +40,9 @@ function Home() {
   const [balanceSeconds, setBalanceSeconds] = useState(0);
   const [categories, setCategories] = useState<Category[]>([]);
   const [team, setTeam] = useState<Pal[]>([]);
-  const [online, setOnline] = useState<Pal[]>([]);
+  const [allPals, setAllPals] = useState<Pal[]>([]);
   const [topRated, setTopRated] = useState<Pal[]>([]);
+  const onlineIds = useOnlineUsers();
 
   useEffect(() => {
     (async () => {
@@ -87,8 +88,8 @@ function Home() {
         avatar_url: nameMap.get(r.user_id)?.avatar_url ?? null,
         availability: r.availability,
       }));
+      setAllPals(merged);
       setTeam(merged.filter((m) => m.is_team).slice(0, 4));
-      setOnline(merged.filter((m) => m.availability === "available" && !m.is_team).slice(0, 6));
       setTopRated(
         [...merged]
           .filter((m) => !m.is_team)
@@ -98,6 +99,16 @@ function Home() {
       setLoading(false);
     })();
   }, [navigate]);
+
+  // Derive "online now" from live presence + pal opted-in (availability !== "offline")
+  const online = allPals
+    .filter(
+      (m) =>
+        !m.is_team &&
+        onlineIds.has(m.user_id) &&
+        m.availability !== "offline",
+    )
+    .slice(0, 6);
 
   if (loading) {
     return (

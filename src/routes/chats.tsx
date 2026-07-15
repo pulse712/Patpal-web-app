@@ -88,3 +88,37 @@ function Chats() {
     </AppShell>
   );
 }
+
+function ConvoItem({ convo }: { convo: ConvoRow }) {
+  const isOnline = useIsOnline(convo.otherId);
+  const otherName = convo.otherName;
+  return (
+    <Link
+      to="/chat/$conversationId"
+      params={{ conversationId: convo.id }}
+      className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-card hover:border-primary/30"
+    >
+      <div className="relative shrink-0">
+        <div className="grid h-12 w-12 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
+          {otherName.slice(0, 1).toUpperCase()}
+        </div>
+        <span
+          className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+            isOnline ? "bg-success" : "bg-muted-foreground/50"
+          }`}
+          aria-label={isOnline ? "Online" : "Offline"}
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-semibold">{otherName}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {isOnline
+            ? "Online now"
+            : convo.last_message_at
+              ? new Date(convo.last_message_at).toLocaleString()
+              : "No messages yet"}
+        </p>
+      </div>
+    </Link>
+  );
+}

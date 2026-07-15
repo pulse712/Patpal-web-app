@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { supabase } from "@/integrations/supabase/client";
+import { setPresenceUser } from "@/lib/presence";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -107,8 +108,12 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    supabase.auth.getSession().then(({ data }) => {
+      setPresenceUser(data.session?.user.id ?? null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
+      setPresenceUser(session?.user.id ?? null);
       router.invalidate();
       if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
     });

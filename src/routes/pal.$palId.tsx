@@ -28,6 +28,7 @@ import {
   Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsOnline } from "@/lib/presence";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 type Day = (typeof DAYS)[number];
@@ -96,6 +97,7 @@ function labelForSlug(slug: string) {
 
 function PalProfile() {
   const { palId } = Route.useParams();
+  const palPresenceOnline = useIsOnline(palId);
   const navigate = useNavigate();
   const [pal, setPal] = useState<Pal | null>(null);
   const [loading, setLoading] = useState(true);
@@ -202,7 +204,7 @@ function PalProfile() {
 
   const name = pal.profiles?.full_name ?? "Pat Pal";
   const availLabel = pal.availability ?? "offline";
-  const isOnline = availLabel === "available";
+  const isOnline = palPresenceOnline;
   const tierLabel = TIER_LABEL[pal.tier ?? ""] ?? "Supporter";
   const isFree = pal.price_cents_per_minute === 0;
   const rating = Number(pal.rating_avg ?? 0);

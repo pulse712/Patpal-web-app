@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Send, Phone, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsOnline } from "@/lib/presence";
 
 export const Route = createFileRoute("/chat/$conversationId")({
   head: () => ({ meta: [{ title: "Chat — Pat My Back" }, { name: "robots", content: "noindex" }] }),
@@ -21,7 +22,9 @@ function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [otherName, setOtherName] = useState("Chat");
+  const [otherId, setOtherId] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const isOnline = useIsOnline(otherId);
 
   useEffect(() => {
     (async () => {
@@ -39,6 +42,7 @@ function Chat() {
         .maybeSingle<ConvoParty>();
       if (convo) {
         const other = convo.client_id === sess.session.user.id ? convo.pal_id : convo.client_id;
+        setOtherId(other);
         const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", other).maybeSingle();
         setOtherName(prof?.full_name ?? "Chat");
       }
@@ -89,10 +93,24 @@ function Chat() {
           <Link to="/chats" className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
-            {otherName.slice(0, 1).toUpperCase()}
+          <div className="relative shrink-0">
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
+              {otherName.slice(0, 1).toUpperCase()}
+            </div>
+            <span
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background",
+                isOnline ? "bg-success" : "bg-muted-foreground/50",
+              )}
+              aria-label={isOnline ? "Online" : "Offline"}
+            />
           </div>
-          <p className="min-w-0 flex-1 truncate font-semibold">{otherName}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold leading-tight">{otherName}</p>
+            <p className={cn("text-[11px] leading-tight", isOnline ? "text-success" : "text-muted-foreground")}>
+              {isOnline ? "Online" : "Offline"}
+            </p>
+          </div>
           <button className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"><Phone className="h-5 w-5 text-primary" /></button>
           <button className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"><Video className="h-5 w-5 text-primary" /></button>
         </header>

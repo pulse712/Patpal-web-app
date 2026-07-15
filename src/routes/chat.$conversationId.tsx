@@ -93,10 +93,24 @@ function Chat() {
           <Link to="/chats" className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
-            {otherName.slice(0, 1).toUpperCase()}
+          <div className="relative shrink-0">
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
+              {otherName.slice(0, 1).toUpperCase()}
+            </div>
+            <span
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background",
+                isOnline ? "bg-success" : "bg-muted-foreground/50",
+              )}
+              aria-label={isOnline ? "Online" : "Offline"}
+            />
           </div>
-          <p className="min-w-0 flex-1 truncate font-semibold">{otherName}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold leading-tight">{otherName}</p>
+            <p className={cn("text-[11px] leading-tight", isOnline ? "text-success" : "text-muted-foreground")}>
+              {isOnline ? "Online" : "Offline"}
+            </p>
+          </div>
           <button className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"><Phone className="h-5 w-5 text-primary" /></button>
           <button className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"><Video className="h-5 w-5 text-primary" /></button>
         </header>

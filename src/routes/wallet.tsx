@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Wallet as WalletIcon, Gift, Clock, Plus, Sparkles } from "lucide-react";
+import { Wallet as WalletIcon, Gift, Clock, Sparkles, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/wallet")({
@@ -22,11 +23,17 @@ type Tx = {
   created_at: string;
 };
 
-const packs = [
-  { minutes: 10, cents: 999 },
-  { minutes: 30, cents: 2699, badge: "Popular" },
-  { minutes: 60, cents: 4999, badge: "Save 20%" },
-  { minutes: 120, cents: 8999 },
+const monthlyPlans = [
+  { name: "Monthly 15", minutes: "15 min", price: "$12/mo" },
+  { name: "Monthly 30", minutes: "30 min + 5 bonus", price: "$24/mo", badge: "Popular" },
+  { name: "Monthly 60", minutes: "60 min + 10 bonus", price: "$45/mo" },
+  { name: "Custom", subtitle: "Enterprise", minutes: "Volume pricing for teams", price: "Custom" },
+];
+
+const minutePacks = [
+  { name: "Intro Offer", minutes: "5 minutes", price: "$3" },
+  { name: "Pay As You Go", minutes: "30 minutes", price: "$30" },
+  { name: "Pay As You Go", minutes: "60 minutes", price: "$60" },
 ];
 
 function Wallet() {
@@ -107,13 +114,14 @@ function Wallet() {
     toast.success("Code redeemed 🎉");
   }
 
-  function buy(minutes: number) {
-    toast.info(`Stripe checkout for ${minutes} min arrives with payments.`);
+  function buy(label: string) {
+    toast.info(`Stripe checkout for ${label} arrives with payments.`);
   }
 
   const minutes = Math.floor(seconds / 60);
   const secs = seconds % 60;
   const unlimitedActive = unlimitedUntil && new Date(unlimitedUntil) > new Date();
+  const lowBalance = !unlimitedActive && seconds < 10 * 60;
 
   return (
     <AppShell>
@@ -136,26 +144,54 @@ function Wallet() {
         )}
       </section>
 
+      {lowBalance && (
+        <div className="mx-5 mt-4 flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>Your balance is running low — top up to stay connected.</p>
+        </div>
+      )}
+
       <section className="px-5 pt-6">
-        <h2 className="text-base font-bold">Top up</h2>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {packs.map((p) => (
+        <h2 className="text-base font-bold">Monthly Plans</h2>
+        <p className="text-sm text-muted-foreground">Save with a subscription — bonus minutes included.</p>
+        <div className="mt-3 space-y-3">
+          {monthlyPlans.map((plan) => (
             <button
-              key={p.minutes}
-              onClick={() => buy(p.minutes)}
-              className="relative rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40"
+              key={plan.name + plan.minutes}
+              onClick={() => buy(plan.name)}
+              className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40"
             >
-              {p.badge && (
-                <span className="absolute -top-2 left-3 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase text-accent-foreground">{p.badge}</span>
-              )}
-              <p className="text-2xl font-extrabold">{p.minutes}<span className="text-sm font-medium text-muted-foreground"> min</span></p>
-              <p className="mt-1 text-sm font-semibold text-primary">${(p.cents / 100).toFixed(2)}</p>
-              <div className="mt-3 flex items-center gap-1 text-xs text-muted-foreground">
-                <Plus className="h-3.5 w-3.5" /> Add to wallet
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold">{plan.name}</p>
+                  {plan.badge && <Badge className="text-[10px]">{plan.badge}</Badge>}
+                </div>
+                <p className="text-sm text-muted-foreground">{plan.minutes}</p>
               </div>
+              <p className="text-base font-bold text-primary">{plan.price}</p>
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="px-5 pt-6">
+        <h2 className="text-base font-bold">Buy Minutes</h2>
+        <div className="mt-3 grid grid-cols-1 gap-3">
+          {minutePacks.map((pack) => (
+            <button
+              key={pack.name + pack.minutes}
+              onClick={() => buy(pack.minutes)}
+              className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40"
+            >
+              <div>
+                <p className="font-bold">{pack.name}</p>
+                <p className="text-sm text-muted-foreground">{pack.minutes}</p>
+              </div>
+              <p className="text-base font-bold text-primary">{pack.price}</p>
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">Tax is calculated at checkout</p>
       </section>
 
       <section className="px-5 pt-6">
@@ -167,6 +203,13 @@ function Wallet() {
           </div>
           <Button type="submit" disabled={busy || !code.trim()} className="h-11 font-semibold">Redeem</Button>
         </form>
+      </section>
+
+      <section className="px-5 pt-6">
+        <h2 className="text-base font-bold">Recent Sessions</h2>
+        <div className="mt-3 rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+          No sessions yet
+        </div>
       </section>
 
       <section className="px-5 pt-6">

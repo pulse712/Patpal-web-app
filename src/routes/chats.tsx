@@ -15,6 +15,7 @@ type ConvoRow = {
   client_id: string;
   pal_id: string;
   last_message_at: string | null;
+  otherId: string;
   otherName: string;
 };
 

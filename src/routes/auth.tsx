@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { HandHeart, Loader2 } from "lucide-react";
+import { sendWelcome } from "@/lib/welcome.functions";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -125,6 +126,10 @@ function RegisterForm() {
     });
     setBusy(false);
     if (error) return toast.error(error.message);
+
+    // Send welcome email in background — don't block navigation
+    sendWelcome({ data: { name: fullName, email } }).catch(() => {});
+
     toast.success("Account created — check your email to verify.");
     navigate({ to: "/", replace: true });
   }

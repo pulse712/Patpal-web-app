@@ -36,6 +36,9 @@ function PalDashboard() {
   const [headline, setHeadline] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
+  // Must be called unconditionally — before any early returns
+  const livePresence = useIsOnline(user?.id ?? null);
+
   useEffect(() => {
     if (loading) return;
     if (!user) {
@@ -66,13 +69,13 @@ function PalDashboard() {
         .select("seconds_used, cost_cents")
         .eq("pal_id", user.id)
         .eq("status", "ended");
-      const totalSecs = (sess ?? []).reduce((a, s) => a + (s.seconds_used ?? 0), 0);
-      const totalCents = (sess ?? []).reduce((a, s) => a + (s.cost_cents ?? 0), 0);
+      const totalSecs   = (sess ?? []).reduce((a, s) => a + (s.seconds_used ?? 0), 0);
+      const totalCents  = (sess ?? []).reduce((a, s) => a + (s.cost_cents ?? 0), 0);
       setStats({
         sessions: sess?.length ?? 0,
-        minutes: Math.round(totalSecs / 60),
-        earnings: Math.round(totalCents * 0.7),
-        unread: 0,
+        minutes:  Math.round(totalSecs / 60),
+        earnings: Math.round(totalCents * 0.7), // 70% payout share
+        unread:   0,
       });
     })();
   }, [user, loading, navigate]);
@@ -84,10 +87,7 @@ function PalDashboard() {
       .from("pat_pals")
       .update({ availability: next })
       .eq("user_id", user.id);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+    if (error) { toast.error(error.message); return; }
     setPal({ ...pal, availability: next });
     toast.success(available ? "You're online" : "You're offline");
   }
@@ -101,10 +101,7 @@ function PalDashboard() {
       .update({ price_cents_per_minute: cents, headline })
       .eq("user_id", user.id);
     setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+    if (error) { toast.error(error.message); return; }
     if (pal) setPal({ ...pal, price_cents_per_minute: cents, headline });
     toast.success("Profile updated");
   }
@@ -126,7 +123,6 @@ function PalDashboard() {
   }
 
   const acceptingCalls = pal?.availability === "available";
-  const livePresence = useIsOnline(user?.id ?? null);
 
   return (
     <AppShell>
@@ -145,20 +141,30 @@ function PalDashboard() {
           <div className="mt-4 flex items-center justify-between rounded-xl bg-white/15 px-4 py-3 backdrop-blur">
             <div>
               <p className="text-xs opacity-80">Accepting calls</p>
-              <p className="text-sm font-semibold">{acceptingCalls ? "Available for calls" : "Not accepting"}</p>
+              <p className="text-sm font-semibold">
+                {acceptingCalls ? "Available for calls" : "Not accepting"}
+              </p>
             </div>
             <Switch checked={acceptingCalls} onCheckedChange={toggleAvailability} />
           </div>
         </header>
 
         <div className="grid grid-cols-2 gap-3">
-          <StatCard icon={MessageCircle} label="Sessions" value={stats.sessions} />
-          <StatCard icon={Clock} label="Minutes" value={stats.minutes} />
-          <StatCard icon={DollarSign} label="Earnings" value={`$${(stats.earnings / 100).toFixed(2)}`} />
+          <StatCard icon={MessageCircle} label="Sessions"  value={stats.sessions} />
+          <StatCard icon={Clock}         label="Minutes"   value={stats.minutes} />
+          <StatCard
+            icon={DollarSign}
+            label="Earnings (70%)"
+            value={`$${(stats.earnings / 100).toFixed(2)}`}
+          />
           <StatCard
             icon={Star}
             label="Rating"
-            value={pal?.rating_avg ? `${Number(pal.rating_avg).toFixed(1)} (${pal.rating_count ?? 0})` : "—"}
+            value={
+              pal?.rating_avg
+                ? `${Number(pal.rating_avg).toFixed(1)} (${pal.rating_count ?? 0})`
+                : "—"
+            }
           />
         </div>
 
@@ -166,11 +172,23 @@ function PalDashboard() {
           <h2 className="font-semibold">Profile</h2>
           <div className="space-y-1.5">
             <Label htmlFor="headline">Headline</Label>
-            <Input id="headline" value={headline} onChange={(e) => setHeadline(e.target.value)} placeholder="What you help with" />
+            <Input
+              id="headline"
+              value={headline}
+              onChange={(e) => setHeadline(e.target.value)}
+              placeholder="What you help with"
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="price">Price per minute (USD)</Label>
-            <Input id="price" type="number" step="0.1" min="0" value={price} onChange={(e) => setPrice(e.target.value)} />
+            <Input
+              id="price"
+              type="number"
+              step="0.1"
+              min="0"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
           </div>
           <Button onClick={saveProfile} disabled={saving} className="w-full">
             {saving ? "Saving..." : "Save changes"}

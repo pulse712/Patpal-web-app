@@ -17,6 +17,7 @@ type ConvoRow = {
   last_message_at: string | null;
   otherId: string;
   otherName: string;
+  lastMessage: string | null;
 };
 
 function Chats() {
@@ -50,13 +51,32 @@ function Chats() {
           .in("id", otherIds);
         nameMap = new Map((profs ?? []).map((p) => [p.id, p.full_name ?? "Chat"]));
       }
+
+      // Fetch last message for each conversation
+      const convoIds = rows.map((r) => r.id);
+      let lastMsgMap = new Map<string, string>();
+      if (convoIds.length) {
+        const { data: msgs } = await supabase
+          .from("messages")
+          .select("conversation_id, body, created_at")
+          .in("conversation_id", convoIds)
+          .order("created_at", { ascending: false });
+        // Keep only the most recent message per conversation
+        for (const msg of msgs ?? []) {
+          if (!lastMsgMap.has(msg.conversation_id)) {
+            lastMsgMap.set(msg.conversation_id, msg.body);
+          }
+        }
+      }
+
       setConvos(
         rows.map((r) => {
           const otherId = r.client_id === myId ? r.pal_id : r.client_id;
           return {
             ...r,
             otherId,
-            otherName: nameMap.get(otherId) ?? "Chat",
+            otherName:   nameMap.get(otherId) ?? "Chat",
+            lastMessage: lastMsgMap.get(r.id) ?? null,
           };
         }),
       );
@@ -112,11 +132,15 @@ function ConvoItem({ convo }: { convo: ConvoRow }) {
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold">{otherName}</p>
         <p className="truncate text-xs text-muted-foreground">
-          {isOnline
-            ? "Online now"
-            : convo.last_message_at
-              ? new Date(convo.last_message_at).toLocaleString()
-              : "No messages yet"}
+          {convo.lastMessage
+            ? convo.lastMessage.length > 45
+              ? convo.lastMessage.slice(0, 45) + "…"
+              : convo.lastMessage
+            : isOnline
+              ? "Online now"
+              : convo.last_message_at
+                ? new Date(convo.last_message_at).toLocaleString()
+                : "No messages yet"}
         </p>
       </div>
     </Link>

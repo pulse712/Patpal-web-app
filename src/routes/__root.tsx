@@ -63,6 +63,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#0EA5A0" },
+      // iOS PWA meta tags
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Pat My Back" },
+      { name: "mobile-web-app-capable", content: "yes" },
       { title: "Pat My Back — Talk to someone who has your back" },
       { name: "description", content: "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it." },
       { property: "og:title", content: "Pat My Back — Talk to someone who has your back" },
@@ -108,6 +113,13 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
   useEffect(() => {
+    // Register service worker for PWA support
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js", { scope: "/" })
+        .catch((err) => console.error("SW registration failed:", err));
+    }
+
     supabase.auth.getSession().then(({ data }) => {
       setPresenceUser(data.session?.user.id ?? null);
     });

@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { ArrowLeft, Send, Phone, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
+import { CallScreen } from "@/components/CallScreen";
+import { notifyNewMessage } from "@/lib/notify.functions";
 
 export const Route = createFileRoute("/chat/$conversationId")({
   head: () => ({ meta: [{ title: "Chat — Pat My Back" }, { name: "robots", content: "noindex" }] }),
@@ -23,6 +25,8 @@ function Chat() {
   const [text, setText] = useState("");
   const [otherName, setOtherName] = useState("Chat");
   const [otherId, setOtherId] = useState<string | null>(null);
+  const [myName, setMyName] = useState("Someone");
+  const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const isOnline = useIsOnline(otherId);
 
@@ -46,6 +50,14 @@ function Chat() {
         const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", other).maybeSingle();
         setOtherName(prof?.full_name ?? "Chat");
       }
+
+      // Load own name for push notification sender label
+      const { data: myProf } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", sess.session.user.id)
+        .maybeSingle();
+      setMyName(myProf?.full_name ?? "Someone");
 
       const { data: msgs } = await supabase
         .from("messages")
@@ -83,11 +95,34 @@ function Chat() {
     const { error } = await supabase
       .from("messages")
       .insert({ conversation_id: conversationId, sender_id: me, body });
-    if (error) setText(body);
+    if (error) {
+      setText(body);
+      return;
+    }
+    // Fire push in background — don't await so UI stays fast
+    notifyNewMessage({
+      data: {
+        conversationId,
+        senderName: myName,
+        preview: body.length > 80 ? body.slice(0, 80) + "…" : body,
+      },
+    }).catch(() => { /* best-effort */ });
   }
 
   return (
     <div className="min-h-[100dvh] bg-muted/30">
+      {/* Call overlay */}
+      {activeCall && (
+        <CallScreen
+          channelName={conversationId}
+          kind={activeCall}
+          remoteName={otherName}
+          palId={otherId ?? ""}
+          conversationId={conversationId}
+          onEnd={() => setActiveCall(null)}
+        />
+      )}
+
       <div className="mx-auto flex h-[100dvh] max-w-md flex-col bg-background shadow-card">
         <header className="flex items-center gap-3 border-b border-border bg-background px-4 py-3">
           <Link to="/chats" className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-muted">
@@ -111,8 +146,20 @@ function Chat() {
               {isOnline ? "Online" : "Offline"}
             </p>
           </div>
-          <button className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"><Phone className="h-5 w-5 text-primary" /></button>
-          <button className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"><Video className="h-5 w-5 text-primary" /></button>
+          <button
+            onClick={() => setActiveCall("audio")}
+            aria-label="Audio call"
+            className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"
+          >
+            <Phone className="h-5 w-5 text-primary" />
+          </button>
+          <button
+            onClick={() => setActiveCall("video")}
+            aria-label="Video call"
+            className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"
+          >
+            <Video className="h-5 w-5 text-primary" />
+          </button>
         </header>
 
         <div ref={scrollerRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
@@ -146,4 +193,3 @@ function Chat() {
     </div>
   );
 }
-

@@ -42,6 +42,7 @@ function Home() {
   const [team, setTeam] = useState<Pal[]>([]);
   const [allPals, setAllPals] = useState<Pal[]>([]);
   const [topRated, setTopRated] = useState<Pal[]>([]);
+  const [banners, setBanners] = useState<{ id: string; title: string; body: string | null; cta_label: string | null; cta_href: string | null }[]>([]);
   const onlineIds = useOnlineUsers();
 
   useEffect(() => {
@@ -52,17 +53,19 @@ function Home() {
         return;
       }
       const uid = sess.session.user.id;
-      const [{ data: p }, { data: w }, { data: cats }, { data: pals }] = await Promise.all([
+      const [{ data: p }, { data: w }, { data: cats }, { data: pals }, { data: bans }] = await Promise.all([
         supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
         supabase.from("wallets").select("balance_seconds").eq("user_id", uid).maybeSingle(),
         supabase.from("categories").select("id, name, slug, emoji").order("sort_order").limit(12),
         supabase
           .from("pat_pals")
           .select("user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count"),
+        supabase.from("promo_banners").select("id, title, body, cta_label, cta_href").eq("is_visible", true).order("sort_order").limit(3),
       ]);
       setProfile(p as Profile | null);
       setBalanceSeconds(w?.balance_seconds ?? 0);
       setCategories((cats ?? []) as unknown as Category[]);
+      setBanners(bans ?? []);
 
       const rows = pals ?? [];
       const ids = rows.map((r) => r.user_id);
@@ -152,6 +155,29 @@ function Home() {
           </Link>
         </div>
       </section>
+
+      {/* Promo banners */}
+      {banners.length > 0 && (
+        <section className="space-y-2 px-5 pt-4">
+          {banners.map((b) => (
+            <div
+              key={b.id}
+              className="rounded-2xl border border-primary/20 bg-primary-soft px-4 py-3"
+            >
+              <p className="text-sm font-bold text-primary">{b.title}</p>
+              {b.body && <p className="mt-0.5 text-xs text-muted-foreground">{b.body}</p>}
+              {b.cta_label && b.cta_href && (
+                <a
+                  href={b.cta_href}
+                  className="mt-2 inline-block text-xs font-semibold text-primary underline underline-offset-2"
+                >
+                  {b.cta_label} →
+                </a>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Talk to the Team */}
       <section className="px-5 pt-6">

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,7 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import {
+  Trash2, Users, DollarSign, PhoneCall, TrendingUp,
+  BarChart2, Loader2, Star,
+} from "lucide-react";
+import { getAnalytics } from "@/lib/analytics.functions";
 
 export const Route = createFileRoute("/admin")({
   component: AdminPanel,
@@ -42,6 +46,8 @@ type Banner = {
   sort_order: number;
 };
 
+type Analytics = Awaited<ReturnType<typeof getAnalytics>>;
+
 function AdminPanel() {
   const { user, loading } = useSession();
   const navigate = useNavigate();
@@ -49,6 +55,8 @@ function AdminPanel() {
   const [pals, setPals] = useState<Pal[]>([]);
   const [codes, setCodes] = useState<Code[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const [newCode, setNewCode] = useState({ code: "", label: "", unlimited: false });
   const [newBanner, setNewBanner] = useState({ title: "", body: "", cta_label: "", cta_href: "" });
@@ -88,6 +96,18 @@ function AdminPanel() {
     setPals(palRows.map((r) => ({ ...r, full_name: nameMap.get(r.user_id) ?? null })) as Pal[]);
     setCodes((c.data ?? []) as Code[]);
     setBanners((b.data ?? []) as Banner[]);
+  }
+
+  async function loadAnalytics() {
+    setAnalyticsLoading(true);
+    try {
+      const data = await getAnalytics();
+      setAnalytics(data);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load analytics");
+    } finally {
+      setAnalyticsLoading(false);
+    }
   }
 
   async function setAvailability(userId: string, next: "available" | "busy" | "offline") {
@@ -170,12 +190,111 @@ function AdminPanel() {
           <h1 className="text-2xl font-bold">Control panel</h1>
         </header>
 
-        <Tabs defaultValue="pals">
-          <TabsList className="grid w-full grid-cols-3">
+        <Tabs defaultValue="analytics">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="pals">Pals</TabsTrigger>
             <TabsTrigger value="codes">Codes</TabsTrigger>
             <TabsTrigger value="banners">Banners</TabsTrigger>
           </TabsList>
+
+          {/* ── Analytics tab ──────────────────────────────────────── */}
+          <TabsContent value="analytics" className="space-y-4 mt-4">
+            {!analytics && !analyticsLoading && (
+              <div className="flex flex-col items-center gap-3 py-10">
+                <BarChart2 className="h-10 w-10 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">Load the latest stats</p>
+                <Button onClick={loadAnalytics} className="font-semibold">Load analytics</Button>
+              </div>
+            )}
+            {analyticsLoading && (
+              <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+              </div>
+            )}
+            {analytics && !analyticsLoading && (
+              <>
+                {/* Stat cards */}
+                <div className="grid grid-cols-2 gap-3">
+                  <StatCard icon={<Users className="h-5 w-5" />} label="Total users" value={analytics.totalUsers} sub={`+${analytics.newUsers7d} this week`} />
+                  <StatCard icon={<PhoneCall className="h-5 w-5" />} label="Total sessions" value={analytics.totalSessions} sub={`${analytics.sessions7d} this week`} />
+                  <StatCard icon={<DollarSign className="h-5 w-5" />} label="Total revenue" value={`$${analytics.totalRevDollars}`} sub={`$${analytics.rev7dDollars} this week`} />
+                  <StatCard icon={<TrendingUp className="h-5 w-5" />} label="Active Pals" value={analytics.activePals} sub={`of ${analytics.totalPals} total`} />
+                </div>
+
+                {/* Sessions per day mini-chart */}
+                <Card className="p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Sessions — last 14 days</p>
+                  <div className="flex items-end gap-1 h-20">
+                    {analytics.sessionsByDay.map(({ date, count }) => {
+                      const max = Math.max(...analytics.sessionsByDay.map((d) => d.count), 1);
+                      const pct = (count / max) * 100;
+                      return (
+                        <div key={date} className="flex flex-1 flex-col items-center gap-1 group">
+                          <div
+                            className="w-full rounded-t bg-primary/70 group-hover:bg-primary transition-colors"
+                            style={{ height: `${Math.max(pct, 4)}%` }}
+                            title={`${date}: ${count} sessions`}
+                          />
+                          <span className="text-[9px] text-muted-foreground hidden sm:block">
+                            {date.slice(5)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+
+                {/* Top Pals */}
+                {analytics.topPals.length > 0 && (
+                  <Card className="p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Top Pat Pals (30 days)</p>
+                    <div className="space-y-2">
+                      {analytics.topPals.map((p, i) => (
+                        <div key={p.id} className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-muted-foreground w-4">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold truncate">{p.name}</p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
+                            <span className="text-sm font-bold">{p.count}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+
+                {/* Recent sessions */}
+                <Card className="p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Recent sessions</p>
+                  <div className="space-y-2">
+                    {analytics.recentSessions.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No sessions yet.</p>
+                    )}
+                    {analytics.recentSessions.map((s) => (
+                      <div key={s.id} className="flex items-center gap-2 text-sm border-b border-border pb-2 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate font-medium">{s.clientName} → {s.palName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {s.kind} · {s.minutes}m · ${s.costDollars}
+                          </p>
+                        </div>
+                        <p className="text-xs text-muted-foreground shrink-0">
+                          {new Date(s.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+
+                <Button variant="outline" onClick={loadAnalytics} className="w-full">
+                  Refresh
+                </Button>
+              </>
+            )}
+          </TabsContent>
 
           <TabsContent value="pals" className="space-y-2">
             {pals.length === 0 && <p className="p-4 text-sm text-muted-foreground">No Pat Pals yet.</p>}
@@ -286,5 +405,30 @@ function AdminPanel() {
         </Tabs>
       </div>
     </AppShell>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <Card className="p-4 space-y-1">
+      <div className="flex items-center gap-2 text-primary">
+        {icon}
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      <p className="text-2xl font-extrabold tracking-tight">{value}</p>
+      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+    </Card>
   );
 }

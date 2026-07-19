@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
+import { CallScreen } from "@/components/CallScreen";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 type Day = (typeof DAYS)[number];
@@ -40,11 +41,10 @@ const DEFAULT_SCHEDULE: Schedule = DAYS.reduce((acc, d) => {
   return acc;
 }, {} as Schedule);
 
-
 export const Route = createFileRoute("/pal/$palId")({
   head: () => ({
     meta: [
-      { title: `Pat Pal — Pat My Back` },
+      { title: "Pat Pal — Pat My Back" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -104,6 +104,8 @@ function PalProfile() {
   const [starting, setStarting] = useState<"chat" | "audio" | "video" | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [schedule, setSchedule] = useState<Schedule>(DEFAULT_SCHEDULE);
+  const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
+  const [callChannelName, setCallChannelName] = useState("");
 
   useEffect(() => {
     try {
@@ -179,7 +181,16 @@ function PalProfile() {
   }
 
   function startCall(kind: "audio" | "video") {
-    toast.info(`${kind === "audio" ? "Audio" : "Video"} calls arrive in the next phase.`);
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) {
+        navigate({ to: "/auth" });
+        return;
+      }
+      // Stable channel: sorted user ids so both parties join the same channel
+      const ids = [data.session.user.id, palId].sort();
+      setCallChannelName(ids.join("-"));
+      setActiveCall(kind);
+    });
   }
 
   if (loading) {
@@ -189,6 +200,7 @@ function PalProfile() {
       </AppShell>
     );
   }
+
   if (!pal) {
     return (
       <AppShell>
@@ -203,226 +215,246 @@ function PalProfile() {
   }
 
   const name = pal.profiles?.full_name ?? "Pat Pal";
-  const availLabel = pal.availability ?? "offline";
   const isOnline = palPresenceOnline;
-  const tierLabel = TIER_LABEL[pal.tier ?? ""] ?? "Supporter";
-  const isFree = pal.price_cents_per_minute === 0;
-  const rating = Number(pal.rating_avg ?? 0);
+  const ratingAvg = Number(pal.rating_avg ?? 0);
   const ratingCount = pal.rating_count ?? 0;
-  const sessions = ratingCount; // no dedicated sessions field; use rating_count as proxy
 
   return (
-    <AppShell>
-      {/* Header */}
-      <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <button
-          onClick={() => history.back()}
-          aria-label="Back"
-          className="grid h-9 w-9 place-items-center rounded-full bg-muted"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <h1 className="text-lg font-bold">Profile</h1>
-      </header>
-
-      {/* Avatar + identity */}
-      <section className="flex flex-col items-center px-5 pt-6 text-center">
-        <div className="relative">
-          {pal.profiles?.avatar_url ? (
-            <img
-              src={pal.profiles.avatar_url}
-              alt={name}
-              className="h-24 w-24 rounded-full object-cover"
-            />
-          ) : (
-            <div className="grid h-24 w-24 place-items-center rounded-full bg-primary-soft text-3xl font-bold text-primary">
-              {name.slice(0, 1).toUpperCase()}
-            </div>
-          )}
-          <span
-            className={cn(
-              "absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-background",
-              isOnline ? "bg-success" : availLabel === "busy" ? "bg-accent" : "bg-muted-foreground/50",
-            )}
-          />
-        </div>
-        <div className="mt-3 flex items-center gap-1.5">
-          <h2 className="text-xl font-extrabold tracking-tight">{name}</h2>
-          <BadgeCheck className="h-5 w-5 text-primary" />
-        </div>
-        <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-semibold text-accent">
-          <Crown className="h-3 w-3" /> {tierLabel}
-        </span>
-        <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Star className="h-3.5 w-3.5 fill-accent text-accent" />
-            <span className="font-semibold text-foreground">{rating.toFixed(1)}</span> ({ratingCount})
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" /> {sessions} sessions
-          </span>
-        </div>
-      </section>
-
-      {/* Rate + actions card */}
-      <section className="px-5 pt-5">
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-2xl font-extrabold text-primary">
-                {isFree ? "Free" : `$${(pal.price_cents_per_minute / 100).toFixed(2)}`}
-                {!isFree && <span className="text-xs font-medium text-muted-foreground">/min</span>}
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Usually responds in 2 min</p>
-            </div>
-            {isFree && (
-              <span className="rounded-full bg-primary-soft px-2.5 py-1 text-[11px] font-semibold text-primary">
-                Free Trial
-              </span>
-            )}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button
-              onClick={() => startCall("audio")}
-              disabled={starting !== null}
-              className="h-11 rounded-xl font-semibold"
-            >
-              <Phone className="h-4 w-4" /> Audio Call
-            </Button>
-            <Button
-              onClick={() => startCall("video")}
-              variant="outline"
-              className="h-11 rounded-xl font-semibold"
-            >
-              <Video className="h-4 w-4" /> Video
-            </Button>
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <Button
-              onClick={startChat}
-              disabled={starting !== null}
-              variant="secondary"
-              className="h-11 rounded-xl font-semibold"
-            >
-              <MessageCircle className="h-4 w-4" /> Chat
-            </Button>
-            <Button
-              onClick={() => setScheduleOpen(true)}
-              variant="outline"
-              className="h-11 rounded-xl font-semibold"
-            >
-              <Calendar className="h-4 w-4" /> Schedule
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* About */}
-      <section className="px-5 pt-6">
-        <h3 className="text-sm font-bold">About</h3>
-        <p className="mt-1.5 whitespace-pre-line text-sm text-muted-foreground">
-          {pal.profiles?.bio ?? pal.headline ?? "This Pal hasn't added a bio yet."}
-        </p>
-      </section>
-
-      {/* Specialties */}
-      {pal.category_slugs && pal.category_slugs.length > 0 && (
-        <section className="px-5 pt-5">
-          <h3 className="text-sm font-bold">Specialties</h3>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {pal.category_slugs.map((s) => (
-              <span
-                key={s}
-                className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary"
-              >
-                {labelForSlug(s)}
-              </span>
-            ))}
-          </div>
-        </section>
+    <>
+      {/* Full-screen call overlay */}
+      {activeCall && callChannelName && (
+        <CallScreen
+          channelName={callChannelName}
+          kind={activeCall}
+          remoteName={name}
+          palId={palId}
+          onEnd={() => setActiveCall(null)}
+        />
       )}
 
-      {/* Languages */}
-      <section className="px-5 pt-5">
-        <h3 className="flex items-center gap-1.5 text-sm font-bold">
-          <Globe className="h-4 w-4" /> Languages
-        </h3>
-        <p className="mt-1.5 text-sm text-muted-foreground">English</p>
-      </section>
+      <AppShell>
+        {/* Header */}
+        <header className="flex items-center gap-3 border-b border-border px-4 py-3">
+          <button
+            onClick={() => history.back()}
+            aria-label="Back"
+            className="grid h-9 w-9 place-items-center rounded-full bg-muted"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="text-lg font-bold">Profile</h1>
+        </header>
 
-      {/* Credentials */}
-      <section className="px-5 pt-5">
-        <h3 className="flex items-center gap-1.5 text-sm font-bold">
-          <ShieldCheck className="h-4 w-4" /> Credentials
-        </h3>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          {pal.headline ?? "Verified Pat Pal"}
-        </p>
-      </section>
-
-      {/* Reviews */}
-      <section className="px-5 pt-5 pb-8">
-        <h3 className="text-sm font-bold">Reviews ({ratingCount})</h3>
-        {ratingCount === 0 ? (
-          <p className="mt-1.5 text-sm text-muted-foreground">No reviews yet</p>
-        ) : (
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            {rating.toFixed(1)} average from {ratingCount} sessions.
-          </p>
-        )}
-      </section>
-
-      <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Set availability</DialogTitle>
-            <DialogDescription>
-              Choose the days and hours you're available for sessions.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2.5 py-1">
-            {DAYS.map((day) => {
-              const d = schedule[day];
-              return (
-                <div
-                  key={day}
-                  className="flex items-center gap-3 rounded-lg border border-border p-2.5"
-                >
-                  <Switch
-                    checked={d.enabled}
-                    onCheckedChange={(v) => updateDay(day, { enabled: v })}
-                    aria-label={`Toggle ${day}`}
-                  />
-                  <span className="w-10 text-sm font-semibold">{day}</span>
-                  <div className="ml-auto flex items-center gap-1.5">
-                    <Input
-                      type="time"
-                      value={d.start}
-                      disabled={!d.enabled}
-                      onChange={(e) => updateDay(day, { start: e.target.value })}
-                      className="h-9 w-[110px]"
-                    />
-                    <span className="text-xs text-muted-foreground">to</span>
-                    <Input
-                      type="time"
-                      value={d.end}
-                      disabled={!d.enabled}
-                      onChange={(e) => updateDay(day, { end: e.target.value })}
-                      className="h-9 w-[110px]"
-                    />
-                  </div>
-                </div>
-              );
-            })}
+        {/* Avatar + identity */}
+        <section className="flex flex-col items-center px-5 pt-6 text-center">
+          <div className="relative">
+            {pal.profiles?.avatar_url ? (
+              <img
+                src={pal.profiles.avatar_url}
+                alt={name}
+                className="h-24 w-24 rounded-full object-cover"
+              />
+            ) : (
+              <div className="grid h-24 w-24 place-items-center rounded-full bg-primary-soft text-3xl font-bold text-primary">
+                {name.slice(0, 1).toUpperCase()}
+              </div>
+            )}
+            <span
+              className={cn(
+                "absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-background",
+                isOnline
+                  ? "bg-success"
+                  : pal.availability === "busy"
+                    ? "bg-accent"
+                    : "bg-muted-foreground/50",
+              )}
+            />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setScheduleOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={saveSchedule}>Save availability</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </AppShell>
+          <div className="mt-3 flex items-center gap-1.5">
+            <h2 className="text-xl font-extrabold tracking-tight">{name}</h2>
+            <BadgeCheck className="h-5 w-5 text-primary" />
+          </div>
+          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-semibold text-accent">
+            <Crown className="h-3 w-3" /> {TIER_LABEL[pal.tier ?? ""] ?? "Supporter"}
+          </span>
+          <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Star className="h-3.5 w-3.5 fill-accent text-accent" />
+              <span className="font-semibold text-foreground">{ratingAvg.toFixed(1)}</span>
+              {" "}({ratingCount})
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock className="h-3.5 w-3.5" /> {ratingCount} sessions
+            </span>
+          </div>
+        </section>
+
+        {/* Rate + action buttons */}
+        <section className="px-5 pt-5">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-2xl font-extrabold text-primary">
+                  {pal.price_cents_per_minute === 0
+                    ? "Free"
+                    : `$${(pal.price_cents_per_minute / 100).toFixed(2)}`}
+                  {pal.price_cents_per_minute > 0 && (
+                    <span className="text-xs font-medium text-muted-foreground">/min</span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Usually responds in 2 min</p>
+              </div>
+              {pal.price_cents_per_minute === 0 && (
+                <span className="rounded-full bg-primary-soft px-2.5 py-1 text-[11px] font-semibold text-primary">
+                  Free Trial
+                </span>
+              )}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button
+                onClick={() => startCall("audio")}
+                disabled={starting !== null}
+                className="h-11 rounded-xl font-semibold"
+              >
+                <Phone className="h-4 w-4" /> Audio Call
+              </Button>
+              <Button
+                onClick={() => startCall("video")}
+                variant="outline"
+                disabled={starting !== null}
+                className="h-11 rounded-xl font-semibold"
+              >
+                <Video className="h-4 w-4" /> Video
+              </Button>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Button
+                onClick={startChat}
+                disabled={starting !== null}
+                variant="secondary"
+                className="h-11 rounded-xl font-semibold"
+              >
+                <MessageCircle className="h-4 w-4" /> Chat
+              </Button>
+              <Button
+                onClick={() => setScheduleOpen(true)}
+                variant="outline"
+                className="h-11 rounded-xl font-semibold"
+              >
+                <Calendar className="h-4 w-4" /> Schedule
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        {/* About */}
+        <section className="px-5 pt-6">
+          <h3 className="text-sm font-bold">About</h3>
+          <p className="mt-1.5 whitespace-pre-line text-sm text-muted-foreground">
+            {pal.profiles?.bio ?? pal.headline ?? "This Pal hasn't added a bio yet."}
+          </p>
+        </section>
+
+        {/* Specialties */}
+        {pal.category_slugs && pal.category_slugs.length > 0 && (
+          <section className="px-5 pt-5">
+            <h3 className="text-sm font-bold">Specialties</h3>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {pal.category_slugs.map((s) => (
+                <span
+                  key={s}
+                  className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary"
+                >
+                  {labelForSlug(s)}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Languages */}
+        <section className="px-5 pt-5">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold">
+            <Globe className="h-4 w-4" /> Languages
+          </h3>
+          <p className="mt-1.5 text-sm text-muted-foreground">English</p>
+        </section>
+
+        {/* Credentials */}
+        <section className="px-5 pt-5">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold">
+            <ShieldCheck className="h-4 w-4" /> Credentials
+          </h3>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {pal.headline ?? "Verified Pat Pal"}
+          </p>
+        </section>
+
+        {/* Reviews */}
+        <section className="px-5 pt-5 pb-8">
+          <h3 className="text-sm font-bold">Reviews ({ratingCount})</h3>
+          {ratingCount === 0 ? (
+            <p className="mt-1.5 text-sm text-muted-foreground">No reviews yet</p>
+          ) : (
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              {ratingAvg.toFixed(1)} average from {ratingCount} sessions.
+            </p>
+          )}
+        </section>
+
+        {/* Schedule dialog */}
+        <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Set availability</DialogTitle>
+              <DialogDescription>
+                Choose the days and hours you're available for sessions.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2.5 py-1">
+              {DAYS.map((day) => {
+                const d = schedule[day];
+                return (
+                  <div
+                    key={day}
+                    className="flex items-center gap-3 rounded-lg border border-border p-2.5"
+                  >
+                    <Switch
+                      checked={d.enabled}
+                      onCheckedChange={(v) => updateDay(day, { enabled: v })}
+                      aria-label={`Toggle ${day}`}
+                    />
+                    <span className="w-10 text-sm font-semibold">{day}</span>
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <Input
+                        type="time"
+                        value={d.start}
+                        disabled={!d.enabled}
+                        onChange={(e) => updateDay(day, { start: e.target.value })}
+                        className="h-9 w-[110px]"
+                      />
+                      <span className="text-xs text-muted-foreground">to</span>
+                      <Input
+                        type="time"
+                        value={d.end}
+                        disabled={!d.enabled}
+                        onChange={(e) => updateDay(day, { end: e.target.value })}
+                        className="h-9 w-[110px]"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setScheduleOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveSchedule}>Save availability</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </AppShell>
+    </>
   );
 }

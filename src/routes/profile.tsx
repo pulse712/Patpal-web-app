@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner";
 import {
   Bell,
+  BellOff,
   ChevronRight,
   LogOut,
   Moon,
@@ -40,6 +41,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { deleteMyAccount } from "@/lib/account.functions";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({ meta: [{ title: "Profile — Pat My Back" }, { name: "robots", content: "noindex" }] }),
@@ -81,6 +83,7 @@ function Profile() {
 
   // Notification prefs (client-side pref)
   const [notifs, setNotifs] = useState<NotifPrefs>(defaultNotifs);
+  const push = usePushNotifications();
 
   // Delete
   const [deleting, setDeleting] = useState(false);
@@ -271,7 +274,32 @@ function Profile() {
             <DialogDescription>Choose what you want to hear about.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <NotifRow label="Push notifications" desc="New messages and call requests" checked={notifs.push} onChange={(v) => updateNotif("push", v)} />
+            {/* Real push subscription row */}
+            <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-3.5">
+              <div className="mt-0.5">
+                {push.subscribed
+                  ? <Bell className="h-5 w-5 text-primary" />
+                  : <BellOff className="h-5 w-5 text-muted-foreground" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold">Push notifications</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {push.permission === "denied"
+                    ? "Blocked in browser settings — allow in site permissions to enable."
+                    : push.permission === "unsupported"
+                      ? "Not supported in this browser."
+                      : push.subscribed
+                        ? "You'll get alerts for messages and calls."
+                        : "Get alerts for new messages and incoming calls."}
+                </div>
+              </div>
+              <Switch
+                checked={push.subscribed}
+                disabled={push.loading || push.permission === "denied" || push.permission === "unsupported"}
+                onCheckedChange={(v) => v ? push.enable() : push.disable()}
+              />
+            </div>
+
             <NotifRow label="Email notifications" desc="Session summaries and receipts" checked={notifs.email} onChange={(v) => updateNotif("email", v)} />
             <NotifRow label="Marketing" desc="Occasional product updates" checked={notifs.marketing} onChange={(v) => updateNotif("marketing", v)} />
           </div>

@@ -1,16 +1,33 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Wallet as WalletIcon, Gift, Clock, Sparkles, AlertCircle } from "lucide-react";
+import {
+  Wallet as WalletIcon,
+  Gift,
+  Clock,
+  Sparkles,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createCheckoutSession } from "@/lib/stripe.functions";
 
 export const Route = createFileRoute("/wallet")({
-  head: () => ({ meta: [{ title: "Wallet — Pat My Back" }, { name: "robots", content: "noindex" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    payment: (search.payment as string | undefined) ?? undefined,
+  }),
+  head: () => ({
+    meta: [
+      { title: "Wallet — Pat My Back" },
+      { name: "robots", content: "noindex" },
+    ],
+  }),
   component: Wallet,
 });
 
@@ -23,37 +40,59 @@ type Tx = {
   created_at: string;
 };
 
-const monthlyPlans = [
-  { name: "Monthly 15", minutes: "15 min", price: "$12/mo" },
-  { name: "Monthly 30", minutes: "30 min + 5 bonus", price: "$24/mo", badge: "Popular" },
-  { name: "Monthly 60", minutes: "60 min + 10 bonus", price: "$45/mo" },
-  { name: "Custom", subtitle: "Enterprise", minutes: "Volume pricing for teams", price: "Custom" },
-];
-
-const minutePacks = [
-  { name: "Intro Offer", minutes: "5 minutes", price: "$3" },
-  { name: "Pay As You Go", minutes: "30 minutes", price: "$30" },
-  { name: "Pay As You Go", minutes: "60 minutes", price: "$60" },
-];
+// Credit packages — must match stripe.server.ts CREDIT_PACKAGES
+const PACKAGES = [
+  { id: "pack_15min", label: "15 minutes", minutes: "15 min", price: "$10", badge: undefined },
+  { id: "pack_30min", label: "30 minutes", minutes: "30 min", price: "$18", badge: "Popular" },
+  { id: "pack_60min", label: "60 minutes", minutes: "60 min", price: "$30", badge: undefined },
+] as const;
 
 function Wallet() {
   const navigate = useNavigate();
+  const search = useSearch({ from: "/wallet" });
+
   const [uid, setUid] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [unlimitedUntil, setUnlimitedUntil] = useState<string | null>(null);
   const [tx, setTx] = useState<Tx[]>([]);
   const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [buyingId, setBuyingId] = useState<string | null>(null);
+  const [customAmount, setCustomAmount] = useState("");
 
-  async function load(id: string) {
+  const load = useCallback(async (id: string) => {
     const [{ data: w }, { data: t }] = await Promise.all([
-      supabase.from("wallets").select("balance_seconds, unlimited_until").eq("user_id", id).maybeSingle(),
-      supabase.from("credit_transactions").select("*").eq("user_id", id).order("created_at", { ascending: false }).limit(30),
+      supabase
+        .from("wallets")
+        .select("balance_seconds, unlimited_until")
+        .eq("user_id", id)
+        .maybeSingle(),
+      supabase
+        .from("credit_transactions")
+        .select("*")
+        .eq("user_id", id)
+        .order("created_at", { ascending: false })
+        .limit(30),
     ]);
     setSeconds(w?.balance_seconds ?? 0);
     setUnlimitedUntil(w?.unlimited_until ?? null);
     setTx((t ?? []) as Tx[]);
-  }
+  }, []);
+
+  // Handle return from Stripe checkout
+  useEffect(() => {
+    if (search.payment === "success") {
+      toast.success("Payment successful! Your balance has been updated.", {
+        icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+        duration: 5000,
+      });
+      // Clear query param
+      navigate({ to: "/wallet", search: {}, replace: true });
+    } else if (search.payment === "cancelled") {
+      toast.info("Payment cancelled — no charge was made.");
+      navigate({ to: "/wallet", search: {}, replace: true });
+    }
+  }, [search.payment, navigate]);
 
   useEffect(() => {
     (async () => {
@@ -65,12 +104,21 @@ function Wallet() {
       setUid(sess.session.user.id);
       await load(sess.session.user.id);
     })();
-  }, [navigate]);
+  }, [navigate, load]);
+
+  // Reload balance when user returns to tab (e.g. after Stripe redirect)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (uid) load(uid);
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [uid, load]);
 
   async function redeemCode(e: React.FormEvent) {
     e.preventDefault();
     if (!uid || !code.trim()) return;
-    setBusy(true);
+    setCodeBusy(true);
     const trimmed = code.trim().toUpperCase();
     const { data: tc, error } = await supabase
       .from("trial_codes")
@@ -78,20 +126,24 @@ function Wallet() {
       .eq("code", trimmed)
       .eq("is_active", true)
       .maybeSingle();
+
     if (error || !tc) {
-      setBusy(false);
-      toast.error("Invalid code");
+      setCodeBusy(false);
+      toast.error("Invalid or inactive code");
       return;
     }
     if (tc.expires_at && new Date(tc.expires_at) < new Date()) {
-      setBusy(false);
-      toast.error("Code has expired");
+      setCodeBusy(false);
+      toast.error("This code has expired");
       return;
     }
-    // Grant 60 free minutes for standard trial codes, or unlimited until expiry
+
     if (tc.unlimited) {
       const until = tc.expires_at ?? new Date(Date.now() + 7 * 864e5).toISOString();
-      await supabase.from("wallets").update({ unlimited_until: until }).eq("user_id", uid);
+      await supabase
+        .from("wallets")
+        .update({ unlimited_until: until })
+        .eq("user_id", uid);
       await supabase.from("credit_transactions").insert({
         user_id: uid,
         kind: "trial",
@@ -99,8 +151,11 @@ function Wallet() {
         note: `Trial code ${tc.code}: ${tc.label ?? "unlimited"}`,
       });
     } else {
-      const grant = 60 * 60;
-      await supabase.from("wallets").update({ balance_seconds: seconds + grant }).eq("user_id", uid);
+      const grant = 60 * 60; // 60 free minutes
+      await supabase
+        .from("wallets")
+        .update({ balance_seconds: seconds + grant })
+        .eq("user_id", uid);
       await supabase.from("credit_transactions").insert({
         user_id: uid,
         kind: "trial",
@@ -108,14 +163,42 @@ function Wallet() {
         note: `Trial code ${tc.code}: ${tc.label ?? "60 minutes"}`,
       });
     }
+
     setCode("");
-    await load(uid);
-    setBusy(false);
+    await load(uid!);
+    setCodeBusy(false);
     toast.success("Code redeemed 🎉");
   }
 
-  function buy(label: string) {
-    toast.info(`Stripe checkout for ${label} arrives with payments.`);
+  async function buyPackage(packageId: string, label: string) {
+    setBuyingId(packageId);
+    try {
+      const { url } = await createCheckoutSession({ data: { packageId } });
+      window.location.href = url;
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not start checkout — please try again.");
+      setBuyingId(null);
+    }
+  }
+
+  async function buyCustom(e: React.FormEvent) {
+    e.preventDefault();
+    const dollars = parseFloat(customAmount);
+    if (isNaN(dollars) || dollars < 5) {
+      toast.error("Minimum custom amount is $5");
+      return;
+    }
+    setBuyingId("custom");
+    try {
+      const customCents = Math.round(dollars * 100);
+      const { url } = await createCheckoutSession({ data: { customCents } });
+      window.location.href = url;
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not start checkout — please try again.");
+      setBuyingId(null);
+    }
   }
 
   const minutes = Math.floor(seconds / 60);
@@ -125,25 +208,32 @@ function Wallet() {
 
   return (
     <AppShell>
+      {/* Balance hero */}
       <section className="relative overflow-hidden bg-hero-gradient px-5 pt-10 pb-8 text-white">
         <div className="flex items-center gap-2 text-sm opacity-90">
           <WalletIcon className="h-4 w-4" /> Your balance
         </div>
         {unlimitedActive ? (
           <>
-            <p className="mt-1 text-4xl font-extrabold tracking-tight flex items-center gap-2"><Sparkles className="h-6 w-6" /> Unlimited</p>
-            <p className="mt-1 text-sm opacity-90">Until {new Date(unlimitedUntil!).toLocaleDateString()}</p>
+            <p className="mt-1 text-4xl font-extrabold tracking-tight flex items-center gap-2">
+              <Sparkles className="h-6 w-6" /> Unlimited
+            </p>
+            <p className="mt-1 text-sm opacity-90">
+              Until {new Date(unlimitedUntil!).toLocaleDateString()}
+            </p>
           </>
         ) : (
           <>
             <p className="mt-1 text-4xl font-extrabold tracking-tight">
-              {minutes}<span className="text-xl font-bold opacity-80">m {secs}s</span>
+              {minutes}
+              <span className="text-xl font-bold opacity-80">m {secs}s</span>
             </p>
             <p className="mt-1 text-sm opacity-90">available to talk</p>
           </>
         )}
       </section>
 
+      {/* Low balance warning */}
       {lowBalance && (
         <div className="mx-5 mt-4 flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -151,87 +241,146 @@ function Wallet() {
         </div>
       )}
 
+      {/* Buy minutes */}
       <section className="px-5 pt-6">
-        <h2 className="text-base font-bold">Monthly Plans</h2>
-        <p className="text-sm text-muted-foreground">Save with a subscription — bonus minutes included.</p>
+        <h2 className="text-base font-bold">Buy Minutes</h2>
+        <p className="text-sm text-muted-foreground">
+          One-time credit — never expires.
+        </p>
         <div className="mt-3 space-y-3">
-          {monthlyPlans.map((plan) => (
+          {PACKAGES.map((pkg) => (
             <button
-              key={plan.name + plan.minutes}
-              onClick={() => buy(plan.name)}
-              className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40"
+              key={pkg.id}
+              onClick={() => buyPackage(pkg.id, pkg.label)}
+              disabled={!!buyingId}
+              className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40 disabled:opacity-60"
             >
               <div>
                 <div className="flex items-center gap-2">
-                  <p className="font-bold">{plan.name}</p>
-                  {plan.badge && <Badge className="text-[10px]">{plan.badge}</Badge>}
+                  <p className="font-bold">{pkg.minutes}</p>
+                  {pkg.badge && (
+                    <Badge className="text-[10px]">{pkg.badge}</Badge>
+                  )}
                 </div>
-                <p className="text-sm text-muted-foreground">{plan.minutes}</p>
               </div>
-              <p className="text-base font-bold text-primary">{plan.price}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-base font-bold text-primary">{pkg.price}</p>
+                {buyingId === pkg.id && (
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                )}
+              </div>
             </button>
           ))}
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Tax calculated at checkout · Powered by Stripe
+        </p>
       </section>
 
+      {/* Custom amount */}
       <section className="px-5 pt-6">
-        <h2 className="text-base font-bold">Buy Minutes</h2>
-        <div className="mt-3 grid grid-cols-1 gap-3">
-          {minutePacks.map((pack) => (
-            <button
-              key={pack.name + pack.minutes}
-              onClick={() => buy(pack.minutes)}
-              className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40"
-            >
-              <div>
-                <p className="font-bold">{pack.name}</p>
-                <p className="text-sm text-muted-foreground">{pack.minutes}</p>
-              </div>
-              <p className="text-base font-bold text-primary">{pack.price}</p>
-            </button>
-          ))}
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">Tax is calculated at checkout</p>
-      </section>
-
-      <section className="px-5 pt-6">
-        <h2 className="text-base font-bold">Friends &amp; Family code</h2>
-        <form onSubmit={redeemCode} className="mt-3 flex gap-2">
+        <h2 className="text-base font-bold">Custom Amount</h2>
+        <p className="text-sm text-muted-foreground">
+          Top up any amount ($5 minimum).
+        </p>
+        <form onSubmit={buyCustom} className="mt-3 flex gap-2">
           <div className="relative flex-1">
-            <Gift className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="ENTER CODE" className="h-11 pl-9 uppercase tracking-wider" />
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+              $
+            </span>
+            <Input
+              type="number"
+              min="5"
+              step="1"
+              value={customAmount}
+              onChange={(e) => setCustomAmount(e.target.value)}
+              placeholder="20"
+              className="h-11 pl-7"
+            />
           </div>
-          <Button type="submit" disabled={busy || !code.trim()} className="h-11 font-semibold">Redeem</Button>
+          <Button
+            type="submit"
+            disabled={!!buyingId || !customAmount}
+            className="h-11 font-semibold"
+          >
+            {buyingId === "custom" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              "Pay"
+            )}
+          </Button>
         </form>
       </section>
 
+      {/* Friends & Family trial code */}
       <section className="px-5 pt-6">
-        <h2 className="text-base font-bold">Recent Sessions</h2>
-        <div className="mt-3 rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-          No sessions yet
-        </div>
+        <h2 className="text-base font-bold">Friends &amp; Family Code</h2>
+        <form onSubmit={redeemCode} className="mt-3 flex gap-2">
+          <div className="relative flex-1">
+            <Gift className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="ENTER CODE"
+              className="h-11 pl-9 uppercase tracking-wider"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={codeBusy || !code.trim()}
+            className="h-11 font-semibold"
+          >
+            {codeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Redeem"}
+          </Button>
+        </form>
       </section>
 
-      <section className="px-5 pt-6">
+      {/* Transaction history */}
+      <section className="px-5 pt-6 pb-8">
         <h2 className="text-base font-bold">History</h2>
         <div className="mt-3 space-y-2">
           {tx.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No transactions yet.</p>
+            <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+              No transactions yet
+            </p>
           ) : (
-            tx.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary-soft text-primary">
-                  <Clock className="h-4 w-4" />
+            tx.map((t) => {
+              const isCredit = t.seconds_delta >= 0;
+              return (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-3 rounded-xl border border-border bg-card p-3"
+                >
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary-soft text-primary">
+                    {t.kind === "purchase" ? (
+                      <WalletIcon className="h-4 w-4" />
+                    ) : t.kind === "trial" ? (
+                      <Gift className="h-4 w-4" />
+                    ) : (
+                      <Clock className="h-4 w-4" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium capitalize">
+                      {t.note ?? t.kind}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(t.created_at).toLocaleString()}
+                      {t.cents_amount ? ` · $${(t.cents_amount / 100).toFixed(2)}` : ""}
+                    </p>
+                  </div>
+                  <p
+                    className={cn(
+                      "shrink-0 text-sm font-bold",
+                      isCredit ? "text-green-600 dark:text-green-400" : "text-destructive",
+                    )}
+                  >
+                    {isCredit ? "+" : ""}
+                    {Math.round(t.seconds_delta / 60)}m
+                  </p>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium capitalize">{t.note ?? t.kind}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(t.created_at).toLocaleString()}</p>
-                </div>
-                <p className={cn("shrink-0 text-sm font-bold", t.seconds_delta >= 0 ? "text-success" : "text-destructive")}>
-                  {t.seconds_delta >= 0 ? "+" : ""}{Math.round(t.seconds_delta / 60)}m
-                </p>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </section>

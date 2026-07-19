@@ -1,0 +1,555 @@
+/**
+ * CallScreen — full-screen call overlay with Agora RTC + session billing.
+ *
+ * Features:
+ *  - Audio / video call via Agora
+ *  - Starts a session record on server, debits wallet on end
+ *  - Live countdown of remaining balance
+ *  - 2-minute warning popup with quick top-up ($5 / $10 / $15 / custom)
+ *  - Mid-call Stripe top-up (no page redirect, stays in call)
+ *  - Grace period: 30 s after balance hits 0 before forced end
+ */
+import { useEffect, useRef, useState, useCallback } from "react";
+import { toast } from "sonner";
+import {
+  Mic, MicOff, Video, VideoOff, PhoneOff,
+  Loader2, Volume2, AlertTriangle, Plus, CheckCircle2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { getAgoraToken } from "@/lib/agora.functions";
+import { startSession, endSession, createTopUpIntent } from "@/lib/session.functions";
+import { notifyIncomingCall } from "@/lib/notify.functions";
+import { RatingModal } from "@/components/RatingModal";
+
+type CallKind = "audio" | "video";
+
+interface CallScreenProps {
+  channelName: string;
+  kind: CallKind;
+  remoteName: string;
+  palId: string;
+  conversationId?: string;
+  callerName?: string; // name of the person initiating — used in push notification
+  onEnd: () => void;
+}
+
+// Agora dynamic import types
+type AgoraClient    = import("agora-rtc-sdk-ng").IAgoraRTCClient;
+type ILocalAudio    = import("agora-rtc-sdk-ng").ILocalAudioTrack;
+type ILocalVideo    = import("agora-rtc-sdk-ng").ILocalVideoTrack;
+type IRemoteAudio   = import("agora-rtc-sdk-ng").IRemoteAudioTrack;
+type IRemoteVideo   = import("agora-rtc-sdk-ng").IRemoteVideoTrack;
+
+const GRACE_SECONDS = 30; // extra seconds after balance runs out before forced end
+const WARN_SECONDS  = 120; // show top-up warning when this many seconds remain
+
+const TOP_UP_PRESETS = [
+  { label: "$5",  cents: 500  },
+  { label: "$10", cents: 1000 },
+  { label: "$15", cents: 1500 },
+];
+
+export function CallScreen({
+  channelName, kind, remoteName, palId, conversationId, callerName, onEnd,
+}: CallScreenProps) {
+  // ── Agora state ──────────────────────────────────────────────────────────
+  const [status, setStatus]           = useState<"connecting"|"connected"|"ended">("connecting");
+  const [muted, setMuted]             = useState(false);
+  const [camOff, setCamOff]           = useState(false);
+  const [remoteJoined, setRemoteJoined] = useState(false);
+
+  // ── Billing state ────────────────────────────────────────────────────────
+  const [balanceSec, setBalanceSec]   = useState<number | null>(null); // null = loading
+  const [isUnlimited, setIsUnlimited] = useState(false);
+  const [elapsed, setElapsed]         = useState(0);   // seconds since connected
+  const elapsedRef                    = useRef(0);      // always-current value for handleEnd
+  const [graceRemaining, setGraceRemaining] = useState<number | null>(null);
+  const sessionIdRef                  = useRef<string | null>(null);
+
+  // ── Top-up modal state ───────────────────────────────────────────────────
+  const [showTopUp, setShowTopUp]     = useState(false);
+  const [topUpCents, setTopUpCents]   = useState<number | null>(null);
+  const [customInput, setCustomInput] = useState("");
+  const [topUpBusy, setTopUpBusy]     = useState(false);
+  const [topUpDone, setTopUpDone]     = useState(false);
+  const warnFiredRef                  = useRef(false);
+
+  // ── Rating state ─────────────────────────────────────────────────────────
+  const [showRating, setShowRating]   = useState(false);
+  const palIdForRating                = useRef(palId);
+  const hasEndedRef                   = useRef(false); // guard against double-end
+
+  // ── Agora refs ────────────────────────────────────────────────────────────
+  const clientRef        = useRef<AgoraClient | null>(null);
+  const localAudioRef    = useRef<ILocalAudio | null>(null);
+  const localVideoRef    = useRef<ILocalVideo | null>(null);
+  const localVideoElRef  = useRef<HTMLDivElement>(null);
+  const remoteVideoElRef = useRef<HTMLDivElement>(null);
+
+  // ── Timers ────────────────────────────────────────────────────────────────
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const graceTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Join Agora + start session
+  // ─────────────────────────────────────────────────────────────────────────
+  const joinChannel = useCallback(async () => {
+    try {
+      // 1. Start session — validates balance, creates DB record
+      const sessionData = await startSession({
+        data: { palId, conversationId, kind },
+      });
+      sessionIdRef.current = sessionData.sessionId;
+      setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
+      setIsUnlimited(sessionData.isUnlimited);
+
+      // 2. Join Agora
+      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
+
+      const uid = Math.abs(
+        channelName.split("").reduce((acc, c) => (acc << 5) - acc + c.charCodeAt(0), 0),
+      ) % 100000;
+
+      const { token, appId } = await getAgoraToken({ data: { channelName, uid } });
+      if (!appId) throw new Error("Agora App ID not configured.");
+
+      const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+      clientRef.current = client;
+
+      client.on("user-published", async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === "audio") (user.audioTrack as IRemoteAudio)?.play();
+        if (mediaType === "video" && remoteVideoElRef.current)
+          (user.videoTrack as IRemoteVideo)?.play(remoteVideoElRef.current);
+        setRemoteJoined(true);
+        setStatus("connected");
+        startElapsedTimer();
+      });
+
+      client.on("user-unpublished", (_u, mt) => { if (mt === "video") setRemoteJoined(false); });
+      client.on("user-left", () => {
+        setRemoteJoined(false);
+        toast.info(`${remoteName} left the call.`);
+      });
+
+      await client.join(appId, channelName, token ?? null, uid);
+
+      if (kind === "video") {
+        const [aud, vid] = await AgoraRTC.createMicrophoneAndCameraTracks();
+        localAudioRef.current = aud;
+        localVideoRef.current = vid;
+        await client.publish([aud, vid]);
+        if (localVideoElRef.current) vid.play(localVideoElRef.current);
+      } else {
+        const aud = await AgoraRTC.createMicrophoneAudioTrack();
+        localAudioRef.current = aud;
+        await client.publish([aud]);
+      }
+
+      setStatus("connected");
+      startElapsedTimer(); // also start timer in case remote hasn't joined yet
+
+      // Notify the Pat Pal of the incoming call (best-effort)
+      notifyIncomingCall({
+        data: {
+          recipientId: palId,
+          callerName: callerName ?? "Someone",
+          kind,
+          channelName,
+        },
+      }).catch(() => { /* best-effort */ });
+    } catch (err: unknown) {
+      console.error("[CallScreen] Join failed:", err);
+      toast.error(err instanceof Error ? err.message : "Could not start call");
+      handleEnd();
+    }
+  }, [channelName, kind, palId, conversationId, remoteName]); // eslint-disable-line
+
+  function startElapsedTimer() {
+    if (elapsedTimerRef.current) return; // already running
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsed((e) => {
+        const next = e + 1;
+        elapsedRef.current = next;
+        return next;
+      });
+    }, 1000);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Watch balance & elapsed to trigger warning / grace / forced end
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isUnlimited || balanceSec === null) return;
+
+    const remaining = balanceSec - elapsed;
+
+    // 2-minute warning
+    if (!warnFiredRef.current && remaining <= WARN_SECONDS && remaining > 0) {
+      warnFiredRef.current = true;
+      setShowTopUp(true);
+    }
+
+    // Balance depleted — start grace countdown
+    if (remaining <= 0 && graceRemaining === null) {
+      setGraceRemaining(GRACE_SECONDS);
+      graceTimerRef.current = setInterval(() => {
+        setGraceRemaining((g) => {
+          if (g === null || g <= 1) {
+            clearInterval(graceTimerRef.current!);
+            handleEnd(); // forced end after grace
+            return 0;
+          }
+          return g - 1;
+        });
+      }, 1000);
+    }
+  }, [elapsed, balanceSec, isUnlimited, graceRemaining]); // eslint-disable-line
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Leave Agora + end session
+  // ─────────────────────────────────────────────────────────────────────────
+  const leaveChannel = useCallback(async () => {
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    if (graceTimerRef.current)   clearInterval(graceTimerRef.current);
+    localAudioRef.current?.close();
+    localVideoRef.current?.close();
+    try { await clientRef.current?.leave(); } catch { /* ignore */ }
+    clientRef.current = null;
+    localAudioRef.current = null;
+    localVideoRef.current = null;
+  }, []);
+
+  async function handleEnd() {
+    if (hasEndedRef.current) return; // prevent double-end from race conditions
+    hasEndedRef.current = true;
+    setStatus("ended");
+
+    // Debit wallet on server — use ref to get accurate elapsed time
+    const secondsUsed = elapsedRef.current;
+    if (sessionIdRef.current && secondsUsed > 0) {
+      try {
+        await endSession({ data: { sessionId: sessionIdRef.current, secondsUsed } });
+      } catch (err) {
+        console.error("[CallScreen] endSession failed:", err);
+      }
+    }
+
+    await leaveChannel();
+
+    // Show rating modal if session lasted more than 30 seconds
+    if (secondsUsed >= 30 && sessionIdRef.current) {
+      setShowRating(true);
+    } else {
+      onEnd();
+    }
+  }
+
+  useEffect(() => {
+    joinChannel();
+    return () => { leaveChannel(); };
+  }, []); // eslint-disable-line
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Mid-call top-up via Stripe PaymentIntent
+  // ─────────────────────────────────────────────────────────────────────────
+  async function confirmTopUp(cents: number) {
+    setTopUpBusy(true);
+    try {
+      // 1. Create PaymentIntent on server
+      const { clientSecret, seconds } = await createTopUpIntent({ data: { cents } });
+
+      // 2. Confirm with Stripe.js (uses saved card if available, else shows minimal UI)
+      const { loadStripe } = await import("@stripe/stripe-js");
+      const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string;
+      if (!stripeKey || stripeKey.includes("YOUR_")) {
+        throw new Error("Stripe publishable key not configured.");
+      }
+      const stripeInstance = await loadStripe(stripeKey);
+      if (!stripeInstance) throw new Error("Stripe.js failed to load.");
+
+      const { error } = await stripeInstance.confirmCardPayment(clientSecret);
+      if (error) throw new Error(error.message ?? "Payment failed");
+
+      // 3. Optimistically update local balance — webhook will confirm server-side
+      setBalanceSec((b) => (b === null ? seconds : (b === Infinity ? Infinity : b + seconds)));
+      warnFiredRef.current = false; // allow warning to fire again if balance drops low
+      if (graceTimerRef.current) {
+        clearInterval(graceTimerRef.current);
+        graceTimerRef.current = null;
+        setGraceRemaining(null);
+      }
+
+      setTopUpDone(true);
+      toast.success(`${Math.round(seconds / 60)} min added to your balance!`, {
+        icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+      });
+      setTimeout(() => {
+        setShowTopUp(false);
+        setTopUpDone(false);
+        setTopUpCents(null);
+        setCustomInput("");
+      }, 2000);
+    } catch (err: unknown) {
+      console.error("[CallScreen] Top-up failed:", err);
+      toast.error(err instanceof Error ? err.message : "Payment failed — try again.");
+    } finally {
+      setTopUpBusy(false);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Mute / camera
+  // ─────────────────────────────────────────────────────────────────────────
+  async function toggleMute() {
+    if (!localAudioRef.current) return;
+    const next = !muted;
+    await localAudioRef.current.setMuted(next);
+    setMuted(next);
+  }
+
+  async function toggleCam() {
+    if (!localVideoRef.current) return;
+    const next = !camOff;
+    await localVideoRef.current.setMuted(next);
+    setCamOff(next);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────────────────────────────────
+  function fmt(s: number) {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60).toString().padStart(2, "0");
+    const sec = (s % 60).toString().padStart(2, "0");
+    return `${m}:${sec}`;
+  }
+
+  const remaining     = balanceSec === null ? null : isUnlimited ? Infinity : balanceSec - elapsed;
+  const remainingLow  = remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
+  const inGrace       = graceRemaining !== null;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white">
+
+      {/* ── Remote video / audio area ──────────────────────────────────── */}
+      {kind === "video" ? (
+        <div ref={remoteVideoElRef} className="flex-1 bg-gray-900">
+          {!remoteJoined && (
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <div className="grid h-20 w-20 place-items-center rounded-full bg-primary/20 text-4xl font-bold text-primary">
+                {remoteName.slice(0, 1).toUpperCase()}
+              </div>
+              <p className="text-lg font-semibold">{remoteName}</p>
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {status === "connecting" ? "Connecting…" : "Waiting for other person…"}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4">
+          <div className="grid h-24 w-24 place-items-center rounded-full bg-primary/20 text-4xl font-bold text-primary">
+            {remoteName.slice(0, 1).toUpperCase()}
+          </div>
+          <p className="text-xl font-bold">{remoteName}</p>
+          {status === "connecting" ? (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Connecting…
+            </div>
+          ) : remoteJoined ? (
+            <div className="flex items-center gap-2 text-sm text-green-400">
+              <Volume2 className="h-4 w-4" /> On call · {fmt(elapsed)}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">Ringing…</p>
+          )}
+        </div>
+      )}
+
+      {/* ── Local video PiP ───────────────────────────────────────────── */}
+      {kind === "video" && (
+        <div
+          ref={localVideoElRef}
+          className={cn(
+            "absolute right-4 top-4 h-32 w-24 overflow-hidden rounded-xl border-2 border-white/20 bg-gray-800",
+            camOff && "opacity-30",
+          )}
+        />
+      )}
+
+      {/* ── Balance / duration overlay ────────────────────────────────── */}
+      <div className="absolute left-4 top-4 flex flex-col gap-1">
+        {kind === "video" && (
+          <div className="rounded-full bg-black/50 px-3 py-1 text-xs font-mono">
+            {fmt(elapsed)}
+          </div>
+        )}
+        {!isUnlimited && remaining !== null && (
+          <div
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-mono font-semibold",
+              inGrace
+                ? "bg-red-600/90 animate-pulse"
+                : remainingLow
+                  ? "bg-orange-500/80"
+                  : "bg-black/50",
+            )}
+          >
+            {inGrace
+              ? `Ending in ${graceRemaining}s`
+              : `${fmt(Math.max(0, remaining))} left`}
+          </div>
+        )}
+      </div>
+
+      {/* ── 2-minute warning / top-up modal ──────────────────────────── */}
+      {showTopUp && (
+        <div className="absolute inset-x-4 top-20 z-10 rounded-2xl bg-gray-900 border border-white/10 p-5 shadow-2xl">
+          {topUpDone ? (
+            <div className="flex flex-col items-center gap-2 py-2 text-green-400">
+              <CheckCircle2 className="h-8 w-8" />
+              <p className="font-semibold">Time added!</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 shrink-0 text-orange-400 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-white leading-tight">
+                    {inGrace ? "Balance depleted" : "Running low on time"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {inGrace
+                      ? "Add time to keep the call going."
+                      : `About ${Math.ceil((remaining ?? 0) / 60)} min remaining. Add more?`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Preset buttons */}
+              <div className="mt-4 flex gap-2">
+                {TOP_UP_PRESETS.map((p) => (
+                  <button
+                    key={p.cents}
+                    onClick={() => setTopUpCents(p.cents)}
+                    disabled={topUpBusy}
+                    className={cn(
+                      "flex-1 rounded-xl border py-2.5 text-sm font-semibold transition-colors",
+                      topUpCents === p.cents
+                        ? "border-primary bg-primary text-white"
+                        : "border-white/20 text-white hover:border-primary/60",
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom amount */}
+              <div className="mt-3 flex gap-2">
+                <div className="relative flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <Input
+                    type="number"
+                    min="5"
+                    step="1"
+                    placeholder="Custom"
+                    value={customInput}
+                    onChange={(e) => {
+                      setCustomInput(e.target.value);
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v) && v >= 5) setTopUpCents(Math.round(v * 100));
+                    }}
+                    className="h-10 pl-7 bg-white/5 border-white/20 text-white placeholder:text-gray-500"
+                  />
+                </div>
+                <Button
+                  onClick={() => topUpCents && confirmTopUp(topUpCents)}
+                  disabled={!topUpCents || topUpBusy}
+                  className="h-10 px-5 font-semibold"
+                >
+                  {topUpBusy
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <><Plus className="h-4 w-4" /> Add</>}
+                </Button>
+              </div>
+
+              <button
+                onClick={() => setShowTopUp(false)}
+                className="mt-3 w-full text-center text-xs text-gray-500 hover:text-gray-300"
+              >
+                Dismiss
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Controls bar ─────────────────────────────────────────────── */}
+      <div className="flex items-center justify-center gap-5 pb-12 pt-6">
+        {/* Mute */}
+        <button
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute" : "Mute"}
+          className={cn(
+            "grid h-14 w-14 place-items-center rounded-full transition-colors",
+            muted ? "bg-red-500/20 text-red-400" : "bg-white/10 text-white hover:bg-white/20",
+          )}
+        >
+          {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+        </button>
+
+        {/* End call */}
+        <button
+          onClick={handleEnd}
+          aria-label="End call"
+          className="grid h-16 w-16 place-items-center rounded-full bg-red-600 text-white shadow-lg hover:bg-red-700 active:scale-95 transition-transform"
+        >
+          <PhoneOff className="h-7 w-7" />
+        </button>
+
+        {/* Camera or top-up shortcut */}
+        {kind === "video" ? (
+          <button
+            onClick={toggleCam}
+            aria-label={camOff ? "Turn camera on" : "Turn camera off"}
+            className={cn(
+              "grid h-14 w-14 place-items-center rounded-full transition-colors",
+              camOff ? "bg-red-500/20 text-red-400" : "bg-white/10 text-white hover:bg-white/20",
+            )}
+          >
+            {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+          </button>
+        ) : (
+          /* Audio call: show "Add time" shortcut button */
+          <button
+            onClick={() => setShowTopUp(true)}
+            aria-label="Add time"
+            className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+          >
+            <Plus className="h-6 w-6" />
+          </button>
+        )}
+      </div>
+
+      {/* ── Post-call rating modal ────────────────────────────────────── */}
+      {showRating && sessionIdRef.current && (
+        <RatingModal
+          sessionId={sessionIdRef.current}
+          palId={palIdForRating.current}
+          palName={remoteName}
+          durationMinutes={Math.max(1, Math.round(elapsed / 60))}
+          onDone={onEnd}
+        />
+      )}
+    </div>
+  );
+}

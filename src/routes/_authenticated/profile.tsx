@@ -43,7 +43,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { deleteMyAccount } from "@/lib/account.functions";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 
-export const Route = createFileRoute("/profile")({
+export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({ meta: [{ title: "Profile — Pat My Back" }, { name: "robots", content: "noindex" }] }),
   component: Profile,
 });
@@ -94,10 +94,7 @@ function Profile() {
     setNotifs(loadNotifs());
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
+      if (!sess.session) return;
       setEmail(sess.session.user.email ?? "");
       const uid = sess.session.user.id;
       const [{ data: p }, { data: c }] = await Promise.all([
@@ -110,7 +107,7 @@ function Profile() {
       }
       if (c) setPhone(c.phone ?? "");
     })();
-  }, [navigate]);
+  }, []);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

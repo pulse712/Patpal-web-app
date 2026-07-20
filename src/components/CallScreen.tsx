@@ -31,7 +31,9 @@ interface CallScreenProps {
   remoteName: string;
   palId: string;
   conversationId?: string;
-  callerName?: string; // name of the person initiating — used in push notification
+  callerName?: string;
+  role?: "caller" | "callee";
+  sessionId?: string;
   onEnd: () => void;
 }
 
@@ -52,8 +54,10 @@ const TOP_UP_PRESETS = [
 ];
 
 export function CallScreen({
-  channelName, kind, remoteName, palId, conversationId, callerName, onEnd,
+  channelName, kind, remoteName, palId, conversationId, callerName, role = "caller", sessionId,
+  onEnd,
 }: CallScreenProps) {
+  const isCallee = role === "callee";
   // ── Agora state ──────────────────────────────────────────────────────────
   const [status, setStatus]           = useState<"connecting"|"connected"|"ended">("connecting");
   const [muted, setMuted]             = useState(false);
@@ -97,15 +101,17 @@ export function CallScreen({
   // ─────────────────────────────────────────────────────────────────────────
   const joinChannel = useCallback(async () => {
     try {
-      // 1. Start session — validates balance, creates DB record
-      const sessionData = await startSession({
-        data: { palId, conversationId, kind },
-      });
-      sessionIdRef.current = sessionData.sessionId;
-      setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
-      setIsUnlimited(sessionData.isUnlimited);
+      if (isCallee) {
+        sessionIdRef.current = sessionId ?? null;
+      } else {
+        const sessionData = await startSession({
+          data: { palId, conversationId, kind },
+        });
+        sessionIdRef.current = sessionData.sessionId;
+        setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
+        setIsUnlimited(sessionData.isUnlimited);
+      }
 
-      // 2. Join Agora
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
       AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
 
@@ -150,23 +156,25 @@ export function CallScreen({
       }
 
       setStatus("connected");
-      startElapsedTimer(); // also start timer in case remote hasn't joined yet
+      startElapsedTimer();
 
-      // Notify the Pat Pal of the incoming call (best-effort)
-      notifyIncomingCall({
-        data: {
-          recipientId: palId,
-          callerName: callerName ?? "Someone",
-          kind,
-          channelName,
-        },
-      }).catch(() => { /* best-effort */ });
+      if (!isCallee) {
+        notifyIncomingCall({
+          data: {
+            recipientId: palId,
+            callerName: callerName ?? "Someone",
+            kind,
+            channelName,
+            conversationId,
+          },
+        }).catch(() => { /* best-effort */ });
+      }
     } catch (err: unknown) {
       console.error("[CallScreen] Join failed:", err);
       toast.error(err instanceof Error ? err.message : "Could not start call");
       handleEnd();
     }
-  }, [channelName, kind, palId, conversationId, remoteName]); // eslint-disable-line
+  }, [channelName, kind, palId, conversationId, remoteName, callerName, isCallee, sessionId]); // eslint-disable-line
 
   function startElapsedTimer() {
     if (elapsedTimerRef.current) return; // already running
@@ -183,7 +191,7 @@ export function CallScreen({
   // Watch balance & elapsed to trigger warning / grace / forced end
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (isUnlimited || balanceSec === null) return;
+    if (isUnlimited || balanceSec === null || isCallee) return;
 
     const remaining = balanceSec - elapsed;
 
@@ -207,7 +215,7 @@ export function CallScreen({
         });
       }, 1000);
     }
-  }, [elapsed, balanceSec, isUnlimited, graceRemaining]); // eslint-disable-line
+  }, [elapsed, balanceSec, isUnlimited, graceRemaining, isCallee]); // eslint-disable-line
 
   // ─────────────────────────────────────────────────────────────────────────
   // Leave Agora + end session
@@ -230,7 +238,7 @@ export function CallScreen({
 
     // Debit wallet on server — use ref to get accurate elapsed time
     const secondsUsed = elapsedRef.current;
-    if (sessionIdRef.current && secondsUsed > 0) {
+    if (!isCallee && sessionIdRef.current && secondsUsed > 0) {
       try {
         await endSession({ data: { sessionId: sessionIdRef.current, secondsUsed } });
       } catch (err) {
@@ -240,8 +248,7 @@ export function CallScreen({
 
     await leaveChannel();
 
-    // Show rating modal if session lasted more than 30 seconds
-    if (secondsUsed >= 30 && sessionIdRef.current) {
+    if (!isCallee && secondsUsed >= 30 && sessionIdRef.current) {
       setShowRating(true);
     } else {
       onEnd();
@@ -328,8 +335,8 @@ export function CallScreen({
     return `${m}:${sec}`;
   }
 
-  const remaining     = balanceSec === null ? null : isUnlimited ? Infinity : balanceSec - elapsed;
-  const remainingLow  = remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
+  const remaining     = isCallee || balanceSec === null ? null : isUnlimited ? Infinity : balanceSec - elapsed;
+  const remainingLow  = !isCallee && remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
   const inGrace       = graceRemaining !== null;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -392,7 +399,7 @@ export function CallScreen({
             {fmt(elapsed)}
           </div>
         )}
-        {!isUnlimited && remaining !== null && (
+        {!isCallee && !isUnlimited && remaining !== null && (
           <div
             className={cn(
               "rounded-full px-3 py-1 text-xs font-mono font-semibold",
@@ -411,7 +418,7 @@ export function CallScreen({
       </div>
 
       {/* ── 2-minute warning / top-up modal ──────────────────────────── */}
-      {showTopUp && (
+      {!isCallee && showTopUp && (
         <div className="absolute inset-x-4 top-20 z-10 rounded-2xl bg-gray-900 border border-white/10 p-5 shadow-2xl">
           {topUpDone ? (
             <div className="flex flex-col items-center gap-2 py-2 text-green-400">
@@ -528,8 +535,7 @@ export function CallScreen({
           >
             {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
           </button>
-        ) : (
-          /* Audio call: show "Add time" shortcut button */
+        ) : !isCallee ? (
           <button
             onClick={() => setShowTopUp(true)}
             aria-label="Add time"
@@ -537,6 +543,8 @@ export function CallScreen({
           >
             <Plus className="h-6 w-6" />
           </button>
+        ) : (
+          <div className="h-14 w-14" />
         )}
       </div>
 

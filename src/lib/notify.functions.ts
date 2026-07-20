@@ -49,15 +49,20 @@ export const notifyIncomingCall = createServerFn({ method: "POST" })
       callerName: z.string(),
       kind: z.enum(["audio", "video"]),
       channelName: z.string(),
+      conversationId: z.string().uuid().optional(),
     }).parse(data),
   )
   .handler(async ({ data }) => {
     const { sendPushToUser } = await import("@/lib/push.functions");
 
+    const url = data.conversationId
+      ? `/chat/${data.conversationId}?call=${data.kind}`
+      : "/";
+
     await sendPushToUser(data.recipientId, {
       title: `Incoming ${data.kind} call`,
       body: `${data.callerName} is calling you`,
-      url: `/`,
+      url,
       tag: `call-${data.channelName}`,
     });
 

@@ -1,5 +1,5 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, useCallback } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,11 +12,20 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Trash2, Users, DollarSign, PhoneCall, TrendingUp,
-  BarChart2, Loader2, Star,
+  BarChart2, Loader2, Star, Search,
 } from "lucide-react";
 import { getAnalytics } from "@/lib/analytics.functions";
+import { listAdminUsers, setUserActive, setUserRole } from "@/lib/admin.functions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 
-export const Route = createFileRoute("/admin")({
+export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPanel,
 });
 
@@ -47,32 +56,46 @@ type Banner = {
 };
 
 type Analytics = Awaited<ReturnType<typeof getAnalytics>>;
+type AdminUser = Awaited<ReturnType<typeof listAdminUsers>>["users"][number];
+type AppRole = "client" | "pat_pal" | "admin" | "super_admin";
+
+const ROLE_LABELS: Record<AppRole, string> = {
+  client: "Client",
+  pat_pal: "Pat Pal",
+  admin: "Admin",
+  super_admin: "Super Admin",
+};
 
 function AdminPanel() {
   const { user, loading } = useSession();
-  const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [pals, setPals] = useState<Pal[]>([]);
   const [codes, setCodes] = useState<Code[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+  const [userRoleFilter, setUserRoleFilter] = useState<AppRole | "all">("all");
+  const [roleBusy, setRoleBusy] = useState<string | null>(null);
 
   const [newCode, setNewCode] = useState({ code: "", label: "", unlimited: false });
   const [newBanner, setNewBanner] = useState({ title: "", body: "", cta_label: "", cta_href: "" });
 
   useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      navigate({ to: "/auth" });
-      return;
-    }
+    if (loading || !user) return;
     (async () => {
-      const { data } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-      setIsAdmin(!!data);
-      if (data) await refresh();
+      const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
+        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+        supabase.rpc("has_role", { _user_id: user.id, _role: "super_admin" }),
+      ]);
+      setIsAdmin(!!isAdmin || !!isSuperAdmin);
+      setIsSuperAdmin(!!isSuperAdmin);
+      if (isAdmin || isSuperAdmin) await refresh();
     })();
-  }, [user, loading, navigate]);
+  }, [user, loading]);
 
   async function refresh() {
     const [p, c, b] = await Promise.all([
@@ -96,6 +119,51 @@ function AdminPanel() {
     setPals(palRows.map((r) => ({ ...r, full_name: nameMap.get(r.user_id) ?? null })) as Pal[]);
     setCodes((c.data ?? []) as Code[]);
     setBanners((b.data ?? []) as Banner[]);
+  }
+
+  async function loadUsers() {
+    setUsersLoading(true);
+    try {
+      const { users } = await listAdminUsers({
+        data: {
+          search: userSearch.trim() || undefined,
+          role: userRoleFilter,
+        },
+      });
+      setAdminUsers(users);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load users");
+    } finally {
+      setUsersLoading(false);
+    }
+  }
+
+  async function toggleUserActive(userId: string, isActive: boolean) {
+    try {
+      await setUserActive({ data: { userId, isActive } });
+      toast.success(isActive ? "User activated" : "User deactivated");
+      await loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  async function toggleUserRole(userId: string, role: AppRole, hasRole: boolean) {
+    if (role === "client") return;
+    const key = `${userId}:${role}`;
+    setRoleBusy(key);
+    try {
+      await setUserRole({
+        data: { userId, role, action: hasRole ? "remove" : "add" },
+      });
+      toast.success(hasRole ? `${ROLE_LABELS[role]} role removed` : `${ROLE_LABELS[role]} role added`);
+      await loadUsers();
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Role update failed");
+    } finally {
+      setRoleBusy(null);
+    }
   }
 
   async function loadAnalytics() {
@@ -191,11 +259,12 @@ function AdminPanel() {
         </header>
 
         <Tabs defaultValue="analytics">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            <TabsTrigger value="pals">Pals</TabsTrigger>
-            <TabsTrigger value="codes">Codes</TabsTrigger>
-            <TabsTrigger value="banners">Banners</TabsTrigger>
+          <TabsList className="grid h-auto w-full grid-cols-5 gap-1">
+            <TabsTrigger value="analytics" className="text-xs sm:text-sm">Stats</TabsTrigger>
+            <TabsTrigger value="users" className="text-xs sm:text-sm">Users</TabsTrigger>
+            <TabsTrigger value="pals" className="text-xs sm:text-sm">Pals</TabsTrigger>
+            <TabsTrigger value="codes" className="text-xs sm:text-sm">Codes</TabsTrigger>
+            <TabsTrigger value="banners" className="text-xs sm:text-sm">Banners</TabsTrigger>
           </TabsList>
 
           {/* ── Analytics tab ──────────────────────────────────────── */}
@@ -294,6 +363,106 @@ function AdminPanel() {
                 </Button>
               </>
             )}
+          </TabsContent>
+
+          {/* ── Users tab ───────────────────────────────────────────── */}
+          <TabsContent value="users" className="mt-4 space-y-3">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search name or email…"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="h-10 pl-9"
+                />
+              </div>
+              <Select
+                value={userRoleFilter}
+                onValueChange={(v) => setUserRoleFilter(v as AppRole | "all")}
+              >
+                <SelectTrigger className="h-10 w-[130px]">
+                  <SelectValue placeholder="Role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All roles</SelectItem>
+                  <SelectItem value="client">Client</SelectItem>
+                  <SelectItem value="pat_pal">Pat Pal</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  {isSuperAdmin && <SelectItem value="super_admin">Super Admin</SelectItem>}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button onClick={loadUsers} disabled={usersLoading} className="w-full">
+              {usersLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                </>
+              ) : (
+                "Load users"
+              )}
+            </Button>
+
+            {adminUsers.length === 0 && !usersLoading && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Click "Load users" to view accounts.
+              </p>
+            )}
+
+            {adminUsers.map((u) => (
+              <Card key={u.id} className="space-y-3 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{u.fullName || "Unnamed"}</p>
+                    <p className="truncate text-xs text-muted-foreground">{u.email || "No email"}</p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {u.roles.map((role) => (
+                        <Badge key={role} variant="secondary" className="text-[10px]">
+                          {ROLE_LABELS[role]}
+                        </Badge>
+                      ))}
+                      {!u.isActive && (
+                        <Badge variant="destructive" className="text-[10px]">Inactive</Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <Label htmlFor={`active-${u.id}`} className="text-[10px] text-muted-foreground">
+                      Active
+                    </Label>
+                    <Switch
+                      id={`active-${u.id}`}
+                      checked={u.isActive}
+                      disabled={u.id === user?.id}
+                      onCheckedChange={(v) => toggleUserActive(u.id, v)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 border-t border-border pt-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Roles
+                  </p>
+                  {(["pat_pal", "admin", "super_admin"] as const)
+                    .filter((role) => role !== "super_admin" || isSuperAdmin)
+                    .map((role) => {
+                      const hasRole = u.roles.includes(role);
+                      const busy = roleBusy === `${u.id}:${role}`;
+                      return (
+                        <div key={role} className="flex items-center justify-between">
+                          <span className="text-sm">{ROLE_LABELS[role]}</span>
+                          <Switch
+                            checked={hasRole}
+                            disabled={busy || (u.id === user?.id && role === "admin" && hasRole)}
+                            onCheckedChange={() => toggleUserRole(u.id, role, hasRole)}
+                          />
+                        </div>
+                      );
+                    })}
+                </div>
+              </Card>
+            ))}
           </TabsContent>
 
           <TabsContent value="pals" className="space-y-2">

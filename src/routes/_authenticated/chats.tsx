@@ -1,11 +1,11 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { MessageCircle } from "lucide-react";
 import { useIsOnline } from "@/lib/presence";
 
-export const Route = createFileRoute("/chats")({
+export const Route = createFileRoute("/_authenticated/chats")({
   head: () => ({ meta: [{ title: "Chats — Pat My Back" }, { name: "robots", content: "noindex" }] }),
   component: Chats,
 });
@@ -21,7 +21,6 @@ type ConvoRow = {
 };
 
 function Chats() {
-  const navigate = useNavigate();
   const [me, setMe] = useState<string | null>(null);
   const [convos, setConvos] = useState<ConvoRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,10 +28,7 @@ function Chats() {
   useEffect(() => {
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
+      if (!sess.session) return;
       const myId = sess.session.user.id;
       setMe(myId);
       const { data } = await supabase
@@ -82,7 +78,7 @@ function Chats() {
       );
       setLoading(false);
     })();
-  }, [navigate]);
+  }, []);
 
 
   return (

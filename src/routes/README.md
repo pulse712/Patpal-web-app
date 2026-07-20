@@ -16,6 +16,7 @@ is `src/routes/__root.tsx`.
 | `posts/{-$category}.tsx` | `/posts/:category?` (optional segment) |
 | `files/$.tsx` | `/files/*` (splat — read via `_splat` param, never `*`) |
 | `_layout.tsx` | layout route (renders children via `<Outlet />`) |
+| `_authenticated/route.tsx` | pathless auth layout — guards all nested routes |
 | `__root.tsx` | app shell — wraps every page; preserve `<Outlet />` |
 
 `routeTree.gen.ts` is auto-generated. Don't edit it by hand.

@@ -116,7 +116,7 @@ function RegisterForm() {
     if (password !== confirm) return toast.error("Passwords don't match");
     if (password.length < 8) return toast.error("Password must be at least 8 characters");
     setBusy(true);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -127,8 +127,10 @@ function RegisterForm() {
     setBusy(false);
     if (error) return toast.error(error.message);
 
-    // Send welcome email in background — don't block navigation
-    sendWelcome({ data: { name: fullName, email } }).catch(() => {});
+    // Welcome email requires an active session (skipped if email confirmation pending)
+    if (data.session) {
+      sendWelcome({ data: { name: fullName, email } }).catch(() => {});
+    }
 
     toast.success("Account created — check your email to verify.");
     navigate({ to: "/", replace: true });

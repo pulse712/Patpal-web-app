@@ -105,7 +105,8 @@ function PalProfile() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [schedule, setSchedule] = useState<Schedule>(DEFAULT_SCHEDULE);
   const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
-  const [callChannelName, setCallChannelName] = useState("");
+  const [callConversationId, setCallConversationId] = useState("");
+  const [callerName, setCallerName] = useState("Someone");
 
   useEffect(() => {
     try {
@@ -180,17 +181,47 @@ function PalProfile() {
     navigate({ to: "/chat/$conversationId", params: { conversationId: convoId } });
   }
 
-  function startCall(kind: "audio" | "video") {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
-      // Stable channel: sorted user ids so both parties join the same channel
-      const ids = [data.session.user.id, palId].sort();
-      setCallChannelName(ids.join("-"));
-      setActiveCall(kind);
-    });
+  async function ensureConversation(clientId: string): Promise<string | null> {
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("pal_id", palId)
+      .maybeSingle();
+    if (existing?.id) return existing.id;
+
+    const { data: created, error } = await supabase
+      .from("conversations")
+      .insert({ client_id: clientId, pal_id: palId })
+      .select("id")
+      .single();
+    if (error || !created) {
+      toast.error(error?.message ?? "Couldn't start call");
+      return null;
+    }
+    return created.id;
+  }
+
+  async function startCall(kind: "audio" | "video") {
+    setStarting(kind);
+    const { data: sess } = await supabase.auth.getSession();
+    if (!sess.session) {
+      setStarting(null);
+      navigate({ to: "/auth" });
+      return;
+    }
+    const convoId = await ensureConversation(sess.session.user.id);
+    setStarting(null);
+    if (!convoId) return;
+
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", sess.session.user.id)
+      .maybeSingle();
+    setCallerName(prof?.full_name ?? "Someone");
+    setCallConversationId(convoId);
+    setActiveCall(kind);
   }
 
   if (loading) {
@@ -222,13 +253,18 @@ function PalProfile() {
   return (
     <>
       {/* Full-screen call overlay */}
-      {activeCall && callChannelName && (
+      {activeCall && callConversationId && (
         <CallScreen
-          channelName={callChannelName}
+          channelName={callConversationId}
           kind={activeCall}
           remoteName={name}
           palId={palId}
-          onEnd={() => setActiveCall(null)}
+          conversationId={callConversationId}
+          callerName={callerName}
+          onEnd={() => {
+            setActiveCall(null);
+            setCallConversationId("");
+          }}
         />
       )}
 

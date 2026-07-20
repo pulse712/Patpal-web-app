@@ -17,8 +17,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createCheckoutSession } from "@/lib/stripe.functions";
+import { redeemTrialCode } from "@/lib/wallet.functions";
 
-export const Route = createFileRoute("/wallet")({
+export const Route = createFileRoute("/_authenticated/wallet")({
   validateSearch: (search: Record<string, unknown>) => ({
     payment: (search.payment as string | undefined) ?? undefined,
   }),
@@ -49,7 +50,7 @@ const PACKAGES = [
 
 function Wallet() {
   const navigate = useNavigate();
-  const search = useSearch({ from: "/wallet" });
+  const search = useSearch({ from: "/_authenticated/wallet" });
 
   const [uid, setUid] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -97,14 +98,11 @@ function Wallet() {
   useEffect(() => {
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
+      if (!sess.session) return;
       setUid(sess.session.user.id);
       await load(sess.session.user.id);
     })();
-  }, [navigate, load]);
+  }, [load]);
 
   // Reload balance when user returns to tab (e.g. after Stripe redirect)
   useEffect(() => {
@@ -119,55 +117,16 @@ function Wallet() {
     e.preventDefault();
     if (!uid || !code.trim()) return;
     setCodeBusy(true);
-    const trimmed = code.trim().toUpperCase();
-    const { data: tc, error } = await supabase
-      .from("trial_codes")
-      .select("id, code, label, is_active, expires_at, unlimited")
-      .eq("code", trimmed)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (error || !tc) {
+    try {
+      await redeemTrialCode({ data: { code: code.trim() } });
+      setCode("");
+      await load(uid);
+      toast.success("Code redeemed 🎉");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not redeem code");
+    } finally {
       setCodeBusy(false);
-      toast.error("Invalid or inactive code");
-      return;
     }
-    if (tc.expires_at && new Date(tc.expires_at) < new Date()) {
-      setCodeBusy(false);
-      toast.error("This code has expired");
-      return;
-    }
-
-    if (tc.unlimited) {
-      const until = tc.expires_at ?? new Date(Date.now() + 7 * 864e5).toISOString();
-      await supabase
-        .from("wallets")
-        .update({ unlimited_until: until })
-        .eq("user_id", uid);
-      await supabase.from("credit_transactions").insert({
-        user_id: uid,
-        kind: "trial",
-        seconds_delta: 0,
-        note: `Trial code ${tc.code}: ${tc.label ?? "unlimited"}`,
-      });
-    } else {
-      const grant = 60 * 60; // 60 free minutes
-      await supabase
-        .from("wallets")
-        .update({ balance_seconds: seconds + grant })
-        .eq("user_id", uid);
-      await supabase.from("credit_transactions").insert({
-        user_id: uid,
-        kind: "trial",
-        seconds_delta: grant,
-        note: `Trial code ${tc.code}: ${tc.label ?? "60 minutes"}`,
-      });
-    }
-
-    setCode("");
-    await load(uid!);
-    setCodeBusy(false);
-    toast.success("Code redeemed 🎉");
   }
 
   async function buyPackage(packageId: string, label: string) {

@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,16 @@ import { ArrowLeft, Send, Phone, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
 import { CallScreen } from "@/components/CallScreen";
+import { useIncomingCallContext } from "@/components/IncomingCallProvider";
 import { notifyNewMessage } from "@/lib/notify.functions";
 
-export const Route = createFileRoute("/chat/$conversationId")({
+export const Route = createFileRoute("/_authenticated/chat/$conversationId")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    call:
+      search.call === "audio" || search.call === "video"
+        ? (search.call as "audio" | "video")
+        : undefined,
+  }),
   head: () => ({ meta: [{ title: "Chat — Pat My Back" }, { name: "robots", content: "noindex" }] }),
   component: Chat,
 });
@@ -19,7 +26,8 @@ type ConvoParty = { pal_id: string; client_id: string };
 
 function Chat() {
   const { conversationId } = Route.useParams();
-  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const incomingCtx = useIncomingCallContext();
   const [me, setMe] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
@@ -33,10 +41,7 @@ function Chat() {
   useEffect(() => {
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
+      if (!sess.session) return;
       setMe(sess.session.user.id);
 
       const { data: convo } = await supabase
@@ -67,7 +72,12 @@ function Chat() {
         .limit(200);
       setMessages((msgs ?? []) as Message[]);
     })();
-  }, [conversationId, navigate]);
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!search.call || !me || !incomingCtx) return;
+    incomingCtx.checkConversationCall(conversationId);
+  }, [search.call, me, conversationId, incomingCtx]);
 
   useEffect(() => {
     const channel = supabase
@@ -119,6 +129,7 @@ function Chat() {
           remoteName={otherName}
           palId={otherId ?? ""}
           conversationId={conversationId}
+          callerName={myName}
           onEnd={() => setActiveCall(null)}
         />
       )}

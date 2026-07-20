@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users } from "lucide-react";
 import { useIsOnline, useOnlineUsers } from "@/lib/presence";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
       { title: "Pat My Back — Talk to someone who has your back" },
@@ -34,7 +34,6 @@ type Pal = {
 };
 
 function Home() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [balanceSeconds, setBalanceSeconds] = useState(0);
@@ -48,10 +47,7 @@ function Home() {
   useEffect(() => {
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth", replace: true });
-        return;
-      }
+      if (!sess.session) return;
       const uid = sess.session.user.id;
       const [{ data: p }, { data: w }, { data: cats }, { data: pals }, { data: bans }] = await Promise.all([
         supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
@@ -101,7 +97,7 @@ function Home() {
       );
       setLoading(false);
     })();
-  }, [navigate]);
+  }, []);
 
   // Derive "online now" from live presence + pal opted-in (availability !== "offline")
   const online = allPals
@@ -205,6 +201,7 @@ function Home() {
             <Link
               key={c.id}
               to="/browse"
+              search={{ category: c.slug }}
               className="flex flex-col items-center gap-1.5 rounded-2xl bg-card p-2.5 text-center shadow-card"
             >
               <span

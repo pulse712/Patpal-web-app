@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { MessageCircle, DollarSign, Star, Clock } from "lucide-react";
 import { useIsOnline } from "@/lib/presence";
 
-export const Route = createFileRoute("/pal-dashboard")({
+export const Route = createFileRoute("/_authenticated/pal-dashboard")({
   component: PalDashboard,
 });
 
@@ -28,7 +28,6 @@ type PalRow = {
 
 function PalDashboard() {
   const { user, loading } = useSession();
-  const navigate = useNavigate();
   const [pal, setPal] = useState<PalRow | null>(null);
   const [isPal, setIsPal] = useState<boolean | null>(null);
   const [stats, setStats] = useState({ sessions: 0, minutes: 0, earnings: 0, unread: 0 });
@@ -40,11 +39,7 @@ function PalDashboard() {
   const livePresence = useIsOnline(user?.id ?? null);
 
   useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      navigate({ to: "/auth" });
-      return;
-    }
+    if (loading || !user) return;
     (async () => {
       const { data: roleData } = await supabase.rpc("has_role", {
         _user_id: user.id,
@@ -78,7 +73,7 @@ function PalDashboard() {
         unread:   0,
       });
     })();
-  }, [user, loading, navigate]);
+  }, [user, loading]);
 
   async function toggleAvailability(available: boolean) {
     if (!user || !pal) return;

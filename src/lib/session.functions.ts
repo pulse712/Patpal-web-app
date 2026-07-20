@@ -3,6 +3,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import {
+  computeDebitedBalance,
+  computeSessionCostCents,
+  computeTopUpSeconds,
+} from "@/lib/billing-utils";
 
 // ─── Start session ────────────────────────────────────────────────────────────
 // Creates a session record and returns the client's current balance.
@@ -86,7 +91,7 @@ export const endSession = createServerFn({ method: "POST" })
     }
     if (session.status === "ended") return { ok: true }; // idempotent
 
-    const costCents = Math.round((data.secondsUsed / 60) * session.price_cents_per_minute);
+    const costCents = computeSessionCostCents(data.secondsUsed, session.price_cents_per_minute);
 
     // Fetch current wallet
     const { data: wallet } = await supabaseAdmin
@@ -99,7 +104,7 @@ export const endSession = createServerFn({ method: "POST" })
       ? new Date(wallet.unlimited_until) > new Date()
       : false;
     const currentBalance = wallet?.balance_seconds ?? 0;
-    const newBalance = isUnlimited ? currentBalance : Math.max(0, currentBalance - data.secondsUsed);
+    const newBalance = computeDebitedBalance(currentBalance, data.secondsUsed, isUnlimited);
 
     // Update wallet, end session, insert debit tx — all in parallel
     await Promise.all([
@@ -178,7 +183,7 @@ export const createTopUpIntent = createServerFn({ method: "POST" })
     const { userId } = context;
 
     const ratePerMinCents = 1000 / 15; // $10 per 15 min
-    const seconds = Math.round((data.cents / ratePerMinCents) * 60);
+    const seconds = computeTopUpSeconds(data.cents, ratePerMinCents);
 
     const intent = await (stripe as import("stripe").default).paymentIntents.create({
       amount: data.cents,
@@ -220,4 +225,38 @@ export const getWalletBalance = createServerFn({ method: "GET" })
       balanceSeconds: isUnlimited ? 999999 : (data?.balance_seconds ?? 0),
       isUnlimited,
     };
+  });
+
+// ─── Decline incoming call (Pat Pal) ─────────────────────────────────────────
+export const declineIncomingCall = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data: unknown) =>
+    z.object({ sessionId: z.string().uuid() }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId } = context;
+
+    const { data: session } = await supabaseAdmin
+      .from("sessions")
+      .select("pal_id, status")
+      .eq("id", data.sessionId)
+      .single();
+
+    if (!session || session.pal_id !== userId) {
+      throw new Error("Session not found or access denied.");
+    }
+    if (session.status !== "active") return { ok: true };
+
+    await supabaseAdmin
+      .from("sessions")
+      .update({
+        status: "cancelled",
+        ended_at: new Date().toISOString(),
+        seconds_used: 0,
+        cost_cents: 0,
+      })
+      .eq("id", data.sessionId);
+
+    return { ok: true };
   });

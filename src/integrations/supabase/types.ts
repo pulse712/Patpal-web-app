@@ -476,13 +476,10 @@ export type Database = {
         };
         Returns: undefined;
       };
-      debit_wallet: {
+      cancel_session_before_connect: {
         Args: {
-          p_user_id: string;
           p_session_id: string;
-          p_seconds: number;
-          p_cost_cents: number;
-          p_note: string;
+          p_actor_id: string;
         };
         Returns: undefined;
       };
@@ -496,12 +493,46 @@ export type Database = {
         };
         Returns: undefined;
       };
+      debit_wallet: {
+        Args: {
+          p_user_id: string;
+          p_session_id: string;
+          p_seconds: number;
+          p_cost_cents: number;
+          p_note: string;
+        };
+        Returns: undefined;
+      };
+      end_session_billing: {
+        Args: {
+          p_session_id: string;
+          p_actor_id: string;
+          p_seconds: number;
+          p_cost_cents: number;
+          p_note: string;
+        };
+        Returns: { new_balance: number }[];
+      };
+      extend_session_billing_cap: {
+        Args: {
+          p_session_id: string;
+          p_seconds: number;
+        };
+        Returns: undefined;
+      };
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"];
           _user_id: string;
         };
         Returns: boolean;
+      };
+      mark_session_connected: {
+        Args: {
+          p_session_id: string;
+          p_actor_id: string;
+        };
+        Returns: undefined;
       };
     };
     Enums: {

@@ -4,7 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const requireActiveAccount = createMiddleware({ type: "function" }).server(
   async ({ next, context }) => {
-    const userId = (context as { userId?: string }).userId;
+    const userId = (context as unknown as { userId?: string }).userId;
     if (!userId) {
       throw new Error("Unauthorized");
     }

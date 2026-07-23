@@ -8,6 +8,7 @@
  *  - Returns helpers to enable/disable from any component
  */
 import { useCallback, useEffect, useState } from "react";
+import { getPublicEnv } from "@/lib/public-env";
 import { toast } from "sonner";
 import { savePushSubscription, removePushSubscription } from "@/lib/push-subscription.functions";
 
@@ -18,7 +19,7 @@ export function usePushNotifications() {
   const [subscribed, setSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const vapidPublic = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
+  const vapidPublic = getPublicEnv("VITE_VAPID_PUBLIC_KEY");
 
   // Sync state from browser on mount
   useEffect(() => {

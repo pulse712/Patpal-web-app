@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { supabase } from "@/integrations/supabase/client";
 import { setPresenceUser } from "@/lib/presence";
 import { Toaster } from "@/components/ui/sonner";
+import { PublicEnvScript } from "@/components/PublicEnvScript";
 
 function NotFoundComponent() {
   return (
@@ -138,6 +139,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
+        <PublicEnvScript />
         {children}
         <Scripts />
       </body>

@@ -2,6 +2,9 @@
 -- Pat My Back — Master Database Setup
 -- Run this entire file in Supabase SQL Editor ONE TIME
 -- on a fresh project (xhgybcyvpasmtlpscdly)
+--
+-- Then run POST_MASTER_MIGRATION.sql (RPCs + security hardening).
+-- Do NOT run migrations/20260715065810_* — it duplicates this file.
 -- ================================================================
 
 -- ── Enums ────────────────────────────────────────────────────────
@@ -11,6 +14,37 @@ CREATE TYPE public.availability_status AS ENUM ('available', 'busy', 'offline');
 CREATE TYPE public.session_kind AS ENUM ('chat', 'audio', 'video');
 CREATE TYPE public.session_status AS ENUM ('active', 'ended', 'cancelled');
 CREATE TYPE public.tx_kind AS ENUM ('purchase', 'debit', 'refund', 'trial');
+
+-- ── user_roles (must exist before has_role()) ─────────────────────
+CREATE TABLE public.user_roles (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role       public.app_role NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, role)
+);
+GRANT SELECT ON public.user_roles TO authenticated;
+GRANT ALL ON public.user_roles TO service_role;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+-- ── has_role helper (must exist before policies that call it) ─────
+CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role public.app_role)
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public AS $$
+BEGIN
+  IF auth.uid() IS NOT NULL
+     AND auth.uid() <> _user_id
+     AND NOT EXISTS (
+       SELECT 1 FROM public.user_roles
+       WHERE user_id = auth.uid() AND role IN ('admin', 'super_admin')
+     )
+  THEN
+    RETURN FALSE;
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.has_role(UUID, public.app_role) TO authenticated, service_role;
 
 -- ── profiles ─────────────────────────────────────────────────────
 CREATE TABLE public.profiles (
@@ -39,44 +73,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.profile_contacts TO authenticated
 GRANT ALL ON public.profile_contacts TO service_role;
 ALTER TABLE public.profile_contacts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "contacts owner read"   ON public.profile_contacts FOR SELECT TO authenticated
-  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
+  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role));
 CREATE POLICY "contacts owner insert" ON public.profile_contacts FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "contacts owner update" ON public.profile_contacts FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- ── user_roles ───────────────────────────────────────────────────
-CREATE TABLE public.user_roles (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  role       public.app_role NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, role)
-);
-GRANT SELECT ON public.user_roles TO authenticated;
-GRANT ALL ON public.user_roles TO service_role;
-ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "user_roles read own"    ON public.user_roles FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "user_roles admin write" ON public.user_roles FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
-
--- ── has_role helper ───────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role public.app_role)
-RETURNS BOOLEAN
-LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public AS $$
-BEGIN
-  IF auth.uid() IS NOT NULL
-     AND auth.uid() <> _user_id
-     AND NOT EXISTS (
-       SELECT 1 FROM public.user_roles
-       WHERE user_id = auth.uid() AND role IN ('admin', 'super_admin')
-     )
-  THEN
-    RETURN FALSE;
-  END IF;
-  RETURN EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role);
-END;
-$$;
-GRANT EXECUTE ON FUNCTION public.has_role(UUID, public.app_role) TO authenticated, service_role;
+  USING (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role));
 
 -- ── categories ───────────────────────────────────────────────────
 CREATE TABLE public.categories (
@@ -92,8 +96,8 @@ GRANT ALL ON public.categories TO service_role;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "categories public read"  ON public.categories FOR SELECT USING (true);
 CREATE POLICY "categories admin write"  ON public.categories FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
+  USING (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role));
 
 INSERT INTO public.categories (slug, name, emoji, sort_order) VALUES
   ('mentorship',            'Mentorship',            '🤝', 1),
@@ -131,8 +135,8 @@ CREATE POLICY "pat_pals public read"   ON public.pat_pals FOR SELECT USING (true
 CREATE POLICY "pat_pals update own"    ON public.pat_pals FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 -- pat_pals INSERT is admin/service-role only (see admin.functions setUserRole)
 CREATE POLICY "pat_pals admin manage"  ON public.pat_pals FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
+  USING (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role));
 
 -- ── wallets ──────────────────────────────────────────────────────
 CREATE TABLE public.wallets (
@@ -240,8 +244,8 @@ GRANT ALL ON public.trial_codes TO service_role;
 ALTER TABLE public.trial_codes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "trial_codes read active" ON public.trial_codes FOR SELECT TO authenticated USING (is_active = true);
 CREATE POLICY "trial_codes admin write" ON public.trial_codes FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
+  USING (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role));
 
 -- ── promo_banners ─────────────────────────────────────────────────
 CREATE TABLE public.promo_banners (
@@ -260,8 +264,8 @@ GRANT ALL ON public.promo_banners TO service_role;
 ALTER TABLE public.promo_banners ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "promo public read"  ON public.promo_banners FOR SELECT USING (is_visible = true);
 CREATE POLICY "promo admin write"  ON public.promo_banners FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
+  USING (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role));
 
 -- ── push_subscriptions ────────────────────────────────────────────
 CREATE TABLE public.push_subscriptions (
@@ -362,7 +366,7 @@ DROP POLICY IF EXISTS "user_roles admin write" ON public.user_roles;
 DROP POLICY IF EXISTS "trial_codes read active" ON public.trial_codes;
 CREATE POLICY "trial_codes admin read" ON public.trial_codes
   FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
+  USING (public.has_role(auth.uid(), 'admin'::public.app_role) OR public.has_role(auth.uid(), 'super_admin'::public.app_role));
 
 DROP POLICY IF EXISTS "profiles read authenticated" ON public.profiles;
 DROP POLICY IF EXISTS "profiles readable by authenticated" ON public.profiles;

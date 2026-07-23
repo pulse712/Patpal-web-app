@@ -1,41 +1,74 @@
 // Server functions for session lifecycle and billing.
 // All wallet mutations happen server-side via the service role to bypass RLS.
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
+import { computeTopUpSeconds } from "@/lib/billing-utils";
+
+async function fetchWalletBalance(userId: string): Promise<number> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin
+    .from("wallets")
+    .select("balance_seconds, unlimited_until")
+    .eq("user_id", userId)
+    .single();
+  const isUnlimited = data?.unlimited_until ? new Date(data.unlimited_until) > new Date() : false;
+  return isUnlimited ? 999999 : (data?.balance_seconds ?? 0);
+}
 
 // ─── Start session ────────────────────────────────────────────────────────────
-// Creates a session record and returns the client's current balance.
+// Only clients may start paid sessions.
 export const startSession = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([...serverAuth])
   .validator((data: unknown) =>
-    z.object({
-      palId: z.string().uuid(),
-      conversationId: z.string().uuid().optional(),
-      kind: z.enum(["audio", "video", "chat"]),
-    }).parse(data),
+    z
+      .object({
+        palId: z.string().uuid(),
+        conversationId: z.string().uuid().optional(),
+        kind: z.enum(["audio", "video", "chat"]),
+      })
+      .parse(data),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
-    // Fetch wallet balance and pal price
-    const [{ data: wallet }, { data: pal }] = await Promise.all([
-      supabaseAdmin.from("wallets").select("balance_seconds, unlimited_until").eq("user_id", userId).single(),
-      supabaseAdmin.from("pat_pals").select("price_cents_per_minute").eq("user_id", data.palId).single(),
+    if (userId === data.palId) {
+      throw new Error("You cannot start a session with yourself.");
+    }
+
+    const [{ data: isPatPal }, { data: pal }, { data: wallet }] = await Promise.all([
+      supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "pat_pal" }),
+      supabaseAdmin
+        .from("pat_pals")
+        .select("user_id, price_cents_per_minute")
+        .eq("user_id", data.palId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("wallets")
+        .select("balance_seconds, unlimited_until")
+        .eq("user_id", userId)
+        .single(),
     ]);
+
+    if (isPatPal) {
+      throw new Error("Only clients can initiate paid sessions.");
+    }
+
+    if (!pal) {
+      throw new Error("Pat Pal not found.");
+    }
 
     const balanceSeconds = wallet?.balance_seconds ?? 0;
     const isUnlimited = wallet?.unlimited_until
       ? new Date(wallet.unlimited_until) > new Date()
       : false;
-    const priceCentsPerMin = pal?.price_cents_per_minute ?? 0;
+    const priceCentsPerMin = pal.price_cents_per_minute ?? 0;
 
     if (!isUnlimited && balanceSeconds < 60) {
       throw new Error("Insufficient balance. Please top up your wallet.");
     }
 
-    // Create session record
     const { data: session, error } = await supabaseAdmin
       .from("sessions")
       .insert({
@@ -50,7 +83,13 @@ export const startSession = createServerFn({ method: "POST" })
       .select("id")
       .single();
 
-    if (error || !session) throw new Error("Could not create session record.");
+    if (error) {
+      if (error.code === "23505") {
+        throw new Error("You already have an active session. End it before starting another.");
+      }
+      throw new Error("Could not create session record.");
+    }
+    if (!session) throw new Error("Could not create session record.");
 
     return {
       sessionId: session.id,
@@ -60,89 +99,91 @@ export const startSession = createServerFn({ method: "POST" })
     };
   });
 
-// ─── End session ─────────────────────────────────────────────────────────────
-// Debits the wallet and marks the session ended.
+// ─── Mark session connected (billing clock starts) ───────────────────────────
+export const markSessionConnected = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) => z.object({ sessionId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.rpc("mark_session_connected", {
+      p_session_id: data.sessionId,
+      p_actor_id: context.userId,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// ─── End session (client or pal may finalize billing) ────────────────────────
 export const endSession = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([...serverAuth])
   .validator((data: unknown) =>
-    z.object({
-      sessionId: z.string().uuid(),
-      secondsUsed: z.number().int().nonnegative(),
-    }).parse(data),
+    z
+      .object({
+        sessionId: z.string().uuid(),
+      })
+      .parse(data),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
-    // Fetch session to get price and verify ownership
     const { data: session } = await supabaseAdmin
       .from("sessions")
-      .select("client_id, pal_id, price_cents_per_minute, status, kind")
+      .select("client_id, pal_id, status, kind, seconds_used, cost_cents")
       .eq("id", data.sessionId)
       .single();
 
-    if (!session || session.client_id !== userId) {
+    if (!session || (session.client_id !== userId && session.pal_id !== userId)) {
       throw new Error("Session not found or access denied.");
     }
-    if (session.status === "ended") return { ok: true }; // idempotent
 
-    const costCents = Math.round((data.secondsUsed / 60) * session.price_cents_per_minute);
+    if (session.status === "ended" || session.status === "cancelled") {
+      const newBalance = await fetchWalletBalance(session.client_id);
+      return {
+        ok: true,
+        secondsUsed: session.seconds_used ?? 0,
+        costCents: session.cost_cents ?? 0,
+        newBalance,
+      };
+    }
 
-    // Fetch current wallet
-    const { data: wallet } = await supabaseAdmin
-      .from("wallets")
-      .select("balance_seconds, unlimited_until")
-      .eq("user_id", userId)
+    const clientId = session.client_id;
+    const note = "Session ended";
+
+    const { data: billingRows, error: billingError } = await supabaseAdmin.rpc(
+      "end_session_billing",
+      {
+        p_session_id: data.sessionId,
+        p_actor_id: userId,
+        p_seconds: 0,
+        p_cost_cents: 0,
+        p_note: note,
+      },
+    );
+
+    if (billingError) throw new Error(billingError.message);
+
+    const newBalance = billingRows?.[0]?.new_balance ?? 0;
+
+    const { data: endedSession } = await supabaseAdmin
+      .from("sessions")
+      .select("seconds_used, cost_cents")
+      .eq("id", data.sessionId)
       .single();
 
-    const isUnlimited = wallet?.unlimited_until
-      ? new Date(wallet.unlimited_until) > new Date()
-      : false;
-    const currentBalance = wallet?.balance_seconds ?? 0;
-    const newBalance = isUnlimited ? currentBalance : Math.max(0, currentBalance - data.secondsUsed);
+    const secondsUsed = endedSession?.seconds_used ?? 0;
+    const costCents = endedSession?.cost_cents ?? 0;
 
-    // Update wallet, end session, insert debit tx — all in parallel
-    await Promise.all([
-      isUnlimited
-        ? Promise.resolve()
-        : supabaseAdmin
-            .from("wallets")
-            .update({ balance_seconds: newBalance, updated_at: new Date().toISOString() })
-            .eq("user_id", userId),
-
-      supabaseAdmin
-        .from("sessions")
-        .update({
-          status: "ended",
-          ended_at: new Date().toISOString(),
-          seconds_used: data.secondsUsed,
-          cost_cents: costCents,
-        })
-        .eq("id", data.sessionId),
-
-      isUnlimited
-        ? Promise.resolve()
-        : supabaseAdmin.from("credit_transactions").insert({
-            user_id: userId,
-            kind: "debit",
-            seconds_delta: -data.secondsUsed,
-            cents_amount: costCents,
-            session_id: data.sessionId,
-            note: `Session ended — ${Math.round(data.secondsUsed / 60)}m used`,
-          }),
-    ]);
-
-    // Send session summary email (best-effort, don't block the response)
     (async () => {
       try {
         const [authRes, clientProfile, palProfile] = await Promise.all([
-          supabaseAdmin.auth.admin.getUserById(userId),
-          supabaseAdmin.from("profiles").select("full_name").eq("id", userId).single(),
+          supabaseAdmin.auth.admin.getUserById(clientId),
+          supabaseAdmin.from("profiles").select("full_name").eq("id", clientId).single(),
           supabaseAdmin.from("profiles").select("full_name").eq("id", session.pal_id).single(),
         ]);
 
         const email = authRes.data?.user?.email;
-        if (!email) return;
+        if (!email || secondsUsed <= 0) return;
 
         const { sendSessionSummary } = await import("@/lib/email.server");
         await sendSessionSummary({
@@ -150,7 +191,7 @@ export const endSession = createServerFn({ method: "POST" })
           name: clientProfile.data?.full_name || "there",
           palName: palProfile.data?.full_name || "your Pat Pal",
           kind: session.kind ?? "audio",
-          durationMinutes: Math.round(data.secondsUsed / 60),
+          durationMinutes: Math.round(secondsUsed / 60),
           costDollars: (costCents / 100).toFixed(2),
           remainingMinutes: Math.round(newBalance / 60),
           date: new Date().toLocaleDateString("en-US", { dateStyle: "long" }),
@@ -160,25 +201,39 @@ export const endSession = createServerFn({ method: "POST" })
       }
     })();
 
-    return { ok: true, newBalance, costCents };
+    return { ok: true, newBalance, costCents, secondsUsed };
   });
 
 // ─── Mid-call top-up (Stripe Payment Intent) ─────────────────────────────────
-// Creates a PaymentIntent and returns client_secret for in-call top-up.
-// On confirmation the webhook credits the wallet (same as checkout webhook).
 export const createTopUpIntent = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([...serverAuth])
   .validator((data: unknown) =>
-    z.object({
-      cents: z.number().int().min(500), // min $5
-    }).parse(data),
+    z
+      .object({
+        cents: z.number().int().min(500).max(50000),
+        sessionId: z.string().uuid().optional(),
+      })
+      .parse(data),
   )
   .handler(async ({ data, context }) => {
     const { stripe } = await import("@/lib/stripe.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
-    const ratePerMinCents = 1000 / 15; // $10 per 15 min
-    const seconds = Math.round((data.cents / ratePerMinCents) * 60);
+    if (data.sessionId) {
+      const { data: session } = await supabaseAdmin
+        .from("sessions")
+        .select("client_id, status")
+        .eq("id", data.sessionId)
+        .single();
+
+      if (!session || session.client_id !== userId || session.status !== "active") {
+        throw new Error("Invalid or inactive session for top-up.");
+      }
+    }
+
+    const ratePerMinCents = 1000 / 15;
+    const seconds = computeTopUpSeconds(data.cents, ratePerMinCents);
 
     const intent = await (stripe as import("stripe").default).paymentIntents.create({
       amount: data.cents,
@@ -189,6 +244,7 @@ export const createTopUpIntent = createServerFn({ method: "POST" })
         seconds: String(seconds),
         label: `Top-up (${Math.round(seconds / 60)} min)`,
         source: "mid_call_topup",
+        ...(data.sessionId ? { session_id: data.sessionId } : {}),
       },
     });
 
@@ -201,23 +257,113 @@ export const createTopUpIntent = createServerFn({ method: "POST" })
 
 // ─── Fetch wallet balance ──────────────────────────────────────────────────────
 export const getWalletBalance = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([...serverAuth])
   .handler(async ({ context }) => {
+    const balanceSeconds = await fetchWalletBalance(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data } = await supabaseAdmin
+      .from("wallets")
+      .select("unlimited_until")
+      .eq("user_id", context.userId)
+      .single();
+
+    const isUnlimited = data?.unlimited_until ? new Date(data.unlimited_until) > new Date() : false;
+
+    return { balanceSeconds, isUnlimited };
+  });
+
+// ─── Decline incoming call (Pat Pal — before connecting) ─────────────────────
+export const declineIncomingCall = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) => z.object({ sessionId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: session } = await supabaseAdmin
+      .from("sessions")
+      .select("pal_id")
+      .eq("id", data.sessionId)
+      .single();
+
+    if (!session || session.pal_id !== context.userId) {
+      throw new Error("Session not found or access denied.");
+    }
+
+    const { error } = await supabaseAdmin.rpc("cancel_session_before_connect", {
+      p_session_id: data.sessionId,
+      p_actor_id: context.userId,
+    });
+
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// ─── Active session billing snapshot (for mid-call top-up polling) ─────────────
+export const getActiveSessionBilling = createServerFn({ method: "GET" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) => z.object({ sessionId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
-    const { data } = await supabaseAdmin
-      .from("wallets")
-      .select("balance_seconds, unlimited_until")
-      .eq("user_id", userId)
+    const { data: session } = await supabaseAdmin
+      .from("sessions")
+      .select("client_id, pal_id, status, remaining_seconds_at_start, connected_at")
+      .eq("id", data.sessionId)
       .single();
 
-    const isUnlimited = data?.unlimited_until
-      ? new Date(data.unlimited_until) > new Date()
+    if (!session || (session.client_id !== userId && session.pal_id !== userId)) {
+      throw new Error("Session not found or access denied.");
+    }
+
+    const { data: wallet } = await supabaseAdmin
+      .from("wallets")
+      .select("balance_seconds, unlimited_until")
+      .eq("user_id", session.client_id)
+      .single();
+
+    const isUnlimited = wallet?.unlimited_until
+      ? new Date(wallet.unlimited_until) > new Date()
       : false;
+    const balanceSeconds = isUnlimited ? 999999 : (wallet?.balance_seconds ?? 0);
+
+    let billableSecondsRemaining = session.remaining_seconds_at_start ?? 0;
+    if (session.connected_at) {
+      const used = Math.floor((Date.now() - new Date(session.connected_at).getTime()) / 1000);
+      billableSecondsRemaining = Math.max(0, billableSecondsRemaining - used);
+    }
 
     return {
-      balanceSeconds: isUnlimited ? 999999 : (data?.balance_seconds ?? 0),
+      balanceSeconds,
       isUnlimited,
+      billableSecondsRemaining,
+      isConnected: !!session.connected_at,
+      status: session.status,
     };
+  });
+
+// ─── Cancel session without billing (caller hang-up before connect) ──────────
+export const cancelSession = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) => z.object({ sessionId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: session } = await supabaseAdmin
+      .from("sessions")
+      .select("client_id")
+      .eq("id", data.sessionId)
+      .single();
+
+    if (!session || session.client_id !== context.userId) {
+      throw new Error("Session not found or access denied.");
+    }
+
+    const { error } = await supabaseAdmin.rpc("cancel_session_before_connect", {
+      p_session_id: data.sessionId,
+      p_actor_id: context.userId,
+    });
+
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });

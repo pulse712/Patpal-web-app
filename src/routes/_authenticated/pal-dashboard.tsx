@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { MessageCircle, DollarSign, Star, Clock } from "lucide-react";
 import { useIsOnline } from "@/lib/presence";
 
-export const Route = createFileRoute("/pal-dashboard")({
+export const Route = createFileRoute("/_authenticated/pal-dashboard")({
   component: PalDashboard,
 });
 
@@ -28,7 +28,6 @@ type PalRow = {
 
 function PalDashboard() {
   const { user, loading } = useSession();
-  const navigate = useNavigate();
   const [pal, setPal] = useState<PalRow | null>(null);
   const [isPal, setIsPal] = useState<boolean | null>(null);
   const [stats, setStats] = useState({ sessions: 0, minutes: 0, earnings: 0, unread: 0 });
@@ -40,11 +39,7 @@ function PalDashboard() {
   const livePresence = useIsOnline(user?.id ?? null);
 
   useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      navigate({ to: "/auth" });
-      return;
-    }
+    if (loading || !user) return;
     (async () => {
       const { data: roleData } = await supabase.rpc("has_role", {
         _user_id: user.id,
@@ -55,7 +50,9 @@ function PalDashboard() {
 
       const { data: palRow } = await supabase
         .from("pat_pals")
-        .select("user_id, headline, availability, price_cents_per_minute, rating_avg, rating_count, tier")
+        .select(
+          "user_id, headline, availability, price_cents_per_minute, rating_avg, rating_count, tier",
+        )
         .eq("user_id", user.id)
         .maybeSingle();
       if (palRow) {
@@ -69,16 +66,19 @@ function PalDashboard() {
         .select("seconds_used, cost_cents")
         .eq("pal_id", user.id)
         .eq("status", "ended");
-      const totalSecs   = (sess ?? []).reduce((a, s) => a + (s.seconds_used ?? 0), 0);
-      const totalCents  = (sess ?? []).reduce((a, s) => a + (s.cost_cents ?? 0), 0);
+      const totalSecs = (sess ?? []).reduce((a, s) => a + (s.seconds_used ?? 0), 0);
+      const totalCents = (sess ?? []).reduce((a, s) => a + (s.cost_cents ?? 0), 0);
+      // 70% payout share — platform retains 30%.
+      // This is an estimated display value; actual payouts are processed separately.
+      const PAL_SHARE = 0.7;
       setStats({
         sessions: sess?.length ?? 0,
-        minutes:  Math.round(totalSecs / 60),
-        earnings: Math.round(totalCents * 0.7), // 70% payout share
-        unread:   0,
+        minutes: Math.round(totalSecs / 60),
+        earnings: Math.round(totalCents * PAL_SHARE),
+        unread: 0,
       });
     })();
-  }, [user, loading, navigate]);
+  }, [user, loading]);
 
   async function toggleAvailability(available: boolean) {
     if (!user || !pal) return;
@@ -87,7 +87,10 @@ function PalDashboard() {
       .from("pat_pals")
       .update({ availability: next })
       .eq("user_id", user.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     setPal({ ...pal, availability: next });
     toast.success(available ? "You're online" : "You're offline");
   }
@@ -101,13 +104,20 @@ function PalDashboard() {
       .update({ price_cents_per_minute: cents, headline })
       .eq("user_id", user.id);
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     if (pal) setPal({ ...pal, price_cents_per_minute: cents, headline });
     toast.success("Profile updated");
   }
 
   if (loading || isPal === null) {
-    return <AppShell><div className="p-6 text-sm text-muted-foreground">Loading...</div></AppShell>;
+    return (
+      <AppShell>
+        <div className="p-6 text-sm text-muted-foreground">Loading...</div>
+      </AppShell>
+    );
   }
 
   if (!isPal) {
@@ -115,8 +125,12 @@ function PalDashboard() {
       <AppShell>
         <div className="p-6 space-y-3">
           <h1 className="text-xl font-semibold">Not a Pat Pal</h1>
-          <p className="text-sm text-muted-foreground">This dashboard is for approved Pat Pals only.</p>
-          <Button asChild><Link to="/">Back home</Link></Button>
+          <p className="text-sm text-muted-foreground">
+            This dashboard is for approved Pat Pals only.
+          </p>
+          <Button asChild>
+            <Link to="/">Back home</Link>
+          </Button>
         </div>
       </AppShell>
     );
@@ -150,11 +164,11 @@ function PalDashboard() {
         </header>
 
         <div className="grid grid-cols-2 gap-3">
-          <StatCard icon={MessageCircle} label="Sessions"  value={stats.sessions} />
-          <StatCard icon={Clock}         label="Minutes"   value={stats.minutes} />
+          <StatCard icon={MessageCircle} label="Sessions" value={stats.sessions} />
+          <StatCard icon={Clock} label="Minutes" value={stats.minutes} />
           <StatCard
             icon={DollarSign}
-            label="Earnings (70%)"
+            label="Est. earnings (70%)"
             value={`$${(stats.earnings / 100).toFixed(2)}`}
           />
           <StatCard

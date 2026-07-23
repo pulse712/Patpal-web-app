@@ -12,14 +12,30 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
-  Mic, MicOff, Video, VideoOff, PhoneOff,
-  Loader2, Volume2, AlertTriangle, Plus, CheckCircle2,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  PhoneOff,
+  Loader2,
+  Volume2,
+  AlertTriangle,
+  Plus,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { getAgoraToken } from "@/lib/agora.functions";
-import { startSession, endSession, createTopUpIntent } from "@/lib/session.functions";
+import {
+  startSession,
+  endSession,
+  cancelSession,
+  createTopUpIntent,
+  declineIncomingCall,
+  markSessionConnected,
+  getActiveSessionBilling,
+} from "@/lib/session.functions";
 import { notifyIncomingCall } from "@/lib/notify.functions";
 import { RatingModal } from "@/components/RatingModal";
 
@@ -31,89 +47,132 @@ interface CallScreenProps {
   remoteName: string;
   palId: string;
   conversationId?: string;
-  callerName?: string; // name of the person initiating — used in push notification
+  callerName?: string;
+  role?: "caller" | "callee";
+  sessionId?: string;
   onEnd: () => void;
 }
 
 // Agora dynamic import types
-type AgoraClient    = import("agora-rtc-sdk-ng").IAgoraRTCClient;
-type ILocalAudio    = import("agora-rtc-sdk-ng").ILocalAudioTrack;
-type ILocalVideo    = import("agora-rtc-sdk-ng").ILocalVideoTrack;
-type IRemoteAudio   = import("agora-rtc-sdk-ng").IRemoteAudioTrack;
-type IRemoteVideo   = import("agora-rtc-sdk-ng").IRemoteVideoTrack;
+type AgoraClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
+type ILocalAudio = import("agora-rtc-sdk-ng").ILocalAudioTrack;
+type ILocalVideo = import("agora-rtc-sdk-ng").ILocalVideoTrack;
+type IRemoteAudio = import("agora-rtc-sdk-ng").IRemoteAudioTrack;
+type IRemoteVideo = import("agora-rtc-sdk-ng").IRemoteVideoTrack;
 
 const GRACE_SECONDS = 30; // extra seconds after balance runs out before forced end
-const WARN_SECONDS  = 120; // show top-up warning when this many seconds remain
+const WARN_SECONDS = 120; // show top-up warning when this many seconds remain
 
 const TOP_UP_PRESETS = [
-  { label: "$5",  cents: 500  },
+  { label: "$5", cents: 500 },
   { label: "$10", cents: 1000 },
   { label: "$15", cents: 1500 },
 ];
 
 export function CallScreen({
-  channelName, kind, remoteName, palId, conversationId, callerName, onEnd,
+  channelName,
+  kind,
+  remoteName,
+  palId,
+  conversationId,
+  callerName,
+  role = "caller",
+  sessionId,
+  onEnd,
 }: CallScreenProps) {
+  const isCallee = role === "callee";
   // ── Agora state ──────────────────────────────────────────────────────────
-  const [status, setStatus]           = useState<"connecting"|"connected"|"ended">("connecting");
-  const [muted, setMuted]             = useState(false);
-  const [camOff, setCamOff]           = useState(false);
+  const [status, setStatus] = useState<"connecting" | "connected" | "ended">("connecting");
+  const [muted, setMuted] = useState(false);
+  const [camOff, setCamOff] = useState(false);
   const [remoteJoined, setRemoteJoined] = useState(false);
 
   // ── Billing state ────────────────────────────────────────────────────────
-  const [balanceSec, setBalanceSec]   = useState<number | null>(null); // null = loading
+  const [balanceSec, setBalanceSec] = useState<number | null>(null); // null = loading
   const [isUnlimited, setIsUnlimited] = useState(false);
-  const [elapsed, setElapsed]         = useState(0);   // seconds since connected
-  const elapsedRef                    = useRef(0);      // always-current value for handleEnd
+  const [elapsed, setElapsed] = useState(0); // seconds since connected
+  const elapsedRef = useRef(0); // always-current value for handleEnd
   const [graceRemaining, setGraceRemaining] = useState<number | null>(null);
-  const sessionIdRef                  = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   // ── Top-up modal state ───────────────────────────────────────────────────
-  const [showTopUp, setShowTopUp]     = useState(false);
-  const [topUpCents, setTopUpCents]   = useState<number | null>(null);
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [topUpCents, setTopUpCents] = useState<number | null>(null);
   const [customInput, setCustomInput] = useState("");
-  const [topUpBusy, setTopUpBusy]     = useState(false);
-  const [topUpDone, setTopUpDone]     = useState(false);
-  const warnFiredRef                  = useRef(false);
+  const [topUpBusy, setTopUpBusy] = useState(false);
+  const [topUpDone, setTopUpDone] = useState(false);
+  const warnFiredRef = useRef(false);
+  const [billingActive, setBillingActive] = useState(false);
+  const billableCapRef = useRef<number | null>(null);
 
   // ── Rating state ─────────────────────────────────────────────────────────
-  const [showRating, setShowRating]   = useState(false);
-  const palIdForRating                = useRef(palId);
-  const hasEndedRef                   = useRef(false); // guard against double-end
+  const [showRating, setShowRating] = useState(false);
+  const palIdForRating = useRef(palId);
+  const hasEndedRef = useRef(false); // guard against double-end
+  const wasConnectedRef = useRef(false);
+  const hasMarkedConnectedRef = useRef(false);
+
+  async function ensureSessionConnected() {
+    if (hasMarkedConnectedRef.current || !sessionIdRef.current) return;
+
+    const sid = sessionIdRef.current;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await markSessionConnected({ data: { sessionId: sid } });
+        hasMarkedConnectedRef.current = true;
+        wasConnectedRef.current = true;
+        setBillingActive(true);
+        setElapsed(0);
+        elapsedRef.current = 0;
+
+        if (!isCallee && !isUnlimited) {
+          const billing = await getActiveSessionBilling({ data: { sessionId: sid } });
+          billableCapRef.current = billing.billableSecondsRemaining;
+          setBalanceSec(billing.balanceSeconds);
+        }
+
+        startElapsedTimer();
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+
+    toast.error("Could not confirm call connection. Ending call.");
+    void handleEnd();
+  }
 
   // ── Agora refs ────────────────────────────────────────────────────────────
-  const clientRef        = useRef<AgoraClient | null>(null);
-  const localAudioRef    = useRef<ILocalAudio | null>(null);
-  const localVideoRef    = useRef<ILocalVideo | null>(null);
-  const localVideoElRef  = useRef<HTMLDivElement>(null);
+  const clientRef = useRef<AgoraClient | null>(null);
+  const localAudioRef = useRef<ILocalAudio | null>(null);
+  const localVideoRef = useRef<ILocalVideo | null>(null);
+  const localVideoElRef = useRef<HTMLDivElement>(null);
   const remoteVideoElRef = useRef<HTMLDivElement>(null);
 
   // ── Timers ────────────────────────────────────────────────────────────────
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const graceTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const graceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Join Agora + start session
   // ─────────────────────────────────────────────────────────────────────────
   const joinChannel = useCallback(async () => {
     try {
-      // 1. Start session — validates balance, creates DB record
-      const sessionData = await startSession({
-        data: { palId, conversationId, kind },
-      });
-      sessionIdRef.current = sessionData.sessionId;
-      setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
-      setIsUnlimited(sessionData.isUnlimited);
+      if (isCallee) {
+        sessionIdRef.current = sessionId ?? null;
+      } else {
+        const sessionData = await startSession({
+          data: { palId, conversationId, kind },
+        });
+        sessionIdRef.current = sessionData.sessionId;
+        setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
+        setIsUnlimited(sessionData.isUnlimited);
+      }
 
-      // 2. Join Agora
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
       AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
 
-      const uid = Math.abs(
-        channelName.split("").reduce((acc, c) => (acc << 5) - acc + c.charCodeAt(0), 0),
-      ) % 100000;
-
-      const { token, appId } = await getAgoraToken({ data: { channelName, uid } });
+      const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName } });
       if (!appId) throw new Error("Agora App ID not configured.");
 
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
@@ -126,16 +185,18 @@ export function CallScreen({
           (user.videoTrack as IRemoteVideo)?.play(remoteVideoElRef.current);
         setRemoteJoined(true);
         setStatus("connected");
-        startElapsedTimer();
+        void ensureSessionConnected();
       });
 
-      client.on("user-unpublished", (_u, mt) => { if (mt === "video") setRemoteJoined(false); });
+      client.on("user-unpublished", (_u, mt) => {
+        if (mt === "video") setRemoteJoined(false);
+      });
       client.on("user-left", () => {
         setRemoteJoined(false);
         toast.info(`${remoteName} left the call.`);
       });
 
-      await client.join(appId, channelName, token ?? null, uid);
+      await client.join(appId, channelName, token ?? null, agoraUid);
 
       if (kind === "video") {
         const [aud, vid] = await AgoraRTC.createMicrophoneAndCameraTracks();
@@ -150,23 +211,32 @@ export function CallScreen({
       }
 
       setStatus("connected");
-      startElapsedTimer(); // also start timer in case remote hasn't joined yet
+      if (client.remoteUsers.length > 0) {
+        void ensureSessionConnected();
+      }
 
-      // Notify the Pat Pal of the incoming call (best-effort)
-      notifyIncomingCall({
-        data: {
-          recipientId: palId,
-          callerName: callerName ?? "Someone",
-          kind,
-          channelName,
-        },
-      }).catch(() => { /* best-effort */ });
+      if (!isCallee && sessionIdRef.current) {
+        notifyIncomingCall({
+          data: {
+            recipientId: palId,
+            callerName: callerName ?? "Someone",
+            kind,
+            channelName,
+            conversationId,
+            sessionId: sessionIdRef.current,
+          },
+        }).catch(() => {
+          /* best-effort */
+        });
+      }
     } catch (err: unknown) {
       console.error("[CallScreen] Join failed:", err);
       toast.error(err instanceof Error ? err.message : "Could not start call");
-      handleEnd();
+      void cleanupSession(false);
+      await leaveChannel();
+      onEnd();
     }
-  }, [channelName, kind, palId, conversationId, remoteName]); // eslint-disable-line
+  }, [channelName, kind, palId, conversationId, remoteName, callerName, isCallee, sessionId]); // eslint-disable-line
 
   function startElapsedTimer() {
     if (elapsedTimerRef.current) return; // already running
@@ -183,9 +253,10 @@ export function CallScreen({
   // Watch balance & elapsed to trigger warning / grace / forced end
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (isUnlimited || balanceSec === null) return;
+    if (!billingActive || isUnlimited || balanceSec === null || isCallee) return;
 
-    const remaining = balanceSec - elapsed;
+    const cap = billableCapRef.current ?? balanceSec;
+    const remaining = cap - elapsed;
 
     // 2-minute warning
     if (!warnFiredRef.current && remaining <= WARN_SECONDS && remaining > 0) {
@@ -193,13 +264,16 @@ export function CallScreen({
       setShowTopUp(true);
     }
 
-    // Balance depleted — start grace countdown
-    if (remaining <= 0 && graceRemaining === null) {
+    // Balance depleted — start grace countdown (only if not already running)
+    if (remaining <= 0 && graceRemaining === null && !graceTimerRef.current) {
       setGraceRemaining(GRACE_SECONDS);
       graceTimerRef.current = setInterval(() => {
         setGraceRemaining((g) => {
           if (g === null || g <= 1) {
-            clearInterval(graceTimerRef.current!);
+            if (graceTimerRef.current) {
+              clearInterval(graceTimerRef.current);
+              graceTimerRef.current = null;
+            }
             handleEnd(); // forced end after grace
             return 0;
           }
@@ -207,41 +281,85 @@ export function CallScreen({
         });
       }, 1000);
     }
-  }, [elapsed, balanceSec, isUnlimited, graceRemaining]); // eslint-disable-line
+  }, [elapsed, balanceSec, isUnlimited, graceRemaining, isCallee, billingActive]); // eslint-disable-line
+
+  async function waitForTopUpApplied(purchasedSeconds: number) {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+
+    const baseline = billableCapRef.current ?? 0;
+    for (let i = 0; i < 20; i++) {
+      const billing = await getActiveSessionBilling({ data: { sessionId: sid } });
+      if (billing.isUnlimited) {
+        setIsUnlimited(true);
+        setBalanceSec(Infinity);
+        billableCapRef.current = Infinity;
+        setElapsed(0);
+        elapsedRef.current = 0;
+        return;
+      }
+      if (
+        billing.billableSecondsRemaining >= baseline + purchasedSeconds - 2 ||
+        billing.balanceSeconds >= (balanceSec ?? 0) + purchasedSeconds - 2
+      ) {
+        billableCapRef.current = billing.billableSecondsRemaining;
+        setBalanceSec(billing.balanceSeconds);
+        setElapsed(0);
+        elapsedRef.current = 0;
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    toast.warning("Payment received — balance may take a moment to update.");
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Leave Agora + end session
   // ─────────────────────────────────────────────────────────────────────────
   const leaveChannel = useCallback(async () => {
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-    if (graceTimerRef.current)   clearInterval(graceTimerRef.current);
+    if (graceTimerRef.current) clearInterval(graceTimerRef.current);
     localAudioRef.current?.close();
     localVideoRef.current?.close();
-    try { await clientRef.current?.leave(); } catch { /* ignore */ }
+    try {
+      await clientRef.current?.leave();
+    } catch {
+      /* ignore */
+    }
     clientRef.current = null;
     localAudioRef.current = null;
     localVideoRef.current = null;
   }, []);
+
+  async function cleanupSession(billSession: boolean) {
+    if (!sessionIdRef.current) return;
+    const sid = sessionIdRef.current;
+    try {
+      if (isCallee) {
+        if (billSession && wasConnectedRef.current) {
+          await endSession({ data: { sessionId: sid } });
+        } else {
+          await declineIncomingCall({ data: { sessionId: sid } });
+        }
+      } else if (billSession && wasConnectedRef.current) {
+        await endSession({ data: { sessionId: sid } });
+      } else {
+        await cancelSession({ data: { sessionId: sid } });
+      }
+    } catch (err) {
+      console.error("[CallScreen] session cleanup failed:", err);
+    }
+  }
 
   async function handleEnd() {
     if (hasEndedRef.current) return; // prevent double-end from race conditions
     hasEndedRef.current = true;
     setStatus("ended");
 
-    // Debit wallet on server — use ref to get accurate elapsed time
-    const secondsUsed = elapsedRef.current;
-    if (sessionIdRef.current && secondsUsed > 0) {
-      try {
-        await endSession({ data: { sessionId: sessionIdRef.current, secondsUsed } });
-      } catch (err) {
-        console.error("[CallScreen] endSession failed:", err);
-      }
-    }
-
+    await cleanupSession(true);
     await leaveChannel();
 
-    // Show rating modal if session lasted more than 30 seconds
-    if (secondsUsed >= 30 && sessionIdRef.current) {
+    if (!isCallee && elapsed >= 30 && sessionIdRef.current) {
       setShowRating(true);
     } else {
       onEnd();
@@ -250,19 +368,31 @@ export function CallScreen({
 
   useEffect(() => {
     joinChannel();
-    return () => { leaveChannel(); };
+    return () => {
+      if (!hasEndedRef.current) {
+        hasEndedRef.current = true;
+        void cleanupSession(wasConnectedRef.current);
+      }
+      void leaveChannel();
+    };
   }, []); // eslint-disable-line
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Mid-call top-up via Stripe PaymentIntent
+  // Mid-call top-up via Stripe PaymentIntent + Payment Element
+  // Shows a minimal card input UI overlay if no saved card exists.
   // ─────────────────────────────────────────────────────────────────────────
   async function confirmTopUp(cents: number) {
     setTopUpBusy(true);
     try {
       // 1. Create PaymentIntent on server
-      const { clientSecret, seconds } = await createTopUpIntent({ data: { cents } });
+      const { clientSecret, seconds } = await createTopUpIntent({
+        data: {
+          cents,
+          sessionId: sessionIdRef.current ?? undefined,
+        },
+      });
 
-      // 2. Confirm with Stripe.js (uses saved card if available, else shows minimal UI)
+      // 2. Load Stripe.js
       const { loadStripe } = await import("@stripe/stripe-js");
       const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string;
       if (!stripeKey || stripeKey.includes("YOUR_")) {
@@ -271,11 +401,29 @@ export function CallScreen({
       const stripeInstance = await loadStripe(stripeKey);
       if (!stripeInstance) throw new Error("Stripe.js failed to load.");
 
-      const { error } = await stripeInstance.confirmCardPayment(clientSecret);
-      if (error) throw new Error(error.message ?? "Payment failed");
+      // 3. Try confirming with saved payment method first (auto-confirm)
+      const { error, paymentIntent } = await stripeInstance.confirmCardPayment(clientSecret, {
+        payment_method: undefined, // Will prompt for card if none saved
+      });
 
-      // 3. Optimistically update local balance — webhook will confirm server-side
-      setBalanceSec((b) => (b === null ? seconds : (b === Infinity ? Infinity : b + seconds)));
+      // If requires_action or requires_payment_method, Stripe will handle it
+      // If card declined or not saved, user gets an error and can try again
+      if (error) {
+        // Common error: no saved card — show helpful message
+        if (error.code === "payment_method_required" || error.type === "validation_error") {
+          throw new Error(
+            "Please add a payment method to continue. Visit your wallet to save a card.",
+          );
+        }
+        throw new Error(error.message ?? "Payment failed");
+      }
+
+      if (paymentIntent?.status !== "succeeded") {
+        throw new Error("Payment incomplete. Please try again.");
+      }
+
+      // Cap extension + wallet credit happen via Stripe webhook only.
+      await waitForTopUpApplied(seconds);
       warnFiredRef.current = false; // allow warning to fire again if balance drops low
       if (graceTimerRef.current) {
         clearInterval(graceTimerRef.current);
@@ -295,7 +443,11 @@ export function CallScreen({
       }, 2000);
     } catch (err: unknown) {
       console.error("[CallScreen] Top-up failed:", err);
-      toast.error(err instanceof Error ? err.message : "Payment failed — try again.");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Payment failed — try again or visit your wallet to save a card.",
+      );
     } finally {
       setTopUpBusy(false);
     }
@@ -323,21 +475,24 @@ export function CallScreen({
   // ─────────────────────────────────────────────────────────────────────────
   function fmt(s: number) {
     if (!isFinite(s) || s < 0) s = 0;
-    const m = Math.floor(s / 60).toString().padStart(2, "0");
+    const m = Math.floor(s / 60)
+      .toString()
+      .padStart(2, "0");
     const sec = (s % 60).toString().padStart(2, "0");
     return `${m}:${sec}`;
   }
 
-  const remaining     = balanceSec === null ? null : isUnlimited ? Infinity : balanceSec - elapsed;
-  const remainingLow  = remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
-  const inGrace       = graceRemaining !== null;
+  const remaining =
+    isCallee || balanceSec === null ? null : isUnlimited ? Infinity : balanceSec - elapsed;
+  const remainingLow =
+    !isCallee && remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
+  const inGrace = graceRemaining !== null;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white">
-
       {/* ── Remote video / audio area ──────────────────────────────────── */}
       {kind === "video" ? (
         <div ref={remoteVideoElRef} className="flex-1 bg-gray-900">
@@ -388,11 +543,9 @@ export function CallScreen({
       {/* ── Balance / duration overlay ────────────────────────────────── */}
       <div className="absolute left-4 top-4 flex flex-col gap-1">
         {kind === "video" && (
-          <div className="rounded-full bg-black/50 px-3 py-1 text-xs font-mono">
-            {fmt(elapsed)}
-          </div>
+          <div className="rounded-full bg-black/50 px-3 py-1 text-xs font-mono">{fmt(elapsed)}</div>
         )}
-        {!isUnlimited && remaining !== null && (
+        {!isCallee && !isUnlimited && remaining !== null && (
           <div
             className={cn(
               "rounded-full px-3 py-1 text-xs font-mono font-semibold",
@@ -403,15 +556,13 @@ export function CallScreen({
                   : "bg-black/50",
             )}
           >
-            {inGrace
-              ? `Ending in ${graceRemaining}s`
-              : `${fmt(Math.max(0, remaining))} left`}
+            {inGrace ? `Ending in ${graceRemaining}s` : `${fmt(Math.max(0, remaining))} left`}
           </div>
         )}
       </div>
 
       {/* ── 2-minute warning / top-up modal ──────────────────────────── */}
-      {showTopUp && (
+      {!isCallee && showTopUp && (
         <div className="absolute inset-x-4 top-20 z-10 rounded-2xl bg-gray-900 border border-white/10 p-5 shadow-2xl">
           {topUpDone ? (
             <div className="flex flex-col items-center gap-2 py-2 text-green-400">
@@ -456,7 +607,9 @@ export function CallScreen({
               {/* Custom amount */}
               <div className="mt-3 flex gap-2">
                 <div className="relative flex-1">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                    $
+                  </span>
                   <Input
                     type="number"
                     min="5"
@@ -476,9 +629,13 @@ export function CallScreen({
                   disabled={!topUpCents || topUpBusy}
                   className="h-10 px-5 font-semibold"
                 >
-                  {topUpBusy
-                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <><Plus className="h-4 w-4" /> Add</>}
+                  {topUpBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4" /> Add
+                    </>
+                  )}
                 </Button>
               </div>
 
@@ -528,8 +685,7 @@ export function CallScreen({
           >
             {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
           </button>
-        ) : (
-          /* Audio call: show "Add time" shortcut button */
+        ) : !isCallee ? (
           <button
             onClick={() => setShowTopUp(true)}
             aria-label="Add time"
@@ -537,6 +693,8 @@ export function CallScreen({
           >
             <Plus className="h-6 w-6" />
           </button>
+        ) : (
+          <div className="h-14 w-14" />
         )}
       </div>
 

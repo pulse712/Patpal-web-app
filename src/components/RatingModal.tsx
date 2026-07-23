@@ -21,13 +21,17 @@ interface RatingModalProps {
 const LABELS = ["", "Poor", "Fair", "Good", "Great", "Excellent"];
 
 export function RatingModal({
-  sessionId, palId, palName, durationMinutes, onDone,
+  sessionId,
+  palId,
+  palName,
+  durationMinutes,
+  onDone,
 }: RatingModalProps) {
-  const [stars, setStars]     = useState(0);
+  const [stars, setStars] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [comment, setComment] = useState("");
-  const [busy, setBusy]       = useState(false);
-  const [done, setDone]       = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
 
   const active = hovered || stars;
 
@@ -36,7 +40,7 @@ export function RatingModal({
     setBusy(true);
     try {
       await submitRating({
-        data: { sessionId, palId, stars, comment: comment.trim() || undefined },
+        data: { sessionId, stars, comment: comment.trim() || undefined },
       });
       setDone(true);
       toast.success("Thanks for your feedback!");
@@ -51,7 +55,6 @@ export function RatingModal({
     /* Backdrop */
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-4 pb-8">
       <div className="w-full max-w-md rounded-2xl bg-background shadow-2xl overflow-hidden">
-
         {done ? (
           <div className="flex flex-col items-center gap-3 py-10">
             <div className="grid h-14 w-14 place-items-center rounded-full bg-primary/10">
@@ -104,9 +107,7 @@ export function RatingModal({
                   ))}
                 </div>
                 {active > 0 && (
-                  <p className="text-sm font-semibold text-amber-500">
-                    {LABELS[active]}
-                  </p>
+                  <p className="text-sm font-semibold text-amber-500">{LABELS[active]}</p>
                 )}
               </div>
 
@@ -127,12 +128,7 @@ export function RatingModal({
 
               {/* Actions */}
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1 h-11"
-                  onClick={onDone}
-                  disabled={busy}
-                >
+                <Button variant="outline" className="flex-1 h-11" onClick={onDone} disabled={busy}>
                   Skip
                 </Button>
                 <Button
@@ -140,9 +136,7 @@ export function RatingModal({
                   onClick={submit}
                   disabled={!stars || busy}
                 >
-                  {busy
-                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : "Submit rating"}
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit rating"}
                 </Button>
               </div>
             </div>

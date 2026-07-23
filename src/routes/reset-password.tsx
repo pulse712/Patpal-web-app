@@ -7,7 +7,9 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/reset-password")({
-  head: () => ({ meta: [{ title: "Reset password — Pat My Back" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Reset password — Pat My Back" }, { name: "robots", content: "noindex" }],
+  }),
   component: ResetPassword,
 });
 
@@ -32,9 +34,18 @@ function ResetPassword() {
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="np">New password</Label>
-          <Input id="np" type="password" minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input
+            id="np"
+            type="password"
+            minLength={8}
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </div>
-        <Button type="submit" className="h-11 w-full font-semibold" disabled={busy}>Update password</Button>
+        <Button type="submit" className="h-11 w-full font-semibold" disabled={busy}>
+          Update password
+        </Button>
       </form>
     </div>
   );

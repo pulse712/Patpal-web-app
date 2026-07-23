@@ -1,21 +1,56 @@
 // POST /api/stripe/checkout
 // Creates a Stripe Checkout session for a credit package or custom amount.
-// Body: { packageId?: string; customCents?: number }
-// Returns: { url: string }
 import { createFileRoute } from "@tanstack/react-router";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { getRequest } from "@tanstack/react-start/server";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/api/stripe/checkout")({
   server: {
     handlers: {
-      POST: requireSupabaseAuth.middleware(async ({ context }) => {
-        const { stripe, CREDIT_PACKAGES } = await import("@/lib/stripe.server");
-        const { userId } = context;
+      POST: async () => {
+        const { CREDIT_PACKAGES, createWalletCheckoutSession } =
+          await import("@/lib/stripe.server");
 
-        const request = (await import("@tanstack/react-start/server")).getRequest();
+        const request = getRequest();
+        const authHeader = request.headers.get("authorization");
+        if (!authHeader?.startsWith("Bearer ")) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const token = authHeader.replace("Bearer ", "");
+
+        const SUPABASE_URL = process.env.SUPABASE_URL!;
+        const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY!;
+        const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const { data: claims, error: authErr } = await supabase.auth.getClaims(token);
+        if (authErr || !claims?.claims?.sub) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const userId = claims.claims.sub as string;
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("is_active")
+          .eq("id", userId)
+          .single();
+        if (profile?.is_active === false) {
+          return new Response(JSON.stringify({ error: "Account deactivated" }), {
+            status: 403,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
         const body = await request.json().catch(() => ({}));
 
-        // Resolve which package / custom amount to charge
         let seconds: number;
         let amountCents: number;
         let label: string;
@@ -32,50 +67,36 @@ export const Route = createFileRoute("/api/stripe/checkout")({
           amountCents = pkg.amount;
           label = pkg.label;
         } else if (body.customCents && Number(body.customCents) >= 500) {
-          // Custom top-up: minimum $5, rate = $10 per 15 min ($0.667/min)
           amountCents = Math.round(Number(body.customCents));
-          const ratePerMinCents = 1000 / 15; // same as the 15-min pack
+          const ratePerMinCents = 1000 / 15;
           seconds = Math.round((amountCents / ratePerMinCents) * 60);
           label = `Custom top-up (${Math.round(seconds / 60)} min)`;
         } else {
-          return new Response(JSON.stringify({ error: "Provide packageId or customCents (min 500)" }), {
-            status: 400,
-            headers: { "content-type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Provide packageId or customCents (min 500)" }),
+            { status: 400, headers: { "content-type": "application/json" } },
+          );
         }
 
-        const origin = request.headers.get("origin") ?? "http://localhost:3000";
-
-        const session = await (stripe as import("stripe").default).checkout.sessions.create({
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items: [
-            {
-              price_data: {
-                currency: "usd",
-                unit_amount: amountCents,
-                product_data: {
-                  name: `Pat My Back — ${label}`,
-                  description: `${Math.round(seconds / 60)} minutes of talk time`,
-                },
-              },
-              quantity: 1,
-            },
-          ],
-          metadata: {
-            user_id: userId,
-            seconds: String(seconds),
+        try {
+          const url = await createWalletCheckoutSession({
+            userId,
+            seconds,
+            amountCents,
             label,
-          },
-          success_url: `${origin}/wallet?payment=success`,
-          cancel_url: `${origin}/wallet?payment=cancelled`,
-          customer_email: undefined, // Stripe will ask on the form
-        });
-
-        return new Response(JSON.stringify({ url: session.url }), {
-          headers: { "content-type": "application/json" },
-        });
-      }),
+          });
+          return new Response(JSON.stringify({ url }), {
+            headers: { "content-type": "application/json" },
+          });
+        } catch (err) {
+          return new Response(
+            JSON.stringify({
+              error: err instanceof Error ? err.message : "Checkout failed",
+            }),
+            { status: 500, headers: { "content-type": "application/json" } },
+          );
+        }
+      },
     },
   },
 });

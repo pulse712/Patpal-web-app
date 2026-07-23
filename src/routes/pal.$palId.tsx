@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
+import { fetchPublicProfile } from "@/lib/public-profiles";
 import { CallScreen } from "@/components/CallScreen";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -43,10 +44,7 @@ const DEFAULT_SCHEDULE: Schedule = DAYS.reduce((acc, d) => {
 
 export const Route = createFileRoute("/pal/$palId")({
   head: () => ({
-    meta: [
-      { title: "Pat Pal — Pat My Back" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Pat Pal — Pat My Back" }, { name: "robots", content: "noindex" }],
   }),
   component: PalProfile,
 });
@@ -105,7 +103,8 @@ function PalProfile() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [schedule, setSchedule] = useState<Schedule>(DEFAULT_SCHEDULE);
   const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
-  const [callChannelName, setCallChannelName] = useState("");
+  const [callConversationId, setCallConversationId] = useState("");
+  const [callerName, setCallerName] = useState("Someone");
 
   useEffect(() => {
     try {
@@ -135,14 +134,17 @@ function PalProfile() {
         )
         .eq("user_id", palId)
         .maybeSingle();
-      let profile: { full_name: string | null; avatar_url: string | null; bio: string | null } | null = null;
+      let profile: {
+        full_name: string | null;
+        avatar_url: string | null;
+        bio: string | null;
+      } | null = null;
       if (data) {
-        const { data: pr } = await supabase
-          .from("profiles")
-          .select("full_name, avatar_url, bio")
-          .eq("id", palId)
-          .maybeSingle();
-        profile = pr ?? { full_name: null, avatar_url: null, bio: null };
+        profile = (await fetchPublicProfile(palId)) ?? {
+          full_name: null,
+          avatar_url: null,
+          bio: null,
+        };
       }
       setPal(data ? ({ ...(data as object), profiles: profile } as unknown as Pal) : null);
       setLoading(false);
@@ -177,20 +179,54 @@ function PalProfile() {
       }
       convoId = created.id;
     }
-    navigate({ to: "/chat/$conversationId", params: { conversationId: convoId } });
+    navigate({
+      to: "/chat/$conversationId",
+      params: { conversationId: convoId },
+      search: { call: undefined },
+    });
   }
 
-  function startCall(kind: "audio" | "video") {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
-      // Stable channel: sorted user ids so both parties join the same channel
-      const ids = [data.session.user.id, palId].sort();
-      setCallChannelName(ids.join("-"));
-      setActiveCall(kind);
-    });
+  async function ensureConversation(clientId: string): Promise<string | null> {
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("pal_id", palId)
+      .maybeSingle();
+    if (existing?.id) return existing.id;
+
+    const { data: created, error } = await supabase
+      .from("conversations")
+      .insert({ client_id: clientId, pal_id: palId })
+      .select("id")
+      .single();
+    if (error || !created) {
+      toast.error(error?.message ?? "Couldn't start call");
+      return null;
+    }
+    return created.id;
+  }
+
+  async function startCall(kind: "audio" | "video") {
+    setStarting(kind);
+    const { data: sess } = await supabase.auth.getSession();
+    if (!sess.session) {
+      setStarting(null);
+      navigate({ to: "/auth" });
+      return;
+    }
+    const convoId = await ensureConversation(sess.session.user.id);
+    setStarting(null);
+    if (!convoId) return;
+
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", sess.session.user.id)
+      .maybeSingle();
+    setCallerName(prof?.full_name ?? "Someone");
+    setCallConversationId(convoId);
+    setActiveCall(kind);
   }
 
   if (loading) {
@@ -222,13 +258,18 @@ function PalProfile() {
   return (
     <>
       {/* Full-screen call overlay */}
-      {activeCall && callChannelName && (
+      {activeCall && callConversationId && (
         <CallScreen
-          channelName={callChannelName}
+          channelName={callConversationId}
           kind={activeCall}
           remoteName={name}
           palId={palId}
-          onEnd={() => setActiveCall(null)}
+          conversationId={callConversationId}
+          callerName={callerName}
+          onEnd={() => {
+            setActiveCall(null);
+            setCallConversationId("");
+          }}
         />
       )}
 
@@ -280,8 +321,8 @@ function PalProfile() {
           <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Star className="h-3.5 w-3.5 fill-accent text-accent" />
-              <span className="font-semibold text-foreground">{ratingAvg.toFixed(1)}</span>
-              {" "}({ratingCount})
+              <span className="font-semibold text-foreground">{ratingAvg.toFixed(1)}</span> (
+              {ratingCount})
             </span>
             <span className="flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" /> {ratingCount} sessions

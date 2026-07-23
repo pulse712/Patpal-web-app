@@ -18,6 +18,7 @@ If any of these are dealbreakers, tell me now and I'll adjust.
 ### Decision I need from you
 
 **Where should video/audio calling live in v1?**
+
 1. **Stub it now, wire Agora in phase 3** once you've created an Agora account and shared App ID / App Certificate. (Recommended — unblocks everything else.)
 2. **Skip calls entirely for v1**, ship text chat + wallet + admin, add calls later.
 3. **You already have Agora credentials** — share them via the secure secret form and I'll wire it in phase 1.

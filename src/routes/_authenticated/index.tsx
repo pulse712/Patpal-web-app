@@ -1,18 +1,27 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users } from "lucide-react";
 import { useIsOnline, useOnlineUsers } from "@/lib/presence";
+import { fetchPublicProfiles } from "@/lib/public-profiles";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
       { title: "Pat My Back — Talk to someone who has your back" },
-      { name: "description", content: "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it." },
+      {
+        name: "description",
+        content:
+          "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it.",
+      },
       { property: "og:title", content: "Pat My Back — Talk to someone who has your back" },
-      { property: "og:description", content: "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it." },
+      {
+        property: "og:description",
+        content:
+          "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it.",
+      },
     ],
   }),
   component: Home,
@@ -34,7 +43,6 @@ type Pal = {
 };
 
 function Home() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [balanceSeconds, setBalanceSeconds] = useState(0);
@@ -42,43 +50,46 @@ function Home() {
   const [team, setTeam] = useState<Pal[]>([]);
   const [allPals, setAllPals] = useState<Pal[]>([]);
   const [topRated, setTopRated] = useState<Pal[]>([]);
-  const [banners, setBanners] = useState<{ id: string; title: string; body: string | null; cta_label: string | null; cta_href: string | null }[]>([]);
+  const [banners, setBanners] = useState<
+    {
+      id: string;
+      title: string;
+      body: string | null;
+      cta_label: string | null;
+      cta_href: string | null;
+    }[]
+  >([]);
   const onlineIds = useOnlineUsers();
 
   useEffect(() => {
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth", replace: true });
-        return;
-      }
+      if (!sess.session) return;
       const uid = sess.session.user.id;
-      const [{ data: p }, { data: w }, { data: cats }, { data: pals }, { data: bans }] = await Promise.all([
-        supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
-        supabase.from("wallets").select("balance_seconds").eq("user_id", uid).maybeSingle(),
-        supabase.from("categories").select("id, name, slug, emoji").order("sort_order").limit(12),
-        supabase
-          .from("pat_pals")
-          .select("user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count"),
-        supabase.from("promo_banners").select("id, title, body, cta_label, cta_href").eq("is_visible", true).order("sort_order").limit(3),
-      ]);
+      const [{ data: p }, { data: w }, { data: cats }, { data: pals }, { data: bans }] =
+        await Promise.all([
+          supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
+          supabase.from("wallets").select("balance_seconds").eq("user_id", uid).maybeSingle(),
+          supabase.from("categories").select("id, name, slug, emoji").order("sort_order").limit(12),
+          supabase
+            .from("pat_pals")
+            .select(
+              "user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count",
+            ),
+          supabase
+            .from("promo_banners")
+            .select("id, title, body, cta_label, cta_href")
+            .eq("is_visible", true)
+            .order("sort_order")
+            .limit(3),
+        ]);
       setProfile(p as Profile | null);
       setBalanceSeconds(w?.balance_seconds ?? 0);
       setCategories((cats ?? []) as unknown as Category[]);
       setBanners(bans ?? []);
 
       const rows = pals ?? [];
-      const ids = rows.map((r) => r.user_id);
-      let nameMap = new Map<string, { full_name: string | null; avatar_url: string | null }>();
-      if (ids.length) {
-        const { data: profs } = await supabase
-          .from("profiles")
-          .select("id, full_name, avatar_url")
-          .in("id", ids);
-        nameMap = new Map(
-          (profs ?? []).map((p) => [p.id, { full_name: p.full_name, avatar_url: p.avatar_url }]),
-        );
-      }
+      const nameMap = await fetchPublicProfiles(rows.map((r) => r.user_id));
       const merged: Pal[] = rows.map((r) => ({
         user_id: r.user_id,
         headline: r.headline,
@@ -96,21 +107,16 @@ function Home() {
       setTopRated(
         [...merged]
           .filter((m) => !m.is_team)
-          .sort((a, b) => (Number(b.rating_avg ?? 0) - Number(a.rating_avg ?? 0)))
+          .sort((a, b) => Number(b.rating_avg ?? 0) - Number(a.rating_avg ?? 0))
           .slice(0, 5),
       );
       setLoading(false);
     })();
-  }, [navigate]);
+  }, []);
 
   // Derive "online now" from live presence + pal opted-in (availability !== "offline")
   const online = allPals
-    .filter(
-      (m) =>
-        !m.is_team &&
-        onlineIds.has(m.user_id) &&
-        m.availability !== "offline",
-    )
+    .filter((m) => !m.is_team && onlineIds.has(m.user_id) && m.availability !== "offline")
     .slice(0, 6);
 
   if (loading) {
@@ -133,6 +139,7 @@ function Home() {
         </div>
         <Link
           to="/wallet"
+          search={{ payment: undefined }}
           className="flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-semibold text-primary"
         >
           <Clock className="h-4 w-4" />
@@ -143,7 +150,9 @@ function Home() {
       {/* Gradient banner */}
       <section className="px-5 pt-4">
         <div className="relative overflow-hidden rounded-2xl bg-hero-gradient p-5 text-white shadow-hero">
-          <h2 className="text-lg font-extrabold leading-tight">Talk to a real person who has your back</h2>
+          <h2 className="text-lg font-extrabold leading-tight">
+            Talk to a real person who has your back
+          </h2>
           <p className="mt-1 text-sm/relaxed opacity-95">
             Encouragement when you need it most. Pay only for the time you use.
           </p>
@@ -205,6 +214,7 @@ function Home() {
             <Link
               key={c.id}
               to="/browse"
+              search={{ category: c.slug }}
               className="flex flex-col items-center gap-1.5 rounded-2xl bg-card p-2.5 text-center shadow-card"
             >
               <span
@@ -225,7 +235,9 @@ function Home() {
           <h3 className="flex items-center gap-2 text-sm font-bold">
             <span className="inline-block h-2 w-2 rounded-full bg-success" /> Online now
           </h3>
-          <Link to="/browse" className="text-xs font-semibold text-primary">See all</Link>
+          <Link to="/browse" className="text-xs font-semibold text-primary">
+            See all
+          </Link>
         </div>
         {online.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
@@ -285,7 +297,16 @@ const CATEGORY_COLORS: Record<string, string> = {
   "spiritual-encouragement": "#D6EAFF",
   "music-lessons": "#F5D0FF",
 };
-const FALLBACK_COLORS = ["#FFE4B5","#D4F1D4","#FFD9C7","#FFE0EC","#DCE7FF","#FFF3B0","#FFD6E8","#E0D4FF"];
+const FALLBACK_COLORS = [
+  "#FFE4B5",
+  "#D4F1D4",
+  "#FFD9C7",
+  "#FFE0EC",
+  "#DCE7FF",
+  "#FFF3B0",
+  "#FFD6E8",
+  "#E0D4FF",
+];
 function categoryColor(slug: string, i: number) {
   return CATEGORY_COLORS[slug] ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 }
@@ -318,7 +339,9 @@ function TeamRow({ pal }: { pal: Pal }) {
           </span>
         </div>
         <p className="truncate text-xs text-muted-foreground">{pal.headline ?? "Here to help."}</p>
-        <p className={`mt-0.5 text-[10px] font-medium ${isOnline ? "text-success" : "text-muted-foreground"}`}>
+        <p
+          className={`mt-0.5 text-[10px] font-medium ${isOnline ? "text-success" : "text-muted-foreground"}`}
+        >
           {isOnline ? "● Online now" : "○ Offline"}
         </p>
       </div>
@@ -360,11 +383,17 @@ function PalRow({ pal }: { pal: Pal }) {
           <p className="truncate text-sm font-semibold">{name}</p>
           <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
         </div>
-        <p className="truncate text-[11px] text-muted-foreground">{pal.headline ?? "Here to listen."}</p>
-        <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">{tierBadge(pal.tier)}</p>
+        <p className="truncate text-[11px] text-muted-foreground">
+          {pal.headline ?? "Here to listen."}
+        </p>
+        <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">
+          {tierBadge(pal.tier)}
+        </p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="text-sm font-bold text-primary">${(pal.price_cents_per_minute / 100).toFixed(0)}/min</p>
+        <p className="text-sm font-bold text-primary">
+          ${(pal.price_cents_per_minute / 100).toFixed(0)}/min
+        </p>
         {isOnline ? (
           <p className="text-[10px] font-medium text-success">Online now</p>
         ) : pal.rating_avg ? (
@@ -377,4 +406,3 @@ function PalRow({ pal }: { pal: Pal }) {
     </Link>
   );
 }
-

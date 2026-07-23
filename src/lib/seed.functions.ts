@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { serverAuth } from "@/lib/server-auth";
 
 type Demo = {
   email: string;
@@ -102,17 +103,17 @@ const DEMOS: Demo[] = [
   },
 ];
 
-export const seedDemoPatPals = createServerFn({ method: "POST" }).handler(async () => {
+/** Shared seed logic — used by server fn and API route. */
+export async function runSeedDemoPatPals() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const results: string[] = [];
 
   for (const d of DEMOS) {
-    // Try to find or create the auth user
-    let userId: string | null = null;
+    let demoUserId: string | null = null;
     const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 200 });
     const existing = list?.users.find((u) => u.email === d.email);
     if (existing) {
-      userId = existing.id;
+      demoUserId = existing.id;
     } else {
       const { data: created, error: cErr } = await supabaseAdmin.auth.admin.createUser({
         email: d.email,
@@ -124,16 +125,19 @@ export const seedDemoPatPals = createServerFn({ method: "POST" }).handler(async 
         results.push(`skip ${d.email}: ${cErr?.message ?? "no user"}`);
         continue;
       }
-      userId = created.user.id;
+      demoUserId = created.user.id;
     }
 
     await supabaseAdmin
       .from("profiles")
-      .upsert({ id: userId, full_name: d.full_name, avatar_url: d.avatar_url, bio: d.bio }, { onConflict: "id" });
+      .upsert(
+        { id: demoUserId, full_name: d.full_name, avatar_url: d.avatar_url, bio: d.bio },
+        { onConflict: "id" },
+      );
 
     await supabaseAdmin.from("pat_pals").upsert(
       {
-        user_id: userId,
+        user_id: demoUserId,
         headline: d.headline,
         price_cents_per_minute: d.price,
         tier: d.tier,
@@ -149,4 +153,22 @@ export const seedDemoPatPals = createServerFn({ method: "POST" }).handler(async 
     results.push(`ok ${d.email}`);
   }
   return { results };
-});
+}
+
+export const seedDemoPatPals = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId } = context;
+
+    const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
+      supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "admin" }),
+      supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "super_admin" }),
+    ]);
+
+    if (!isAdmin && !isSuperAdmin) {
+      throw new Error("Unauthorized: Admin access required");
+    }
+
+    return runSeedDemoPatPals();
+  });

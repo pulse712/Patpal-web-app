@@ -1,12 +1,15 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { MessageCircle } from "lucide-react";
+import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { useIsOnline } from "@/lib/presence";
 
-export const Route = createFileRoute("/chats")({
-  head: () => ({ meta: [{ title: "Chats — Pat My Back" }, { name: "robots", content: "noindex" }] }),
+export const Route = createFileRoute("/_authenticated/chats")({
+  head: () => ({
+    meta: [{ title: "Chats — Pat My Back" }, { name: "robots", content: "noindex" }],
+  }),
   component: Chats,
 });
 
@@ -21,7 +24,6 @@ type ConvoRow = {
 };
 
 function Chats() {
-  const navigate = useNavigate();
   const [me, setMe] = useState<string | null>(null);
   const [convos, setConvos] = useState<ConvoRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,10 +31,7 @@ function Chats() {
   useEffect(() => {
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
+      if (!sess.session) return;
       const myId = sess.session.user.id;
       setMe(myId);
       const { data } = await supabase
@@ -43,25 +42,16 @@ function Chats() {
       const otherIds = Array.from(
         new Set(rows.map((r) => (r.client_id === myId ? r.pal_id : r.client_id))),
       );
-      let nameMap = new Map<string, string>();
-      if (otherIds.length) {
-        const { data: profs } = await supabase
-          .from("profiles")
-          .select("id, full_name")
-          .in("id", otherIds);
-        nameMap = new Map((profs ?? []).map((p) => [p.id, p.full_name ?? "Chat"]));
-      }
+      const nameMap = await fetchPublicProfiles(otherIds);
 
-      // Fetch last message for each conversation
       const convoIds = rows.map((r) => r.id);
-      let lastMsgMap = new Map<string, string>();
+      const lastMsgMap = new Map<string, string>();
       if (convoIds.length) {
         const { data: msgs } = await supabase
           .from("messages")
           .select("conversation_id, body, created_at")
           .in("conversation_id", convoIds)
           .order("created_at", { ascending: false });
-        // Keep only the most recent message per conversation
         for (const msg of msgs ?? []) {
           if (!lastMsgMap.has(msg.conversation_id)) {
             lastMsgMap.set(msg.conversation_id, msg.body);
@@ -75,15 +65,14 @@ function Chats() {
           return {
             ...r,
             otherId,
-            otherName:   nameMap.get(otherId) ?? "Chat",
+            otherName: nameMap.get(otherId)?.full_name ?? "Chat",
             lastMessage: lastMsgMap.get(r.id) ?? null,
           };
         }),
       );
       setLoading(false);
     })();
-  }, [navigate]);
-
+  }, []);
 
   return (
     <AppShell>
@@ -98,7 +87,9 @@ function Chats() {
             <MessageCircle className="mx-auto mb-2 h-6 w-6 opacity-60" />
             No conversations yet.
             <div className="mt-3">
-              <Link to="/browse" className="text-primary font-medium">Find a Pal</Link>
+              <Link to="/browse" className="text-primary font-medium">
+                Find a Pal
+              </Link>
             </div>
           </div>
         ) : (
@@ -116,6 +107,7 @@ function ConvoItem({ convo }: { convo: ConvoRow }) {
     <Link
       to="/chat/$conversationId"
       params={{ conversationId: convo.id }}
+      search={{ call: undefined }}
       className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-card hover:border-primary/30"
     >
       <div className="relative shrink-0">

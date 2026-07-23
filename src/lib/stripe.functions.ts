@@ -1,7 +1,6 @@
 // Client-callable server functions for Stripe operations.
-// These run on the server — no secret keys are exposed to the browser.
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 
 const checkoutSchema = z.union([
@@ -10,10 +9,10 @@ const checkoutSchema = z.union([
 ]);
 
 export const createCheckoutSession = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([...serverAuth])
   .validator((data: unknown) => checkoutSchema.parse(data))
   .handler(async ({ data, context }) => {
-    const { stripe, CREDIT_PACKAGES } = await import("@/lib/stripe.server");
+    const { CREDIT_PACKAGES, createWalletCheckoutSession } = await import("@/lib/stripe.server");
     const { userId } = context;
 
     let seconds: number;
@@ -33,36 +32,12 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
       label = `Custom top-up (${Math.round(seconds / 60)} min)`;
     }
 
-    // Derive origin from env or fall back to production URL
-    const origin =
-      process.env.VITE_APP_URL ??
-      process.env.APP_URL ??
-      "https://patmyback.com";
-
-    const session = await (stripe as import("stripe").default).checkout.sessions.create({
-      mode: "payment",
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            unit_amount: amountCents,
-            product_data: {
-              name: `Pat My Back — ${label}`,
-              description: `${Math.round(seconds / 60)} minutes of talk time`,
-            },
-          },
-          quantity: 1,
-        },
-      ],
-      metadata: {
-        user_id: userId,
-        seconds: String(seconds),
-        label,
-      },
-      success_url: `${origin}/wallet?payment=success`,
-      cancel_url: `${origin}/wallet?payment=cancelled`,
+    const url = await createWalletCheckoutSession({
+      userId,
+      seconds,
+      amountCents,
+      label,
     });
 
-    return { url: session.url! };
+    return { url };
   });

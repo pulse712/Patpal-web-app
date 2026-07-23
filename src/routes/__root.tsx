@@ -25,7 +25,10 @@ function NotFoundComponent() {
           The page you're looking for doesn't exist.
         </p>
         <div className="mt-6">
-          <Link to="/" className="inline-flex rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+          <Link
+            to="/"
+            className="inline-flex rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
             Go home
           </Link>
         </div>
@@ -46,11 +49,21 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <h1 className="text-xl font-semibold text-foreground">Something went wrong</h1>
         <p className="mt-2 text-sm text-muted-foreground">Try again or head home.</p>
         <div className="mt-6 flex justify-center gap-2">
-          <button onClick={() => { router.invalidate(); reset(); }}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+          <button
+            onClick={() => {
+              router.invalidate();
+              reset();
+            }}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
             Try again
           </button>
-          <a href="/" className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground">Go home</a>
+          <a
+            href="/"
+            className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+          >
+            Go home
+          </a>
         </div>
       </div>
     </div>
@@ -69,15 +82,35 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "apple-mobile-web-app-title", content: "Pat My Back" },
       { name: "mobile-web-app-capable", content: "yes" },
       { title: "Pat My Back — Talk to someone who has your back" },
-      { name: "description", content: "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it." },
+      {
+        name: "description",
+        content:
+          "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it.",
+      },
       { property: "og:title", content: "Pat My Back — Talk to someone who has your back" },
-      { property: "og:description", content: "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it." },
+      {
+        property: "og:description",
+        content:
+          "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "Pat My Back — Talk to someone who has your back" },
-      { name: "twitter:description", content: "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c5e69d05-b8db-4a19-9795-93c39b744326/id-preview-a3608c5c--3369eda2-9820-4db8-90e7-9858df90de4c.lovable.app-1784098983453.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c5e69d05-b8db-4a19-9795-93c39b744326/id-preview-a3608c5c--3369eda2-9820-4db8-90e7-9858df90de4c.lovable.app-1784098983453.png" },
+      {
+        name: "twitter:description",
+        content:
+          "Chat, call, and video with vetted Pat Pals by the minute. Anonymous, judgment-free support whenever you need it.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c5e69d05-b8db-4a19-9795-93c39b744326/id-preview-a3608c5c--3369eda2-9820-4db8-90e7-9858df90de4c.lovable.app-1784098983453.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c5e69d05-b8db-4a19-9795-93c39b744326/id-preview-a3608c5c--3369eda2-9820-4db8-90e7-9858df90de4c.lovable.app-1784098983453.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -86,7 +119,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap",
+      },
     ],
   }),
   shellComponent: RootShell,

@@ -9,47 +9,24 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WalletRouteImport } from './routes/wallet'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as PalDashboardRouteImport } from './routes/pal-dashboard'
-import { Route as ChatsRouteImport } from './routes/chats'
-import { Route as BrowseRouteImport } from './routes/browse'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as BrowseRouteImport } from './routes/browse'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedChatsRouteImport } from './routes/_authenticated/chats'
+import { Route as AuthenticatedPalDashboardRouteImport } from './routes/_authenticated/pal-dashboard'
+import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
 import { Route as PalPalIdRouteImport } from './routes/pal.$palId'
-import { Route as ChatConversationIdRouteImport } from './routes/chat.$conversationId'
+import { Route as AuthenticatedChatConversationIdRouteImport } from './routes/_authenticated/chat.$conversationId'
 import { Route as ApiPublicSeedDemosRouteImport } from './routes/api/public/seed-demos'
+import { Route as ApiStripeCheckoutRouteImport } from './routes/api/stripe/checkout'
+import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
 
-const WalletRoute = WalletRouteImport.update({
-  id: '/wallet',
-  path: '/wallet',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProfileRoute = ProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PalDashboardRoute = PalDashboardRouteImport.update({
-  id: '/pal-dashboard',
-  path: '/pal-dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChatsRoute = ChatsRouteImport.update({
-  id: '/chats',
-  path: '/chats',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BrowseRoute = BrowseRouteImport.update({
-  id: '/browse',
-  path: '/browse',
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -57,177 +34,194 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
+const BrowseRoute = BrowseRouteImport.update({
+  id: '/browse',
+  path: '/browse',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedChatsRoute = AuthenticatedChatsRouteImport.update({
+  id: '/chats',
+  path: '/chats',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPalDashboardRoute =
+  AuthenticatedPalDashboardRouteImport.update({
+    id: '/pal-dashboard',
+    path: '/pal-dashboard',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedWalletRoute = AuthenticatedWalletRouteImport.update({
+  id: '/wallet',
+  path: '/wallet',
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const PalPalIdRoute = PalPalIdRouteImport.update({
   id: '/pal/$palId',
   path: '/pal/$palId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChatConversationIdRoute = ChatConversationIdRouteImport.update({
-  id: '/chat/$conversationId',
-  path: '/chat/$conversationId',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const AuthenticatedChatConversationIdRoute =
+  AuthenticatedChatConversationIdRouteImport.update({
+    id: '/chat/$conversationId',
+    path: '/chat/$conversationId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const ApiPublicSeedDemosRoute = ApiPublicSeedDemosRouteImport.update({
   id: '/api/public/seed-demos',
   path: '/api/public/seed-demos',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiStripeCheckoutRoute = ApiStripeCheckoutRouteImport.update({
+  id: '/api/stripe/checkout',
+  path: '/api/stripe/checkout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
+  id: '/api/stripe/webhook',
+  path: '/api/stripe/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
   '/browse': typeof BrowseRoute
-  '/chats': typeof ChatsRoute
-  '/pal-dashboard': typeof PalDashboardRoute
-  '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/wallet': typeof WalletRoute
-  '/chat/$conversationId': typeof ChatConversationIdRoute
+  '/admin': typeof AuthenticatedAdminRoute
+  '/chats': typeof AuthenticatedChatsRoute
+  '/pal-dashboard': typeof AuthenticatedPalDashboardRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/wallet': typeof AuthenticatedWalletRoute
   '/pal/$palId': typeof PalPalIdRoute
+  '/chat/$conversationId': typeof AuthenticatedChatConversationIdRoute
   '/api/public/seed-demos': typeof ApiPublicSeedDemosRoute
+  '/api/stripe/checkout': typeof ApiStripeCheckoutRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/browse': typeof BrowseRoute
-  '/chats': typeof ChatsRoute
-  '/pal-dashboard': typeof PalDashboardRoute
-  '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/wallet': typeof WalletRoute
-  '/chat/$conversationId': typeof ChatConversationIdRoute
+  '/admin': typeof AuthenticatedAdminRoute
+  '/chats': typeof AuthenticatedChatsRoute
+  '/pal-dashboard': typeof AuthenticatedPalDashboardRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/wallet': typeof AuthenticatedWalletRoute
   '/pal/$palId': typeof PalPalIdRoute
+  '/': typeof AuthenticatedIndexRoute
+  '/chat/$conversationId': typeof AuthenticatedChatConversationIdRoute
   '/api/public/seed-demos': typeof ApiPublicSeedDemosRoute
+  '/api/stripe/checkout': typeof ApiStripeCheckoutRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/browse': typeof BrowseRoute
-  '/chats': typeof ChatsRoute
-  '/pal-dashboard': typeof PalDashboardRoute
-  '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/wallet': typeof WalletRoute
-  '/chat/$conversationId': typeof ChatConversationIdRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/chats': typeof AuthenticatedChatsRoute
+  '/_authenticated/pal-dashboard': typeof AuthenticatedPalDashboardRoute
+  '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/_authenticated/wallet': typeof AuthenticatedWalletRoute
   '/pal/$palId': typeof PalPalIdRoute
+  '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/chat/$conversationId': typeof AuthenticatedChatConversationIdRoute
   '/api/public/seed-demos': typeof ApiPublicSeedDemosRoute
+  '/api/stripe/checkout': typeof ApiStripeCheckoutRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/admin'
     | '/auth'
     | '/browse'
+    | '/reset-password'
+    | '/admin'
     | '/chats'
     | '/pal-dashboard'
     | '/profile'
-    | '/reset-password'
     | '/wallet'
-    | '/chat/$conversationId'
     | '/pal/$palId'
+    | '/chat/$conversationId'
     | '/api/public/seed-demos'
+    | '/api/stripe/checkout'
+    | '/api/stripe/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/admin'
     | '/auth'
     | '/browse'
+    | '/reset-password'
+    | '/admin'
     | '/chats'
     | '/pal-dashboard'
     | '/profile'
-    | '/reset-password'
     | '/wallet'
-    | '/chat/$conversationId'
     | '/pal/$palId'
+    | '/'
+    | '/chat/$conversationId'
     | '/api/public/seed-demos'
+    | '/api/stripe/checkout'
+    | '/api/stripe/webhook'
   id:
     | '__root__'
-    | '/'
-    | '/admin'
+    | '/_authenticated'
     | '/auth'
     | '/browse'
-    | '/chats'
-    | '/pal-dashboard'
-    | '/profile'
     | '/reset-password'
-    | '/wallet'
-    | '/chat/$conversationId'
+    | '/_authenticated/admin'
+    | '/_authenticated/chats'
+    | '/_authenticated/pal-dashboard'
+    | '/_authenticated/profile'
+    | '/_authenticated/wallet'
     | '/pal/$palId'
+    | '/_authenticated/'
+    | '/_authenticated/chat/$conversationId'
     | '/api/public/seed-demos'
+    | '/api/stripe/checkout'
+    | '/api/stripe/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AdminRoute: typeof AdminRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   BrowseRoute: typeof BrowseRoute
-  ChatsRoute: typeof ChatsRoute
-  PalDashboardRoute: typeof PalDashboardRoute
-  ProfileRoute: typeof ProfileRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
-  WalletRoute: typeof WalletRoute
-  ChatConversationIdRoute: typeof ChatConversationIdRoute
   PalPalIdRoute: typeof PalPalIdRoute
   ApiPublicSeedDemosRoute: typeof ApiPublicSeedDemosRoute
+  ApiStripeCheckoutRoute: typeof ApiStripeCheckoutRoute
+  ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/wallet': {
-      id: '/wallet'
-      path: '/wallet'
-      fullPath: '/wallet'
-      preLoaderRoute: typeof WalletRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/profile': {
-      id: '/profile'
-      path: '/profile'
-      fullPath: '/profile'
-      preLoaderRoute: typeof ProfileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pal-dashboard': {
-      id: '/pal-dashboard'
-      path: '/pal-dashboard'
-      fullPath: '/pal-dashboard'
-      preLoaderRoute: typeof PalDashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/chats': {
-      id: '/chats'
-      path: '/chats'
-      fullPath: '/chats'
-      preLoaderRoute: typeof ChatsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/browse': {
-      id: '/browse'
-      path: '/browse'
-      fullPath: '/browse'
-      preLoaderRoute: typeof BrowseRouteImport
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -237,19 +231,61 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
+    '/browse': {
+      id: '/browse'
+      path: '/browse'
+      fullPath: '/browse'
+      preLoaderRoute: typeof BrowseRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/': {
+      id: '/_authenticated/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/chats': {
+      id: '/_authenticated/chats'
+      path: '/chats'
+      fullPath: '/chats'
+      preLoaderRoute: typeof AuthenticatedChatsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/pal-dashboard': {
+      id: '/_authenticated/pal-dashboard'
+      path: '/pal-dashboard'
+      fullPath: '/pal-dashboard'
+      preLoaderRoute: typeof AuthenticatedPalDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profile': {
+      id: '/_authenticated/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/wallet': {
+      id: '/_authenticated/wallet'
+      path: '/wallet'
+      fullPath: '/wallet'
+      preLoaderRoute: typeof AuthenticatedWalletRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/pal/$palId': {
       id: '/pal/$palId'
@@ -258,12 +294,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PalPalIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/chat/$conversationId': {
-      id: '/chat/$conversationId'
+    '/_authenticated/chat/$conversationId': {
+      id: '/_authenticated/chat/$conversationId'
       path: '/chat/$conversationId'
       fullPath: '/chat/$conversationId'
-      preLoaderRoute: typeof ChatConversationIdRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedChatConversationIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/api/public/seed-demos': {
       id: '/api/public/seed-demos'
@@ -272,23 +308,66 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicSeedDemosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/stripe/checkout': {
+      id: '/api/stripe/checkout'
+      path: '/api/stripe/checkout'
+      fullPath: '/api/stripe/checkout'
+      preLoaderRoute: typeof ApiStripeCheckoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/stripe/webhook': {
+      id: '/api/stripe/webhook'
+      path: '/api/stripe/webhook'
+      fullPath: '/api/stripe/webhook'
+      preLoaderRoute: typeof ApiStripeWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedChatsRoute: typeof AuthenticatedChatsRoute
+  AuthenticatedPalDashboardRoute: typeof AuthenticatedPalDashboardRoute
+  AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
+  AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
+  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedChatConversationIdRoute: typeof AuthenticatedChatConversationIdRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedChatsRoute: AuthenticatedChatsRoute,
+  AuthenticatedPalDashboardRoute: AuthenticatedPalDashboardRoute,
+  AuthenticatedProfileRoute: AuthenticatedProfileRoute,
+  AuthenticatedWalletRoute: AuthenticatedWalletRoute,
+  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedChatConversationIdRoute: AuthenticatedChatConversationIdRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AdminRoute: AdminRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   BrowseRoute: BrowseRoute,
-  ChatsRoute: ChatsRoute,
-  PalDashboardRoute: PalDashboardRoute,
-  ProfileRoute: ProfileRoute,
   ResetPasswordRoute: ResetPasswordRoute,
-  WalletRoute: WalletRoute,
-  ChatConversationIdRoute: ChatConversationIdRoute,
   PalPalIdRoute: PalPalIdRoute,
   ApiPublicSeedDemosRoute: ApiPublicSeedDemosRoute,
+  ApiStripeCheckoutRoute: ApiStripeCheckoutRoute,
+  ApiStripeWebhookRoute: ApiStripeWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

@@ -24,5 +24,9 @@ export function useTheme() {
     window.localStorage.setItem("theme", next);
   }
 
-  return { theme, setTheme: updateTheme, toggle: () => updateTheme(theme === "dark" ? "light" : "dark") };
+  return {
+    theme,
+    setTheme: updateTheme,
+    toggle: () => updateTheme(theme === "dark" ? "light" : "dark"),
+  };
 }

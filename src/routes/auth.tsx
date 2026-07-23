@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { HandHeart, Loader2 } from "lucide-react";
 import { sendWelcome } from "@/lib/welcome.functions";
 import { getAuthRedirectUrl } from "@/lib/auth-redirect";
+import { isEmailNotConfirmedError, resendSignupVerification } from "@/lib/auth-email";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -62,6 +63,47 @@ function AuthPage() {
   );
 }
 
+function VerificationPendingPanel({
+  email,
+  onResent,
+}: {
+  email: string;
+  onResent?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function onResend() {
+    setBusy(true);
+    const { error } = await resendSignupVerification(email);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Verification email sent — check inbox and spam.");
+    onResent?.();
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/40 p-5 text-center">
+      <p className="text-sm font-semibold text-foreground">Verify your email</p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        We sent a confirmation link to <span className="font-medium text-foreground">{email}</span>.
+        Open it to activate your account, then sign in.
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Check spam/junk. Gmail may filter mail from Supabase.
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-4 w-full"
+        disabled={busy}
+        onClick={onResend}
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resend verification email"}
+      </Button>
+    </div>
+  );
+}
+
 function LoginForm() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -73,7 +115,14 @@ function LoginForm() {
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      if (isEmailNotConfirmedError(error.message)) {
+        toast.error("Please verify your email first. Use resend below if needed.");
+      } else {
+        toast.error(error.message);
+      }
+      return;
+    }
     toast.success("Welcome back!");
     navigate({ to: "/home", replace: true });
   }
@@ -121,6 +170,19 @@ function LoginForm() {
       >
         Forgot password?
       </button>
+      {email ? (
+        <button
+          type="button"
+          onClick={async () => {
+            const { error } = await resendSignupVerification(email);
+            if (error) return toast.error(error.message);
+            toast.success("Verification email sent — check inbox and spam.");
+          }}
+          className="block w-full text-center text-sm text-muted-foreground hover:text-primary"
+        >
+          Resend verification email
+        </button>
+      ) : null}
     </form>
   );
 }
@@ -133,12 +195,14 @@ function RegisterForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password !== confirm) return toast.error("Passwords don't match");
     if (password.length < 8) return toast.error("Password must be at least 8 characters");
     setBusy(true);
+    setPendingVerificationEmail(null);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -152,10 +216,22 @@ function RegisterForm() {
 
     if (data.session) {
       sendWelcome({ data: { name: fullName, email } }).catch(() => {});
+      toast.success("Account created!");
+      navigate({ to: "/home", replace: true });
+      return;
     }
 
-    toast.success("Account created — check your email to verify.");
-    navigate({ to: "/home", replace: true });
+    if (data.user) {
+      setPendingVerificationEmail(email);
+      toast.success("Check your email to verify your account.");
+      return;
+    }
+
+    toast.error("Could not create account. Try again.");
+  }
+
+  if (pendingVerificationEmail) {
+    return <VerificationPendingPanel email={pendingVerificationEmail} />;
   }
 
   return (

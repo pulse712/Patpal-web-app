@@ -38,6 +38,7 @@ import {
 } from "@/lib/session.functions";
 import { notifyIncomingCall } from "@/lib/notify.functions";
 import { getPublicEnv } from "@/lib/public-env";
+import { RatingModal } from "@/components/RatingModal";
 
 type CallKind = "audio" | "video";
 

@@ -7,7 +7,7 @@ import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users } from "lucide-react"
 import { useIsOnline, useOnlineUsers } from "@/lib/presence";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 
-export const Route = createFileRoute("/_authenticated/")({
+export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
     meta: [
       { title: "Pat My Back — Talk to someone who has your back" },

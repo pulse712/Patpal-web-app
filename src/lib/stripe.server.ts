@@ -1,6 +1,7 @@
 // Server-only Stripe client — never import this from client code.
 // Import pattern: const { stripe } = await import("@/lib/stripe.server");
 import Stripe from "stripe";
+import { getAppUrl } from "@/lib/app-url";
 
 function createStripeClient() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -27,14 +28,6 @@ export const CREDIT_PACKAGES = [
 ] as const;
 
 export type PackageId = (typeof CREDIT_PACKAGES)[number]["id"];
-
-export function getAppUrl(): string {
-  return (
-    process.env.APP_URL ??
-    process.env.VITE_APP_URL ??
-    (process.env.NODE_ENV === "production" ? "https://patmyback.com" : "http://localhost:5173")
-  );
-}
 
 export async function createWalletCheckoutSession(opts: {
   userId: string;

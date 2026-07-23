@@ -3,7 +3,7 @@ import { Home, MessageCircle, Compass, Wallet, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
-  { to: "/", label: "Home", icon: Home, exact: true },
+  { to: "/home", label: "Home", icon: Home, exact: true },
   { to: "/browse", label: "Browse", icon: Compass, exact: false },
   { to: "/chats", label: "Chats", icon: MessageCircle, exact: false },
   { to: "/wallet", label: "Wallet", icon: Wallet, exact: false },

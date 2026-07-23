@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { savePushSubscription, removePushSubscription } from "@/lib/push.functions";
+import { savePushSubscription, removePushSubscription } from "@/lib/push-subscription.functions";
 
 type PermissionState = "default" | "granted" | "denied" | "unsupported";
 
@@ -65,10 +65,10 @@ export function usePushNotifications() {
       });
 
       // 3. Extract keys
-      const rawKey    = sub.getKey("p256dh");
-      const rawAuth   = sub.getKey("auth");
-      const p256dh    = rawKey  ? btoa(String.fromCharCode(...new Uint8Array(rawKey)))  : "";
-      const authKey   = rawAuth ? btoa(String.fromCharCode(...new Uint8Array(rawAuth))) : "";
+      const rawKey = sub.getKey("p256dh");
+      const rawAuth = sub.getKey("auth");
+      const p256dh = rawKey ? btoa(String.fromCharCode(...new Uint8Array(rawKey))) : "";
+      const authKey = rawAuth ? btoa(String.fromCharCode(...new Uint8Array(rawAuth))) : "";
 
       // 4. Save to server
       await savePushSubscription({
@@ -108,9 +108,9 @@ export function usePushNotifications() {
 }
 
 // Convert VAPID base64 public key to Uint8Array
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64  = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw     = window.atob(base64);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }

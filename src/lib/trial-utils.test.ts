@@ -28,9 +28,9 @@ describe("assertTrialCodeRedeemable", () => {
 
   it("rejects missing or inactive codes", () => {
     expect(() => assertTrialCodeRedeemable(null, false)).toThrow(/Invalid or inactive/);
-    expect(() =>
-      assertTrialCodeRedeemable({ ...validCode, is_active: false }, false),
-    ).toThrow(/Invalid or inactive/);
+    expect(() => assertTrialCodeRedeemable({ ...validCode, is_active: false }, false)).toThrow(
+      /Invalid or inactive/,
+    );
   });
 
   it("rejects expired codes", () => {

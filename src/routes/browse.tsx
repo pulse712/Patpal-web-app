@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchPublicProfiles } from "@/lib/public-profiles";
 import {
   filterBrowsePals,
   paramToMaxPrice,
@@ -45,7 +46,8 @@ export const Route = createFileRoute("/browse")({
       { title: "Browse Pat Pals — Pat My Back" },
       {
         name: "description",
-        content: "Find a Pat Pal by topic, tier, or price — mentorship, motivation, career advice, and more.",
+        content:
+          "Find a Pat Pal by topic, tier, or price — mentorship, motivation, career advice, and more.",
       },
     ],
   }),
@@ -76,17 +78,7 @@ function Browse() {
           .order("rating_avg", { ascending: false }),
       ]);
       const rows = p ?? [];
-      const ids = rows.map((r) => r.user_id);
-      let nameMap = new Map<string, { full_name: string | null; avatar_url: string | null }>();
-      if (ids.length) {
-        const { data: profs } = await supabase
-          .from("profiles")
-          .select("id, full_name, avatar_url")
-          .in("id", ids);
-        nameMap = new Map(
-          (profs ?? []).map((pr) => [pr.id, { full_name: pr.full_name, avatar_url: pr.avatar_url }]),
-        );
-      }
+      const nameMap = await fetchPublicProfiles(rows.map((r) => r.user_id));
       const merged: PalBrowseRow[] = rows.map((r) => ({
         user_id: r.user_id,
         headline: r.headline,
@@ -178,10 +170,7 @@ function Browse() {
           </SelectContent>
         </Select>
 
-        <Select
-          value={activePrice}
-          onValueChange={(v) => updateSearch({ price: v })}
-        >
+        <Select value={activePrice} onValueChange={(v) => updateSearch({ price: v })}>
           <SelectTrigger className="h-9 flex-1">
             <SelectValue placeholder="Price" />
           </SelectTrigger>
@@ -199,7 +188,9 @@ function Browse() {
         <div className="px-5 pb-2">
           <p className="text-xs text-muted-foreground">
             {filtered.length} Pal{filtered.length === 1 ? "" : "s"} match
-            {activeCategory ? ` · ${cats.find((c) => c.slug === activeCategory)?.name ?? activeCategory}` : ""}
+            {activeCategory
+              ? ` · ${cats.find((c) => c.slug === activeCategory)?.name ?? activeCategory}`
+              : ""}
             {activeTier !== "all" ? ` · ${activeTier}` : ""}
             {activePrice !== "all"
               ? ` · ${PRICE_OPTIONS.find((o) => o.value === activePrice)?.label ?? activePrice}`
@@ -216,9 +207,7 @@ function Browse() {
             No Pals match your filters.
           </p>
         ) : (
-          filtered.map((p) => (
-            <PalCard key={p.user_id} pal={p as unknown as PalCardData} />
-          ))
+          filtered.map((p) => <PalCard key={p.user_id} pal={p as unknown as PalCardData} />)
         )}
       </section>
     </AppShell>

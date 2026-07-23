@@ -1,8 +1,5 @@
 /** Session cost from elapsed seconds and per-minute rate (cents). */
-export function computeSessionCostCents(
-  secondsUsed: number,
-  priceCentsPerMinute: number,
-): number {
+export function computeSessionCostCents(secondsUsed: number, priceCentsPerMinute: number): number {
   return Math.round((secondsUsed / 60) * priceCentsPerMinute);
 }
 
@@ -17,17 +14,11 @@ export function computeDebitedBalance(
 }
 
 /** Wallet balance after purchasing credits. */
-export function computeCreditedBalance(
-  currentSeconds: number,
-  secondsToAdd: number,
-): number {
+export function computeCreditedBalance(currentSeconds: number, secondsToAdd: number): number {
   return currentSeconds + secondsToAdd;
 }
 
 /** Seconds granted for a mid-call top-up ($10 / 15 min default rate). */
-export function computeTopUpSeconds(
-  cents: number,
-  ratePerMinCents = 1000 / 15,
-): number {
+export function computeTopUpSeconds(cents: number, ratePerMinCents = 1000 / 15): number {
   return Math.round((cents / ratePerMinCents) * 60);
 }

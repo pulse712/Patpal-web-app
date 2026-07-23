@@ -24,10 +24,7 @@ export const Route = createFileRoute("/_authenticated/wallet")({
     payment: (search.payment as string | undefined) ?? undefined,
   }),
   head: () => ({
-    meta: [
-      { title: "Wallet — Pat My Back" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Wallet — Pat My Back" }, { name: "robots", content: "noindex" }],
   }),
   component: Wallet,
 });
@@ -88,10 +85,10 @@ function Wallet() {
         duration: 5000,
       });
       // Clear query param
-      navigate({ to: "/wallet", search: {}, replace: true });
+      navigate({ to: "/wallet", search: { payment: undefined }, replace: true });
     } else if (search.payment === "cancelled") {
       toast.info("Payment cancelled — no charge was made.");
-      navigate({ to: "/wallet", search: {}, replace: true });
+      navigate({ to: "/wallet", search: { payment: undefined }, replace: true });
     }
   }, [search.payment, navigate]);
 
@@ -203,9 +200,7 @@ function Wallet() {
       {/* Buy minutes */}
       <section className="px-5 pt-6">
         <h2 className="text-base font-bold">Buy Minutes</h2>
-        <p className="text-sm text-muted-foreground">
-          One-time credit — never expires.
-        </p>
+        <p className="text-sm text-muted-foreground">One-time credit — never expires.</p>
         <div className="mt-3 space-y-3">
           {PACKAGES.map((pkg) => (
             <button
@@ -217,16 +212,12 @@ function Wallet() {
               <div>
                 <div className="flex items-center gap-2">
                   <p className="font-bold">{pkg.minutes}</p>
-                  {pkg.badge && (
-                    <Badge className="text-[10px]">{pkg.badge}</Badge>
-                  )}
+                  {pkg.badge && <Badge className="text-[10px]">{pkg.badge}</Badge>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <p className="text-base font-bold text-primary">{pkg.price}</p>
-                {buyingId === pkg.id && (
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                )}
+                {buyingId === pkg.id && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
               </div>
             </button>
           ))}
@@ -239,9 +230,7 @@ function Wallet() {
       {/* Custom amount */}
       <section className="px-5 pt-6">
         <h2 className="text-base font-bold">Custom Amount</h2>
-        <p className="text-sm text-muted-foreground">
-          Top up any amount ($5 minimum).
-        </p>
+        <p className="text-sm text-muted-foreground">Top up any amount ($5 minimum).</p>
         <form onSubmit={buyCustom} className="mt-3 flex gap-2">
           <div className="relative flex-1">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
@@ -262,11 +251,7 @@ function Wallet() {
             disabled={!!buyingId || !customAmount}
             className="h-11 font-semibold"
           >
-            {buyingId === "custom" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              "Pay"
-            )}
+            {buyingId === "custom" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Pay"}
           </Button>
         </form>
       </section>
@@ -284,11 +269,7 @@ function Wallet() {
               className="h-11 pl-9 uppercase tracking-wider"
             />
           </div>
-          <Button
-            type="submit"
-            disabled={codeBusy || !code.trim()}
-            className="h-11 font-semibold"
-          >
+          <Button type="submit" disabled={codeBusy || !code.trim()} className="h-11 font-semibold">
             {codeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Redeem"}
           </Button>
         </form>
@@ -320,9 +301,7 @@ function Wallet() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium capitalize">
-                      {t.note ?? t.kind}
-                    </p>
+                    <p className="truncate text-sm font-medium capitalize">{t.note ?? t.kind}</p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(t.created_at).toLocaleString()}
                       {t.cents_amount ? ` · $${(t.cents_amount / 100).toFixed(2)}` : ""}

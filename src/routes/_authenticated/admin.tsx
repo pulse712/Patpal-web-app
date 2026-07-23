@@ -11,11 +11,31 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  Trash2, Users, DollarSign, PhoneCall, TrendingUp,
-  BarChart2, Loader2, Star, Search,
+  Trash2,
+  Users,
+  DollarSign,
+  PhoneCall,
+  TrendingUp,
+  BarChart2,
+  Loader2,
+  Star,
+  Search,
 } from "lucide-react";
 import { getAnalytics } from "@/lib/analytics.functions";
-import { listAdminUsers, setUserActive, setUserRole } from "@/lib/admin.functions";
+import {
+  listAdminUsers,
+  setUserActive,
+  setUserRole,
+  listTrialCodes,
+  createTrialCode,
+  setTrialCodeActive,
+  deleteTrialCode,
+  listPromoBanners,
+  createPromoBanner,
+  setPromoBannerVisible,
+  deletePromoBanner,
+} from "@/lib/admin.functions";
+import { fetchPublicProfiles } from "@/lib/public-profiles";
 import {
   Select,
   SelectContent,
@@ -79,6 +99,9 @@ function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState<AppRole | "all">("all");
+  const [userPage, setUserPage] = useState(1);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userHasMore, setUserHasMore] = useState(false);
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
 
   const [newCode, setNewCode] = useState({ code: "", label: "", unlimited: false });
@@ -103,34 +126,36 @@ function AdminPanel() {
         .from("pat_pals")
         .select("user_id, headline, availability, price_cents_per_minute, tier")
         .order("created_at", { ascending: false }),
-      supabase.from("trial_codes").select("*").order("created_at", { ascending: false }),
-      supabase.from("promo_banners").select("*").order("sort_order"),
+      listTrialCodes(),
+      listPromoBanners(),
     ]);
     const palRows = p.data ?? [];
-    const ids = palRows.map((r) => r.user_id);
-    let nameMap = new Map<string, string | null>();
-    if (ids.length) {
-      const { data: profs } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .in("id", ids);
-      nameMap = new Map((profs ?? []).map((p) => [p.id, p.full_name]));
-    }
-    setPals(palRows.map((r) => ({ ...r, full_name: nameMap.get(r.user_id) ?? null })) as Pal[]);
-    setCodes((c.data ?? []) as Code[]);
-    setBanners((b.data ?? []) as Banner[]);
+    const nameMap = await fetchPublicProfiles(palRows.map((r) => r.user_id));
+    setPals(
+      palRows.map((r) => ({
+        ...r,
+        full_name: nameMap.get(r.user_id)?.full_name ?? null,
+      })) as Pal[],
+    );
+    setCodes(c.codes as Code[]);
+    setBanners(b.banners as Banner[]);
   }
 
-  async function loadUsers() {
+  async function loadUsers(page = 1) {
     setUsersLoading(true);
     try {
-      const { users } = await listAdminUsers({
+      const result = await listAdminUsers({
         data: {
           search: userSearch.trim() || undefined,
           role: userRoleFilter,
+          page,
+          perPage: 50,
         },
       });
-      setAdminUsers(users);
+      setAdminUsers(result.users);
+      setUserTotal(result.total);
+      setUserPage(result.page);
+      setUserHasMore(result.hasMore);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load users");
     } finally {
@@ -156,7 +181,9 @@ function AdminPanel() {
       await setUserRole({
         data: { userId, role, action: hasRole ? "remove" : "add" },
       });
-      toast.success(hasRole ? `${ROLE_LABELS[role]} role removed` : `${ROLE_LABELS[role]} role added`);
+      toast.success(
+        hasRole ? `${ROLE_LABELS[role]} role removed` : `${ROLE_LABELS[role]} role added`,
+      );
       await loadUsers();
       await refresh();
     } catch (err) {
@@ -179,7 +206,10 @@ function AdminPanel() {
   }
 
   async function setAvailability(userId: string, next: "available" | "busy" | "offline") {
-    const { error } = await supabase.from("pat_pals").update({ availability: next }).eq("user_id", userId);
+    const { error } = await supabase
+      .from("pat_pals")
+      .update({ availability: next })
+      .eq("user_id", userId);
     if (error) return toast.error(error.message);
     toast.success("Updated");
     refresh();
@@ -187,55 +217,84 @@ function AdminPanel() {
 
   async function createCode() {
     if (!newCode.code) return toast.error("Code is required");
-    const { error } = await supabase.from("trial_codes").insert({
-      code: newCode.code.trim().toUpperCase(),
-      label: newCode.label || null,
-      unlimited: newCode.unlimited,
-      is_active: true,
-    });
-    if (error) return toast.error(error.message);
-    setNewCode({ code: "", label: "", unlimited: false });
-    toast.success("Code created");
-    refresh();
+    try {
+      await createTrialCode({
+        data: {
+          code: newCode.code,
+          label: newCode.label || undefined,
+          unlimited: newCode.unlimited,
+        },
+      });
+      setNewCode({ code: "", label: "", unlimited: false });
+      toast.success("Code created");
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not create code");
+    }
   }
 
   async function toggleCode(id: string, is_active: boolean) {
-    await supabase.from("trial_codes").update({ is_active }).eq("id", id);
-    refresh();
+    try {
+      await setTrialCodeActive({ data: { id, isActive: is_active } });
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    }
   }
 
   async function deleteCode(id: string) {
-    await supabase.from("trial_codes").delete().eq("id", id);
-    refresh();
+    try {
+      await deleteTrialCode({ data: { id } });
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    }
   }
 
   async function createBanner() {
     if (!newBanner.title) return toast.error("Title required");
-    const { error } = await supabase.from("promo_banners").insert({
-      title: newBanner.title,
-      body: newBanner.body || null,
-      cta_label: newBanner.cta_label || null,
-      cta_href: newBanner.cta_href || null,
-      is_visible: true,
-      sort_order: banners.length,
-    });
-    if (error) return toast.error(error.message);
-    setNewBanner({ title: "", body: "", cta_label: "", cta_href: "" });
-    refresh();
+    try {
+      await createPromoBanner({
+        data: {
+          title: newBanner.title,
+          body: newBanner.body || undefined,
+          cta_label: newBanner.cta_label || undefined,
+          cta_href: newBanner.cta_href || undefined,
+          sort_order: banners.length,
+        },
+      });
+      setNewBanner({ title: "", body: "", cta_label: "", cta_href: "" });
+      toast.success("Banner created");
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not create banner");
+    }
   }
 
   async function toggleBanner(id: string, is_visible: boolean) {
-    await supabase.from("promo_banners").update({ is_visible }).eq("id", id);
-    refresh();
+    try {
+      await setPromoBannerVisible({ data: { id, isVisible: is_visible } });
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    }
   }
 
   async function deleteBanner(id: string) {
-    await supabase.from("promo_banners").delete().eq("id", id);
-    refresh();
+    try {
+      await deletePromoBanner({ data: { id } });
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    }
   }
 
   if (loading || isAdmin === null) {
-    return <AppShell><div className="p-6 text-sm text-muted-foreground">Loading...</div></AppShell>;
+    return (
+      <AppShell>
+        <div className="p-6 text-sm text-muted-foreground">Loading...</div>
+      </AppShell>
+    );
   }
 
   if (!isAdmin) {
@@ -243,8 +302,12 @@ function AdminPanel() {
       <AppShell>
         <div className="p-6 space-y-3">
           <h1 className="text-xl font-semibold">Admins only</h1>
-          <p className="text-sm text-muted-foreground">You don't have permission to view this page.</p>
-          <Button asChild><Link to="/">Back home</Link></Button>
+          <p className="text-sm text-muted-foreground">
+            You don't have permission to view this page.
+          </p>
+          <Button asChild>
+            <Link to="/">Back home</Link>
+          </Button>
         </div>
       </AppShell>
     );
@@ -260,11 +323,21 @@ function AdminPanel() {
 
         <Tabs defaultValue="analytics">
           <TabsList className="grid h-auto w-full grid-cols-5 gap-1">
-            <TabsTrigger value="analytics" className="text-xs sm:text-sm">Stats</TabsTrigger>
-            <TabsTrigger value="users" className="text-xs sm:text-sm">Users</TabsTrigger>
-            <TabsTrigger value="pals" className="text-xs sm:text-sm">Pals</TabsTrigger>
-            <TabsTrigger value="codes" className="text-xs sm:text-sm">Codes</TabsTrigger>
-            <TabsTrigger value="banners" className="text-xs sm:text-sm">Banners</TabsTrigger>
+            <TabsTrigger value="analytics" className="text-xs sm:text-sm">
+              Stats
+            </TabsTrigger>
+            <TabsTrigger value="users" className="text-xs sm:text-sm">
+              Users
+            </TabsTrigger>
+            <TabsTrigger value="pals" className="text-xs sm:text-sm">
+              Pals
+            </TabsTrigger>
+            <TabsTrigger value="codes" className="text-xs sm:text-sm">
+              Codes
+            </TabsTrigger>
+            <TabsTrigger value="banners" className="text-xs sm:text-sm">
+              Banners
+            </TabsTrigger>
           </TabsList>
 
           {/* ── Analytics tab ──────────────────────────────────────── */}
@@ -273,7 +346,9 @@ function AdminPanel() {
               <div className="flex flex-col items-center gap-3 py-10">
                 <BarChart2 className="h-10 w-10 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">Load the latest stats</p>
-                <Button onClick={loadAnalytics} className="font-semibold">Load analytics</Button>
+                <Button onClick={loadAnalytics} className="font-semibold">
+                  Load analytics
+                </Button>
               </div>
             )}
             {analyticsLoading && (
@@ -285,15 +360,37 @@ function AdminPanel() {
               <>
                 {/* Stat cards */}
                 <div className="grid grid-cols-2 gap-3">
-                  <StatCard icon={<Users className="h-5 w-5" />} label="Total users" value={analytics.totalUsers} sub={`+${analytics.newUsers7d} this week`} />
-                  <StatCard icon={<PhoneCall className="h-5 w-5" />} label="Total sessions" value={analytics.totalSessions} sub={`${analytics.sessions7d} this week`} />
-                  <StatCard icon={<DollarSign className="h-5 w-5" />} label="Total revenue" value={`$${analytics.totalRevDollars}`} sub={`$${analytics.rev7dDollars} this week`} />
-                  <StatCard icon={<TrendingUp className="h-5 w-5" />} label="Active Pals" value={analytics.activePals} sub={`of ${analytics.totalPals} total`} />
+                  <StatCard
+                    icon={<Users className="h-5 w-5" />}
+                    label="Total users"
+                    value={analytics.totalUsers}
+                    sub={`+${analytics.newUsers7d} this week`}
+                  />
+                  <StatCard
+                    icon={<PhoneCall className="h-5 w-5" />}
+                    label="Total sessions"
+                    value={analytics.totalSessions}
+                    sub={`${analytics.sessions7d} this week`}
+                  />
+                  <StatCard
+                    icon={<DollarSign className="h-5 w-5" />}
+                    label="Total revenue"
+                    value={`$${analytics.totalRevDollars}`}
+                    sub={`$${analytics.rev7dDollars} this week`}
+                  />
+                  <StatCard
+                    icon={<TrendingUp className="h-5 w-5" />}
+                    label="Active Pals"
+                    value={analytics.activePals}
+                    sub={`of ${analytics.totalPals} total`}
+                  />
                 </div>
 
                 {/* Sessions per day mini-chart */}
                 <Card className="p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Sessions — last 14 days</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                    Sessions — last 14 days
+                  </p>
                   <div className="flex items-end gap-1 h-20">
                     {analytics.sessionsByDay.map(({ date, count }) => {
                       const max = Math.max(...analytics.sessionsByDay.map((d) => d.count), 1);
@@ -317,11 +414,15 @@ function AdminPanel() {
                 {/* Top Pals */}
                 {analytics.topPals.length > 0 && (
                   <Card className="p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Top Pat Pals (30 days)</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                      Top Pat Pals (30 days)
+                    </p>
                     <div className="space-y-2">
                       {analytics.topPals.map((p, i) => (
                         <div key={p.id} className="flex items-center gap-3">
-                          <span className="text-xs font-bold text-muted-foreground w-4">{i + 1}</span>
+                          <span className="text-xs font-bold text-muted-foreground w-4">
+                            {i + 1}
+                          </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold truncate">{p.name}</p>
                           </div>
@@ -337,15 +438,22 @@ function AdminPanel() {
 
                 {/* Recent sessions */}
                 <Card className="p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Recent sessions</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                    Recent sessions
+                  </p>
                   <div className="space-y-2">
                     {analytics.recentSessions.length === 0 && (
                       <p className="text-sm text-muted-foreground">No sessions yet.</p>
                     )}
                     {analytics.recentSessions.map((s) => (
-                      <div key={s.id} className="flex items-center gap-2 text-sm border-b border-border pb-2 last:border-0">
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-2 text-sm border-b border-border pb-2 last:border-0"
+                      >
                         <div className="flex-1 min-w-0">
-                          <p className="truncate font-medium">{s.clientName} → {s.palName}</p>
+                          <p className="truncate font-medium">
+                            {s.clientName} → {s.palName}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {s.kind} · {s.minutes}m · ${s.costDollars}
                           </p>
@@ -394,7 +502,7 @@ function AdminPanel() {
               </Select>
             </div>
 
-            <Button onClick={loadUsers} disabled={usersLoading} className="w-full">
+            <Button onClick={() => loadUsers(1)} disabled={usersLoading} className="w-full">
               {usersLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -410,12 +518,41 @@ function AdminPanel() {
               </p>
             )}
 
+            {adminUsers.length > 0 && (
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                <span className="text-muted-foreground">
+                  Showing {(userPage - 1) * 50 + 1}-{Math.min(userPage * 50, userTotal)} of{" "}
+                  {userTotal}
+                </span>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => loadUsers(userPage - 1)}
+                    disabled={userPage === 1 || usersLoading}
+                  >
+                    ← Prev
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => loadUsers(userPage + 1)}
+                    disabled={!userHasMore || usersLoading}
+                  >
+                    Next →
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {adminUsers.map((u) => (
               <Card key={u.id} className="space-y-3 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">{u.fullName || "Unnamed"}</p>
-                    <p className="truncate text-xs text-muted-foreground">{u.email || "No email"}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {u.email || "No email"}
+                    </p>
                     <div className="mt-2 flex flex-wrap gap-1">
                       {u.roles.map((role) => (
                         <Badge key={role} variant="secondary" className="text-[10px]">
@@ -423,7 +560,9 @@ function AdminPanel() {
                         </Badge>
                       ))}
                       {!u.isActive && (
-                        <Badge variant="destructive" className="text-[10px]">Inactive</Badge>
+                        <Badge variant="destructive" className="text-[10px]">
+                          Inactive
+                        </Badge>
                       )}
                     </div>
                   </div>
@@ -466,7 +605,9 @@ function AdminPanel() {
           </TabsContent>
 
           <TabsContent value="pals" className="space-y-2">
-            {pals.length === 0 && <p className="p-4 text-sm text-muted-foreground">No Pat Pals yet.</p>}
+            {pals.length === 0 && (
+              <p className="p-4 text-sm text-muted-foreground">No Pat Pals yet.</p>
+            )}
             {pals.map((p) => (
               <Card key={p.user_id} className="space-y-2 p-3">
                 <div className="flex items-start justify-between">
@@ -474,15 +615,24 @@ function AdminPanel() {
                     <p className="font-semibold">{p.full_name || "Unnamed"}</p>
                     <p className="text-xs text-muted-foreground">{p.headline || "No headline"}</p>
                     <p className="mt-1 text-xs">
-                      ${(p.price_cents_per_minute / 100).toFixed(2)}/min · {p.tier} · {p.availability}
+                      ${(p.price_cents_per_minute / 100).toFixed(2)}/min · {p.tier} ·{" "}
+                      {p.availability}
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setAvailability(p.user_id, "available")}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAvailability(p.user_id, "available")}
+                  >
                     Enable
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setAvailability(p.user_id, "offline")}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAvailability(p.user_id, "offline")}
+                  >
                     Disable
                   </Button>
                 </div>
@@ -511,7 +661,9 @@ function AdminPanel() {
                   onCheckedChange={(v) => setNewCode({ ...newCode, unlimited: v })}
                 />
               </div>
-              <Button onClick={createCode} className="w-full">Create code</Button>
+              <Button onClick={createCode} className="w-full">
+                Create code
+              </Button>
             </Card>
             {codes.map((c) => (
               <Card key={c.id} className="flex items-center justify-between p-3">
@@ -554,7 +706,9 @@ function AdminPanel() {
                 value={newBanner.cta_href}
                 onChange={(e) => setNewBanner({ ...newBanner, cta_href: e.target.value })}
               />
-              <Button onClick={createBanner} className="w-full">Create banner</Button>
+              <Button onClick={createBanner} className="w-full">
+                Create banner
+              </Button>
             </Card>
             {banners.map((b) => (
               <Card key={b.id} className="flex items-center justify-between p-3">

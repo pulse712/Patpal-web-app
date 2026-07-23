@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
+import { fetchPublicProfile } from "@/lib/public-profiles";
 import { CallScreen } from "@/components/CallScreen";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -43,10 +44,7 @@ const DEFAULT_SCHEDULE: Schedule = DAYS.reduce((acc, d) => {
 
 export const Route = createFileRoute("/pal/$palId")({
   head: () => ({
-    meta: [
-      { title: "Pat Pal — Pat My Back" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Pat Pal — Pat My Back" }, { name: "robots", content: "noindex" }],
   }),
   component: PalProfile,
 });
@@ -136,14 +134,17 @@ function PalProfile() {
         )
         .eq("user_id", palId)
         .maybeSingle();
-      let profile: { full_name: string | null; avatar_url: string | null; bio: string | null } | null = null;
+      let profile: {
+        full_name: string | null;
+        avatar_url: string | null;
+        bio: string | null;
+      } | null = null;
       if (data) {
-        const { data: pr } = await supabase
-          .from("profiles")
-          .select("full_name, avatar_url, bio")
-          .eq("id", palId)
-          .maybeSingle();
-        profile = pr ?? { full_name: null, avatar_url: null, bio: null };
+        profile = (await fetchPublicProfile(palId)) ?? {
+          full_name: null,
+          avatar_url: null,
+          bio: null,
+        };
       }
       setPal(data ? ({ ...(data as object), profiles: profile } as unknown as Pal) : null);
       setLoading(false);
@@ -178,7 +179,11 @@ function PalProfile() {
       }
       convoId = created.id;
     }
-    navigate({ to: "/chat/$conversationId", params: { conversationId: convoId } });
+    navigate({
+      to: "/chat/$conversationId",
+      params: { conversationId: convoId },
+      search: { call: undefined },
+    });
   }
 
   async function ensureConversation(clientId: string): Promise<string | null> {
@@ -316,8 +321,8 @@ function PalProfile() {
           <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Star className="h-3.5 w-3.5 fill-accent text-accent" />
-              <span className="font-semibold text-foreground">{ratingAvg.toFixed(1)}</span>
-              {" "}({ratingCount})
+              <span className="font-semibold text-foreground">{ratingAvg.toFixed(1)}</span> (
+              {ratingCount})
             </span>
             <span className="flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" /> {ratingCount} sessions

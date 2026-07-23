@@ -61,8 +61,20 @@ CREATE POLICY "user_roles admin write" ON public.user_roles FOR ALL TO authentic
 
 -- ── has_role helper ───────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role public.app_role)
-RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY INVOKER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role);
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public AS $$
+BEGIN
+  IF auth.uid() IS NOT NULL
+     AND auth.uid() <> _user_id
+     AND NOT EXISTS (
+       SELECT 1 FROM public.user_roles
+       WHERE user_id = auth.uid() AND role IN ('admin', 'super_admin')
+     )
+  THEN
+    RETURN FALSE;
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role);
+END;
 $$;
 GRANT EXECUTE ON FUNCTION public.has_role(UUID, public.app_role) TO authenticated, service_role;
 
@@ -117,7 +129,7 @@ GRANT ALL ON public.pat_pals TO service_role;
 ALTER TABLE public.pat_pals ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "pat_pals public read"   ON public.pat_pals FOR SELECT USING (true);
 CREATE POLICY "pat_pals update own"    ON public.pat_pals FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "pat_pals insert own"    ON public.pat_pals FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+-- pat_pals INSERT is admin/service-role only (see admin.functions setUserRole)
 CREATE POLICY "pat_pals admin manage"  ON public.pat_pals FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
@@ -147,7 +159,11 @@ GRANT SELECT, INSERT, UPDATE ON public.conversations TO authenticated;
 GRANT ALL ON public.conversations TO service_role;
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "conversations read"   ON public.conversations FOR SELECT TO authenticated USING (auth.uid() = client_id OR auth.uid() = pal_id);
-CREATE POLICY "conversations insert" ON public.conversations FOR INSERT TO authenticated WITH CHECK (auth.uid() = client_id);
+CREATE POLICY "conversations insert" ON public.conversations FOR INSERT TO authenticated WITH CHECK (
+  auth.uid() = client_id
+  AND client_id <> pal_id
+  AND EXISTS (SELECT 1 FROM public.pat_pals WHERE user_id = pal_id)
+);
 
 CREATE TABLE public.messages (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -189,7 +205,7 @@ GRANT SELECT, INSERT, UPDATE ON public.sessions TO authenticated;
 GRANT ALL ON public.sessions TO service_role;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "sessions read"   ON public.sessions FOR SELECT TO authenticated USING (auth.uid() = client_id OR auth.uid() = pal_id);
-CREATE POLICY "sessions insert" ON public.sessions FOR INSERT TO authenticated WITH CHECK (auth.uid() = client_id);
+-- Session creation is server-only (service role via startSession server function)
 ALTER PUBLICATION supabase_realtime ADD TABLE public.sessions;
 
 -- ── credit_transactions ───────────────────────────────────────────
@@ -277,7 +293,7 @@ GRANT SELECT, INSERT ON public.ratings TO authenticated;
 GRANT ALL ON public.ratings TO service_role;
 ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "ratings read"   ON public.ratings FOR SELECT TO authenticated USING (true);
-CREATE POLICY "ratings insert" ON public.ratings FOR INSERT TO authenticated WITH CHECK (auth.uid() = client_id);
+-- ratings INSERT is service-role only (via submitRating server function)
 
 -- ── updated_at trigger ────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.tg_set_updated_at()
@@ -302,7 +318,7 @@ END;
 $$;
 CREATE TRIGGER ratings_recalculate AFTER INSERT OR UPDATE OR DELETE ON public.ratings FOR EACH ROW EXECUTE FUNCTION public.tg_recalculate_pal_rating();
 
--- ── handle_new_user: auto-setup on signup ─────────────────────────
+-- ── handle_new_user: auto-setup on signup (always client role) ───
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
@@ -318,14 +334,8 @@ BEGIN
   ON CONFLICT (user_id) DO NOTHING;
 
   INSERT INTO public.user_roles (user_id, role)
-  VALUES (NEW.id, COALESCE((NEW.raw_user_meta_data->>'role')::public.app_role, 'client'))
+  VALUES (NEW.id, 'client')
   ON CONFLICT (user_id, role) DO NOTHING;
-
-  IF COALESCE(NEW.raw_user_meta_data->>'role', 'client') = 'pat_pal' THEN
-    INSERT INTO public.pat_pals (user_id, headline)
-    VALUES (NEW.id, NEW.raw_user_meta_data->>'bio')
-    ON CONFLICT (user_id) DO NOTHING;
-  END IF;
 
   RETURN NEW;
 END;
@@ -335,3 +345,33 @@ REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ================================================================
+-- Security hardening (2026-07-23) — also in migrations 202607231*
+-- ================================================================
+
+ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS connected_at TIMESTAMPTZ;
+
+CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_active_per_client
+  ON public.sessions (client_id) WHERE status = 'active';
+
+REVOKE UPDATE ON public.sessions FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.user_roles FROM authenticated;
+
+DROP POLICY IF EXISTS "user_roles admin write" ON public.user_roles;
+DROP POLICY IF EXISTS "trial_codes read active" ON public.trial_codes;
+CREATE POLICY "trial_codes admin read" ON public.trial_codes
+  FOR SELECT TO authenticated
+  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));
+
+DROP POLICY IF EXISTS "profiles read authenticated" ON public.profiles;
+DROP POLICY IF EXISTS "profiles readable by authenticated" ON public.profiles;
+
+CREATE OR REPLACE VIEW public.public_profiles
+WITH (security_invoker = false) AS
+  SELECT id, full_name, avatar_url, bio FROM public.profiles;
+GRANT SELECT ON public.public_profiles TO authenticated, anon;
+
+-- See migration files for full RPC definitions:
+-- mark_session_connected, cancel_session_before_connect, end_session_billing (v2),
+-- guard_profiles_update, guard_pat_pals_update triggers

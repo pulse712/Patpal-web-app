@@ -1,34 +1,88 @@
 // Server function to generate an Agora RTC token.
-// The token is scoped to a specific channel + user, expires in 1 hour.
+// Token is only issued when the caller is a participant in an active session.
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 
 const tokenSchema = z.object({
-  channelName: z.string().min(1).max(64),
-  uid: z.number().int().nonnegative(),
+  channelName: z.string().uuid(),
 });
 
+/** Deterministic Agora UID from user ID — avoids client-controlled collisions. */
+function agoraUidFromUserId(userId: string): number {
+  const hex = userId.replace(/-/g, "").slice(0, 8);
+  return (parseInt(hex, 16) % 2_147_483_646) + 1;
+}
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
+
+async function findActiveSessionForChannel(
+  supabaseAdmin: SupabaseClient<Database>,
+  channelName: string,
+  userId: string,
+) {
+  const { data: byId } = await supabaseAdmin
+    .from("sessions")
+    .select("id, client_id, pal_id, conversation_id")
+    .eq("status", "active")
+    .eq("id", channelName)
+    .maybeSingle();
+
+  if (byId && (byId.client_id === userId || byId.pal_id === userId)) {
+    return byId;
+  }
+
+  const { data: byConvo } = await supabaseAdmin
+    .from("sessions")
+    .select("id, client_id, pal_id, conversation_id")
+    .eq("status", "active")
+    .eq("conversation_id", channelName)
+    .maybeSingle();
+
+  if (byConvo && (byConvo.client_id === userId || byConvo.pal_id === userId)) {
+    return byConvo;
+  }
+
+  return null;
+}
+
 export const getAgoraToken = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([...serverAuth])
   .validator((data: unknown) => tokenSchema.parse(data))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId } = context;
+
+    const session = await findActiveSessionForChannel(supabaseAdmin, data.channelName, userId);
+
+    if (!session) {
+      throw new Error("No active session found for this channel.");
+    }
+
+    const uid = agoraUidFromUserId(userId);
     const appId = process.env.AGORA_APP_ID;
     const appCertificate = process.env.AGORA_APP_CERTIFICATE;
+    const isProd = process.env.NODE_ENV === "production";
+    const allowUnsecure = process.env.AGORA_ALLOW_UNSECURE === "true";
 
     if (!appId) throw new Error("Missing AGORA_APP_ID");
 
-    // If no certificate is set (testing mode), return a null token —
-    // Agora allows this when the project has Auth Disabled in the console.
-    if (!appCertificate || appCertificate === "TESTING_NO_CERT") {
-      return { token: null, appId, channelName: data.channelName, uid: data.uid };
+    if (isProd && (!appCertificate || appCertificate === "TESTING_NO_CERT")) {
+      throw new Error("Agora certificate is required in production.");
     }
 
-    // Dynamically import to keep server-only code out of the client bundle
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { RtcTokenBuilder, RtcRole } = await import("agora-token") as any;
+    if (!appCertificate || appCertificate === "TESTING_NO_CERT") {
+      if (!allowUnsecure && isProd) {
+        throw new Error("Agora certificate is required in production.");
+      }
+      return { token: null, appId, channelName: data.channelName, uid };
+    }
 
-    const expiresInSeconds = 3600; // 1 hour
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { RtcTokenBuilder, RtcRole } = (await import("agora-token")) as any;
+
+    const expiresInSeconds = 3600;
     const currentTime = Math.floor(Date.now() / 1000);
     const privilegeExpireTime = currentTime + expiresInSeconds;
 
@@ -36,11 +90,11 @@ export const getAgoraToken = createServerFn({ method: "POST" })
       appId,
       appCertificate,
       data.channelName,
-      data.uid,
+      uid,
       RtcRole.PUBLISHER,
       expiresInSeconds,
       privilegeExpireTime,
     );
 
-    return { token, appId, channelName: data.channelName, uid: data.uid };
+    return { token, appId, channelName: data.channelName, uid };
   });

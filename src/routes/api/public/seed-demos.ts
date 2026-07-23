@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getRequest } from "@tanstack/react-start/server";
-import { seedDemoPatPals } from "@/lib/seed.functions";
+import { runSeedDemoPatPals } from "@/lib/seed.functions";
 
 async function assertAdminFromRequest(): Promise<Response | null> {
   const request = getRequest();
@@ -43,14 +43,10 @@ export const Route = createFileRoute("/api/public/seed-demos")({
   server: {
     handlers: {
       POST: async () => {
-        // Dev-only without auth; production requires admin Bearer token
-        const isDev = process.env.NODE_ENV !== "production";
-        if (!isDev) {
-          const denied = await assertAdminFromRequest();
-          if (denied) return denied;
-        }
+        const denied = await assertAdminFromRequest();
+        if (denied) return denied;
 
-        const result = await seedDemoPatPals();
+        const result = await runSeedDemoPatPals();
         return new Response(JSON.stringify(result), {
           headers: { "content-type": "application/json" },
         });

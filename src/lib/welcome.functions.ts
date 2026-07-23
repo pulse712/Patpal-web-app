@@ -1,11 +1,11 @@
 // Server function to send a welcome email after signup.
 // Requires auth — email must match the signed-in user.
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 
 export const sendWelcome = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([...serverAuth])
   .validator((data: unknown) =>
     z.object({ name: z.string(), email: z.string().email() }).parse(data),
   )

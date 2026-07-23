@@ -8,12 +8,12 @@ Pat My Back is a full-stack web app that matches people seeking encouragement or
 
 ### User roles
 
-| Role | Description |
-|------|-------------|
-| **client** | Default role. Browse Pat Pals, buy credits, chat/call, rate sessions. |
-| **pat_pal** | Service provider. Set availability, price, and headline; receive chats/calls. |
-| **admin** | Manage users, trial codes, promo banners, and analytics. |
-| **super_admin** | Full platform access. |
+| Role            | Description                                                                   |
+| --------------- | ----------------------------------------------------------------------------- |
+| **client**      | Default role. Browse Pat Pals, buy credits, chat/call, rate sessions.         |
+| **pat_pal**     | Service provider. Set availability, price, and headline; receive chats/calls. |
+| **admin**       | Manage users, trial codes, promo banners, and analytics.                      |
+| **super_admin** | Full platform access.                                                         |
 
 Only **clients** can initiate conversations and paid sessions.
 
@@ -23,16 +23,16 @@ Mentorship, training, motivation, accountability, business coaching, friendly ch
 
 ## Tech stack
 
-| Layer | Technology |
-|-------|------------|
-| Framework | [TanStack Start](https://tanstack.com/start) (React 19 + TypeScript) |
-| Routing | TanStack Router (file-based) |
-| UI | Tailwind CSS 4 + [shadcn/ui](https://ui.shadcn.com) (Radix) |
-| Database & auth | [Supabase](https://supabase.com) (Postgres, RLS, realtime) |
-| Payments | [Stripe](https://stripe.com) (Checkout + webhooks) |
-| Calls | [Agora](https://www.agora.io) (audio/video SDK + token minting) |
-| Email | [Resend](https://resend.com) |
-| Push | Web Push (VAPID) |
+| Layer           | Technology                                                           |
+| --------------- | -------------------------------------------------------------------- |
+| Framework       | [TanStack Start](https://tanstack.com/start) (React 19 + TypeScript) |
+| Routing         | TanStack Router (file-based)                                         |
+| UI              | Tailwind CSS 4 + [shadcn/ui](https://ui.shadcn.com) (Radix)          |
+| Database & auth | [Supabase](https://supabase.com) (Postgres, RLS, realtime)           |
+| Payments        | [Stripe](https://stripe.com) (Checkout + webhooks)                   |
+| Calls           | [Agora](https://www.agora.io) (audio/video SDK + token minting)      |
+| Email           | [Resend](https://resend.com)                                         |
+| Push            | Web Push (VAPID)                                                     |
 
 ## Features
 
@@ -91,17 +91,17 @@ Copy the example file and fill in your credentials:
 cp .env.example .env
 ```
 
-| Variable | Description |
-|----------|-------------|
-| `SUPABASE_*` / `VITE_SUPABASE_*` | Supabase project URL and keys |
-| `STRIPE_SECRET_KEY` | Stripe secret key (server) |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (client) |
-| `APP_URL` | Public app URL (e.g. `http://localhost:5173`) |
-| `AGORA_APP_ID` | Agora application ID |
-| `AGORA_APP_CERTIFICATE` | Agora certificate for token signing |
-| `VAPID_*` / `VITE_VAPID_PUBLIC_KEY` | Web push VAPID keys |
-| `RESEND_API_KEY` | Resend email API key |
+| Variable                            | Description                                   |
+| ----------------------------------- | --------------------------------------------- |
+| `SUPABASE_*` / `VITE_SUPABASE_*`    | Supabase project URL and keys                 |
+| `STRIPE_SECRET_KEY`                 | Stripe secret key (server)                    |
+| `STRIPE_WEBHOOK_SECRET`             | Stripe webhook signing secret                 |
+| `VITE_STRIPE_PUBLISHABLE_KEY`       | Stripe publishable key (client)               |
+| `APP_URL`                           | Public app URL (e.g. `http://localhost:5173`) |
+| `AGORA_APP_ID`                      | Agora application ID                          |
+| `AGORA_APP_CERTIFICATE`             | Agora certificate for token signing           |
+| `VAPID_*` / `VITE_VAPID_PUBLIC_KEY` | Web push VAPID keys                           |
+| `RESEND_API_KEY`                    | Resend email API key                          |
 
 ### Database setup
 
@@ -146,19 +146,19 @@ Unit tests cover billing math, trial code rules, admin guardrails, and auth redi
 
 ## Routes
 
-| Path | Description |
-|------|-------------|
-| `/` | Home dashboard |
-| `/auth` | Login & registration |
-| `/browse` | Browse Pat Pals |
-| `/pal/$palId` | Pat Pal profile |
-| `/chats` | Conversation list |
+| Path                    | Description                     |
+| ----------------------- | ------------------------------- |
+| `/`                     | Home dashboard                  |
+| `/auth`                 | Login & registration            |
+| `/browse`               | Browse Pat Pals                 |
+| `/pal/$palId`           | Pat Pal profile                 |
+| `/chats`                | Conversation list               |
 | `/chat/$conversationId` | Chat thread (with call buttons) |
-| `/wallet` | Credits & Stripe checkout |
-| `/profile` | User profile |
-| `/pal-dashboard` | Pat Pal provider dashboard |
-| `/admin` | Admin panel |
-| `/reset-password` | Password reset |
+| `/wallet`               | Credits & Stripe checkout       |
+| `/profile`              | User profile                    |
+| `/pal-dashboard`        | Pat Pal provider dashboard      |
+| `/admin`                | Admin panel                     |
+| `/reset-password`       | Password reset                  |
 
 API routes:
 

@@ -28,11 +28,7 @@ export function assertTrialCodeRedeemable(
   }
 }
 
-export function buildTrialNote(
-  code: string,
-  label: string | null,
-  unlimited: boolean,
-): string {
+export function buildTrialNote(code: string, label: string | null, unlimited: boolean): string {
   return `Trial code ${code}: ${label ?? (unlimited ? "unlimited" : "60 minutes")}`;
 }
 

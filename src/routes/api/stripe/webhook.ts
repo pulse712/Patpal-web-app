@@ -33,7 +33,7 @@ export const Route = createFileRoute("/api/stripe/webhook")({
           return new Response("Invalid signature", { status: 400 });
         }
 
-        // Helper: credit wallet from metadata
+        // Helper: credit wallet atomically from metadata
         async function creditWallet(
           userId: string,
           seconds: number,
@@ -41,30 +41,15 @@ export const Route = createFileRoute("/api/stripe/webhook")({
           stripeRef: string,
           label: string,
         ) {
-          const { data: wallet } = await supabaseAdmin
-            .from("wallets")
-            .select("balance_seconds")
-            .eq("user_id", userId)
-            .single();
-
-          const currentSeconds = wallet?.balance_seconds ?? 0;
-          const newBalance = currentSeconds + seconds;
-
-          const { error: walletErr } = await supabaseAdmin
-            .from("wallets")
-            .update({ balance_seconds: newBalance, updated_at: new Date().toISOString() })
-            .eq("user_id", userId);
-
-          if (walletErr) throw new Error(`Wallet update failed: ${walletErr.message}`);
-
-          await supabaseAdmin.from("credit_transactions").insert({
-            user_id: userId,
-            kind: "purchase",
-            seconds_delta: seconds,
-            cents_amount: amountCents,
-            stripe_reference: stripeRef,
-            note: label,
+          const { error } = await supabaseAdmin.rpc("credit_wallet", {
+            p_user_id: userId,
+            p_seconds: seconds,
+            p_cents_amount: amountCents,
+            p_stripe_ref: stripeRef,
+            p_note: label,
           });
+
+          if (error) throw new Error(`Wallet credit failed: ${error.message}`);
 
           console.log(`[Stripe webhook] Credited ${seconds}s to user ${userId}`);
         }
@@ -114,7 +99,7 @@ export const Route = createFileRoute("/api/stripe/webhook")({
                   amountDollars: (amountCents / 100).toFixed(2),
                   minutes: Math.round(seconds / 60),
                   newBalanceMinutes: Math.round((wallet?.balance_seconds ?? 0) / 60),
-                  receiptUrl: session.receipt_url ?? undefined,
+                  receiptUrl: undefined,
                   date: new Date().toLocaleDateString("en-US", { dateStyle: "long" }),
                 });
               }
@@ -135,16 +120,29 @@ export const Route = createFileRoute("/api/stripe/webhook")({
             const seconds = parseInt(intent.metadata?.seconds ?? "0", 10);
             const label = intent.metadata?.label ?? "Top-up";
             const amountCents = intent.amount_received ?? 0;
+            const sessionId = intent.metadata?.session_id;
 
             if (!userId || !seconds) {
               console.error("[Stripe webhook] Top-up missing metadata:", intent.metadata);
-            } else {
-              try {
-                await creditWallet(userId, seconds, amountCents, intent.id, label);
-              } catch (err) {
-                console.error("[Stripe webhook] Top-up creditWallet error:", err);
-                return new Response("Top-up wallet update failed", { status: 500 });
+              return new Response("Top-up missing metadata", { status: 500 });
+            }
+
+            try {
+              await creditWallet(userId, seconds, amountCents, intent.id, label);
+
+              if (sessionId) {
+                const { error: capErr } = await supabaseAdmin.rpc("extend_session_billing_cap", {
+                  p_session_id: sessionId,
+                  p_seconds: seconds,
+                });
+                if (capErr) {
+                  console.error("[Stripe webhook] extend_session_billing_cap error:", capErr);
+                  return new Response("Session cap extension failed", { status: 500 });
+                }
               }
+            } catch (err) {
+              console.error("[Stripe webhook] Top-up creditWallet error:", err);
+              return new Response("Top-up wallet update failed", { status: 500 });
             }
           }
         }

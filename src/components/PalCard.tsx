@@ -33,13 +33,22 @@ export function PalCard({ pal }: { pal: PalCardData }) {
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold">{name}</p>
-        <p className="truncate text-xs text-muted-foreground">{pal.headline ?? "Here to listen."}</p>
-        <p className={cn("mt-0.5 text-[10px] font-medium", isOnline ? "text-success" : "text-muted-foreground")}>
+        <p className="truncate text-xs text-muted-foreground">
+          {pal.headline ?? "Here to listen."}
+        </p>
+        <p
+          className={cn(
+            "mt-0.5 text-[10px] font-medium",
+            isOnline ? "text-success" : "text-muted-foreground",
+          )}
+        >
           {isOnline ? "● Online now" : "○ Offline"}
         </p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="text-sm font-bold text-primary">${(pal.price_cents_per_minute / 100).toFixed(2)}</p>
+        <p className="text-sm font-bold text-primary">
+          ${(pal.price_cents_per_minute / 100).toFixed(2)}
+        </p>
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">per min</p>
       </div>
     </Link>

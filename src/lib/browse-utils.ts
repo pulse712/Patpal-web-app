@@ -12,6 +12,7 @@ export type PalBrowseRow = {
   headline: string | null;
   price_cents_per_minute: number;
   tier: string | null;
+  availability?: string;
   category_slugs: string[] | null;
   profiles: { full_name: string | null; avatar_url: string | null } | null;
 };
@@ -34,6 +35,9 @@ export function filterBrowsePals(pals: PalBrowseRow[], filters: BrowseFilters): 
   const q = filters.query?.trim().toLowerCase();
 
   return pals.filter((p) => {
+    // Filter out offline pals
+    if (p.availability === "offline") return false;
+
     const slugs = p.category_slugs ?? [];
     if (filters.category && !slugs.includes(filters.category)) return false;
 

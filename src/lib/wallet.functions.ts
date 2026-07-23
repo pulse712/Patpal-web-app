@@ -1,7 +1,7 @@
 // Server functions for wallet operations.
 // Wallet mutations use the service role to bypass RLS.
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 import {
   assertTrialCodeRedeemable,
@@ -12,10 +12,8 @@ import {
 } from "@/lib/trial-utils";
 
 export const redeemTrialCode = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((data: unknown) =>
-    z.object({ code: z.string().min(1).max(64) }).parse(data),
-  )
+  .middleware([...serverAuth])
+  .validator((data: unknown) => z.object({ code: z.string().min(1).max(64) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
@@ -50,39 +48,30 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
 
     if (tc.unlimited) {
       const until = tc.expires_at ?? new Date(Date.now() + 7 * 864e5).toISOString();
-      const { error: walletError } = await supabaseAdmin
-        .from("wallets")
-        .update({ unlimited_until: until, updated_at: new Date().toISOString() })
-        .eq("user_id", userId);
 
-      if (walletError) throw new Error("Could not apply trial code");
-
-      await supabaseAdmin.from("credit_transactions").insert({
-        user_id: userId,
-        kind: "trial",
-        seconds_delta: 0,
-        note,
+      const { error } = await supabaseAdmin.rpc("apply_trial_code", {
+        p_user_id: userId,
+        p_seconds: 0,
+        p_unlimited_until: until,
+        p_note: note,
       });
+
+      if (error) throw new Error("Could not apply trial code");
 
       return { ok: true, unlimitedUntil: until };
     }
 
+    const { error } = await supabaseAdmin.rpc("apply_trial_code", {
+      p_user_id: userId,
+      p_seconds: TRIAL_GRANT_SECONDS,
+      p_unlimited_until: null,
+      p_note: note,
+    });
+
+    if (error) throw new Error("Could not apply trial code");
+
     const currentBalance = wallet?.balance_seconds ?? 0;
     const newBalance = computeTrialBalance(currentBalance);
-
-    const { error: walletError } = await supabaseAdmin
-      .from("wallets")
-      .update({ balance_seconds: newBalance, updated_at: new Date().toISOString() })
-      .eq("user_id", userId);
-
-    if (walletError) throw new Error("Could not apply trial code");
-
-    await supabaseAdmin.from("credit_transactions").insert({
-      user_id: userId,
-      kind: "trial",
-      seconds_delta: TRIAL_GRANT_SECONDS,
-      note,
-    });
 
     return { ok: true, balanceSeconds: newBalance, secondsGranted: TRIAL_GRANT_SECONDS };
   });

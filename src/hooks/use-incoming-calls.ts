@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { declineIncomingCall } from "@/lib/session.functions";
+import { fetchPublicProfile } from "@/lib/public-profiles";
 
 export type IncomingCall = {
   sessionId: string;
@@ -55,11 +56,7 @@ export function useIncomingCalls(userId: string | null) {
 
       seenRef.current.add(row.id);
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", row.client_id)
-        .maybeSingle();
+      const profile = await fetchPublicProfile(row.client_id);
 
       const call: IncomingCall = {
         sessionId: row.id,

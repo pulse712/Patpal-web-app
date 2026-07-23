@@ -36,10 +36,10 @@ describe("requireAuthBeforeLoad", () => {
     expect(redirect).toHaveBeenCalledWith({ to: "/auth", replace: true });
   });
 
-  it("no-ops during SSR", async () => {
+  it("returns ssrPendingAuth during SSR", async () => {
     vi.unstubAllGlobals();
     const { requireAuthBeforeLoad } = await import("./auth-guard");
-    await expect(requireAuthBeforeLoad()).resolves.toBeUndefined();
+    await expect(requireAuthBeforeLoad()).resolves.toEqual({ ssrPendingAuth: true });
     expect(getSession).not.toHaveBeenCalled();
   });
 });

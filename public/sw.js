@@ -4,20 +4,10 @@
 const CACHE_NAME = "patmyback-v1";
 
 // Assets to pre-cache on install
-const PRECACHE_URLS = [
-  "/",
-  "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-];
+const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 // Routes that should never be served from cache
-const NETWORK_ONLY = [
-  "/api/",
-  "supabase.co",
-  "stripe.com",
-  "agora.io",
-];
+const NETWORK_ONLY = ["/api/", "supabase.co", "stripe.com", "agora.io"];
 
 // ─── Install ────────────────────────────────────────────────────────────────
 self.addEventListener("install", (event) => {
@@ -25,7 +15,7 @@ self.addEventListener("install", (event) => {
     caches
       .open(CACHE_NAME)
       .then((cache) => cache.addAll(PRECACHE_URLS))
-      .then(() => self.skipWaiting())
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -35,13 +25,9 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => key !== CACHE_NAME)
-            .map((key) => caches.delete(key))
-        )
+        Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
       )
-      .then(() => self.clients.claim())
+      .then(() => self.clients.claim()),
   );
 });
 
@@ -65,15 +51,13 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           return response;
         })
-        .catch(() => caches.match("/"))
+        .catch(() => caches.match("/")),
     );
     return;
   }
 
   // Static assets (JS, CSS, fonts, images) — cache first, then network
-  if (
-    url.pathname.match(/\.(js|css|woff2?|png|ico|svg|webp|jpg|jpeg)$/)
-  ) {
+  if (url.pathname.match(/\.(js|css|woff2?|png|ico|svg|webp|jpg|jpeg)$/)) {
     event.respondWith(
       caches.match(request).then(
         (cached) =>
@@ -82,8 +66,8 @@ self.addEventListener("fetch", (event) => {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
             return response;
-          })
-      )
+          }),
+      ),
     );
     return;
   }
@@ -109,7 +93,7 @@ self.addEventListener("push", (event) => {
       tag: data.tag ?? "patmyback",
       data: data.url ? { url: data.url } : undefined,
       vibrate: [200, 100, 200],
-    })
+    }),
   );
 });
 
@@ -119,16 +103,14 @@ self.addEventListener("notificationclick", (event) => {
   const targetPath = event.notification.data?.url ?? "/";
   const targetUrl = new URL(targetPath, self.location.origin).href;
   event.waitUntil(
-    clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then((windowClients) => {
-        for (const client of windowClients) {
-          if ("focus" in client) {
-            client.navigate(targetUrl);
-            return client.focus();
-          }
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if ("focus" in client) {
+          client.navigate(targetUrl);
+          return client.focus();
         }
-        if (clients.openWindow) return clients.openWindow(targetUrl);
-      }),
+      }
+      if (clients.openWindow) return clients.openWindow(targetUrl);
+    }),
   );
 });

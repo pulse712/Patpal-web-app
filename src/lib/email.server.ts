@@ -14,11 +14,7 @@ function getResend(): Resend {
 }
 
 // ─── Low-level send ──────────────────────────────────────────────────────────
-export async function sendEmail(opts: {
-  to: string;
-  subject: string;
-  html: string;
-}) {
+export async function sendEmail(opts: { to: string; subject: string; html: string }) {
   const key = process.env.RESEND_API_KEY;
   if (!key || key.includes("YOUR_")) {
     console.warn("[Email] RESEND_API_KEY not set — skipping email to:", opts.to);
@@ -127,7 +123,8 @@ export async function sendSessionSummary(opts: {
   remainingMinutes: number;
   date: string;
 }) {
-  const kindLabel = opts.kind === "video" ? "Video call" : opts.kind === "audio" ? "Audio call" : "Chat session";
+  const kindLabel =
+    opts.kind === "video" ? "Video call" : opts.kind === "audio" ? "Audio call" : "Chat session";
 
   const html = layout(`
     <h2 style="margin:0 0 8px;font-size:20px;font-weight:800;color:#111827;">Session complete 🎉</h2>

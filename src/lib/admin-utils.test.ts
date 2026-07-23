@@ -3,6 +3,7 @@ import {
   assertCanDeactivateUser,
   assertCanManageRole,
   filterAdminUsers,
+  type AppRole,
 } from "./admin-utils";
 
 describe("assertCanDeactivateUser", () => {
@@ -46,13 +47,13 @@ describe("filterAdminUsers", () => {
     {
       email: "alice@example.com",
       fullName: "Alice",
-      roles: ["client"] as const,
+      roles: ["client"] as AppRole[],
       createdAt: "2024-02-01T00:00:00.000Z",
     },
     {
       email: "bob@example.com",
       fullName: "Bob Pal",
-      roles: ["pat_pal"] as const,
+      roles: ["pat_pal"] as AppRole[],
       createdAt: "2024-03-01T00:00:00.000Z",
     },
   ];

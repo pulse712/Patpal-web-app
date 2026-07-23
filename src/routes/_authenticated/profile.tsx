@@ -44,7 +44,9 @@ import { deleteMyAccount } from "@/lib/account.functions";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 export const Route = createFileRoute("/_authenticated/profile")({
-  head: () => ({ meta: [{ title: "Profile — Pat My Back" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Profile — Pat My Back" }, { name: "robots", content: "noindex" }],
+  }),
   component: Profile,
 });
 
@@ -173,7 +175,9 @@ function Profile() {
             <User className="h-8 w-8" />
           </div>
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-extrabold tracking-tight">{fullName || "Your profile"}</h1>
+            <h1 className="truncate text-2xl font-extrabold tracking-tight">
+              {fullName || "Your profile"}
+            </h1>
             <p className="truncate text-sm opacity-90">{email}</p>
           </div>
         </div>
@@ -190,31 +194,63 @@ function Profile() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="p-bio">Bio</Label>
-          <Input id="p-bio" value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Tell your Pals a bit about you" />
+          <Input
+            id="p-bio"
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="Tell your Pals a bit about you"
+          />
         </div>
-        <Button type="submit" disabled={saving} className="h-11 w-full font-semibold">Save changes</Button>
+        <Button type="submit" disabled={saving} className="h-11 w-full font-semibold">
+          Save changes
+        </Button>
       </form>
 
       {/* Preferences list */}
       <div className="px-5 pt-8">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preferences</h2>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Preferences
+        </h2>
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
           <button
             type="button"
             onClick={toggleTheme}
             className="flex w-full items-center gap-3 p-3.5 text-left hover:bg-muted/50"
           >
-            {theme === "dark" ? <Moon className="h-5 w-5 text-primary" /> : <Sun className="h-5 w-5 text-primary" />}
+            {theme === "dark" ? (
+              <Moon className="h-5 w-5 text-primary" />
+            ) : (
+              <Sun className="h-5 w-5 text-primary" />
+            )}
             <div className="flex-1">
               <div className="text-sm font-semibold">Appearance</div>
-              <div className="text-xs text-muted-foreground">{theme === "dark" ? "Dark mode" : "Light mode"} — tap to switch</div>
+              <div className="text-xs text-muted-foreground">
+                {theme === "dark" ? "Dark mode" : "Light mode"} — tap to switch
+              </div>
             </div>
-            <Switch checked={theme === "dark"} onCheckedChange={toggleTheme} onClick={(e) => e.stopPropagation()} />
+            <Switch
+              checked={theme === "dark"}
+              onCheckedChange={toggleTheme}
+              onClick={(e) => e.stopPropagation()}
+            />
           </button>
 
-          <RowButton icon={<Shield className="h-5 w-5 text-primary" />} title="Privacy & security" subtitle="Change password" onClick={() => setPwOpen(true)} />
-          <RowButton icon={<Bell className="h-5 w-5 text-primary" />} title="Notifications" subtitle="Push, email, marketing" onClick={() => setNotifOpen(true)} />
-          <Link to="/chats" className="flex w-full items-center gap-3 p-3.5 text-left hover:bg-muted/50">
+          <RowButton
+            icon={<Shield className="h-5 w-5 text-primary" />}
+            title="Privacy & security"
+            subtitle="Change password"
+            onClick={() => setPwOpen(true)}
+          />
+          <RowButton
+            icon={<Bell className="h-5 w-5 text-primary" />}
+            title="Notifications"
+            subtitle="Push, email, marketing"
+            onClick={() => setNotifOpen(true)}
+          />
+          <Link
+            to="/chats"
+            className="flex w-full items-center gap-3 p-3.5 text-left hover:bg-muted/50"
+          >
             <Video className="h-5 w-5 text-primary" />
             <div className="flex-1">
               <div className="text-sm font-semibold">My sessions</div>
@@ -222,13 +258,21 @@ function Profile() {
             </div>
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </Link>
-          <RowButton icon={<Settings className="h-5 w-5 text-primary" />} title="Settings & privacy" subtitle="Account preferences" onClick={() => setSettingsOpen(true)} />
+          <RowButton
+            icon={<Settings className="h-5 w-5 text-primary" />}
+            title="Settings & privacy"
+            subtitle="Account preferences"
+            onClick={() => setSettingsOpen(true)}
+          />
         </div>
       </div>
 
       {/* Account actions */}
       <div className="space-y-2.5 px-5 pt-6 pb-10">
-        <button onClick={signOut} className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card p-3.5 text-sm font-semibold text-foreground hover:bg-muted/50">
+        <button
+          onClick={signOut}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card p-3.5 text-sm font-semibold text-foreground hover:bg-muted/50"
+        >
           <LogOut className="h-4 w-4" /> Log out
         </button>
         <button
@@ -249,16 +293,30 @@ function Profile() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="new-pw">New password</Label>
-              <Input id="new-pw" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+              <Input
+                id="new-pw"
+                type="password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-pw2">Confirm password</Label>
-              <Input id="new-pw2" type="password" value={newPw2} onChange={(e) => setNewPw2(e.target.value)} />
+              <Input
+                id="new-pw2"
+                type="password"
+                value={newPw2}
+                onChange={(e) => setNewPw2(e.target.value)}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPwOpen(false)}>Cancel</Button>
-            <Button onClick={changePassword} disabled={changingPw}>Update password</Button>
+            <Button variant="outline" onClick={() => setPwOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={changePassword} disabled={changingPw}>
+              Update password
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -274,9 +332,11 @@ function Profile() {
             {/* Real push subscription row */}
             <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-3.5">
               <div className="mt-0.5">
-                {push.subscribed
-                  ? <Bell className="h-5 w-5 text-primary" />
-                  : <BellOff className="h-5 w-5 text-muted-foreground" />}
+                {push.subscribed ? (
+                  <Bell className="h-5 w-5 text-primary" />
+                ) : (
+                  <BellOff className="h-5 w-5 text-muted-foreground" />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold">Push notifications</div>
@@ -292,13 +352,25 @@ function Profile() {
               </div>
               <Switch
                 checked={push.subscribed}
-                disabled={push.loading || push.permission === "denied" || push.permission === "unsupported"}
-                onCheckedChange={(v) => v ? push.enable() : push.disable()}
+                disabled={
+                  push.loading || push.permission === "denied" || push.permission === "unsupported"
+                }
+                onCheckedChange={(v) => (v ? push.enable() : push.disable())}
               />
             </div>
 
-            <NotifRow label="Email notifications" desc="Session summaries and receipts" checked={notifs.email} onChange={(v) => updateNotif("email", v)} />
-            <NotifRow label="Marketing" desc="Occasional product updates" checked={notifs.marketing} onChange={(v) => updateNotif("marketing", v)} />
+            <NotifRow
+              label="Email notifications"
+              desc="Session summaries and receipts"
+              checked={notifs.email}
+              onChange={(v) => updateNotif("email", v)}
+            />
+            <NotifRow
+              label="Marketing"
+              desc="Occasional product updates"
+              checked={notifs.marketing}
+              onChange={(v) => updateNotif("marketing", v)}
+            />
           </div>
           <DialogFooter>
             <Button onClick={() => setNotifOpen(false)}>Done</Button>
@@ -314,9 +386,14 @@ function Profile() {
             <DialogDescription>Manage how your account behaves.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
-            <p className="text-muted-foreground">Your data is protected by row-level security. You can export or delete your data at any time by contacting support or using the Delete account option.</p>
+            <p className="text-muted-foreground">
+              Your data is protected by row-level security. You can export or delete your data at
+              any time by contacting support or using the Delete account option.
+            </p>
             <div className="rounded-lg border border-border p-3">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Account email</div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Account email
+              </div>
               <div className="mt-1 break-all">{email}</div>
             </div>
           </div>
@@ -332,12 +409,19 @@ function Profile() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete your account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes your account and profile. Wallet balance, sessions, and messages tied to your account will be removed. This cannot be undone.
+              This permanently deletes your account and profile. Wallet balance, sessions, and
+              messages tied to your account will be removed. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="del-confirm">Type <span className="font-mono font-semibold">DELETE</span> to confirm</Label>
-            <Input id="del-confirm" value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
+            <Label htmlFor="del-confirm">
+              Type <span className="font-mono font-semibold">DELETE</span> to confirm
+            </Label>
+            <Input
+              id="del-confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+            />
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
@@ -358,9 +442,23 @@ function Profile() {
   );
 }
 
-function RowButton({ icon, title, subtitle, onClick }: { icon: React.ReactNode; title: string; subtitle: string; onClick: () => void }) {
+function RowButton({
+  icon,
+  title,
+  subtitle,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+}) {
   return (
-    <button type="button" onClick={onClick} className="flex w-full items-center gap-3 p-3.5 text-left hover:bg-muted/50">
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 p-3.5 text-left hover:bg-muted/50"
+    >
       {icon}
       <div className="flex-1">
         <div className="text-sm font-semibold">{title}</div>
@@ -371,7 +469,17 @@ function RowButton({ icon, title, subtitle, onClick }: { icon: React.ReactNode; 
   );
 }
 
-function NotifRow({ label, desc, checked, onChange }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) {
+function NotifRow({
+  label,
+  desc,
+  checked,
+  onChange,
+}: {
+  label: string;
+  desc: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex-1">

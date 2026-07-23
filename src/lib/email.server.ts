@@ -4,8 +4,9 @@
 
 import { Resend } from "resend";
 
+import { getAppUrl } from "@/lib/app-url";
+
 const FROM = "Pat My Back <noreply@patmyback.com>";
-const APP_URL = process.env.APP_URL ?? "https://patmyback.com";
 
 function getResend(): Resend {
   const key = process.env.RESEND_API_KEY;
@@ -27,6 +28,7 @@ export async function sendEmail(opts: { to: string; subject: string; html: strin
 
 // ─── Shared layout ───────────────────────────────────────────────────────────
 function layout(body: string) {
+  const appUrl = getAppUrl();
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -56,7 +58,7 @@ function layout(body: string) {
         <tr>
           <td style="padding:20px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
             <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
-              Pat My Back · <a href="${APP_URL}" style="color:#0EA5A0;text-decoration:none;">${APP_URL.replace("https://", "")}</a><br/>
+              Pat My Back · <a href="${appUrl}" style="color:#0EA5A0;text-decoration:none;">${appUrl.replace("https://", "")}</a><br/>
               You're receiving this because you have an account with us.
             </p>
           </td>
@@ -83,6 +85,7 @@ export async function sendPaymentReceipt(opts: {
   receiptUrl?: string;
   date: string;
 }) {
+  const appUrl = getAppUrl();
   const html = layout(`
     <h2 style="margin:0 0 8px;font-size:20px;font-weight:800;color:#111827;">Payment confirmed ✅</h2>
     <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">Hi ${opts.name}, your payment was successful.</p>
@@ -106,7 +109,7 @@ export async function sendPaymentReceipt(opts: {
       </tr>
     </table>
 
-    ${opts.receiptUrl ? btn("View receipt", opts.receiptUrl) : btn("Go to wallet", `${APP_URL}/wallet`)}
+    ${opts.receiptUrl ? btn("View receipt", opts.receiptUrl) : btn("Go to wallet", `${appUrl}/wallet`)}
   `);
 
   await sendEmail({ to: opts.to, subject: "Your Pat My Back payment receipt", html });
@@ -126,6 +129,7 @@ export async function sendSessionSummary(opts: {
   const kindLabel =
     opts.kind === "video" ? "Video call" : opts.kind === "audio" ? "Audio call" : "Chat session";
 
+  const appUrl = getAppUrl();
   const html = layout(`
     <h2 style="margin:0 0 8px;font-size:20px;font-weight:800;color:#111827;">Session complete 🎉</h2>
     <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">Hi ${opts.name}, here's a summary of your recent session.</p>
@@ -157,10 +161,10 @@ export async function sendSessionSummary(opts: {
       </tr>
     </table>
 
-    ${btn("Book another session", `${APP_URL}/browse`)}
+    ${btn("Book another session", `${appUrl}/browse`)}
 
     <p style="margin-top:24px;font-size:13px;color:#9ca3af;">
-      Need help? Reply to this email or visit our <a href="${APP_URL}" style="color:#0EA5A0;">support page</a>.
+      Need help? Reply to this email or visit our <a href="${appUrl}" style="color:#0EA5A0;">support page</a>.
     </p>
   `);
 
@@ -169,6 +173,7 @@ export async function sendSessionSummary(opts: {
 
 // ─── Template: Welcome email ──────────────────────────────────────────────────
 export async function sendWelcomeEmail(opts: { to: string; name: string }) {
+  const appUrl = getAppUrl();
   const html = layout(`
     <h2 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#111827;">Welcome to Pat My Back 👋</h2>
     <p style="margin:0 0 16px;color:#6b7280;font-size:15px;">
@@ -178,7 +183,7 @@ export async function sendWelcomeEmail(opts: { to: string; name: string }) {
     <p style="margin:0 0 24px;color:#6b7280;font-size:15px;">
       Browse available Pat Pals, top up your wallet, and start a conversation whenever you need someone in your corner.
     </p>
-    ${btn("Find a Pat Pal", `${APP_URL}/browse`)}
+    ${btn("Find a Pat Pal", `${appUrl}/browse`)}
     <p style="margin-top:24px;font-size:13px;color:#9ca3af;">
       Questions? Just reply to this email — we'd love to hear from you.
     </p>

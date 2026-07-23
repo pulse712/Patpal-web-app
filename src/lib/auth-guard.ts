@@ -11,10 +11,14 @@ export async function requireAuthBeforeLoad() {
     return { ssrPendingAuth: true as const };
   }
 
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) {
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      throw redirect({ to: "/auth", replace: true });
+    }
+    return { userId: data.session.user.id };
+  } catch (err) {
+    if (err && typeof err === "object" && "isRedirect" in err) throw err;
     throw redirect({ to: "/auth", replace: true });
   }
-
-  return { userId: data.session.user.id };
 }

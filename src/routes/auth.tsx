@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { HandHeart, Loader2 } from "lucide-react";
 import { sendWelcome } from "@/lib/welcome.functions";
+import { getAuthRedirectUrl } from "@/lib/auth-redirect";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -27,7 +28,7 @@ function AuthPage() {
   const navigate = useNavigate();
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/", replace: true });
+      if (data.session) navigate({ to: "/home", replace: true });
     });
   }, [navigate]);
 
@@ -74,13 +75,13 @@ function LoginForm() {
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Welcome back!");
-    navigate({ to: "/", replace: true });
+    navigate({ to: "/home", replace: true });
   }
 
   async function onForgot() {
     if (!email) return toast.error("Enter your email first");
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: getAuthRedirectUrl("/reset-password"),
     });
     if (error) return toast.error(error.message);
     toast.success("Password reset email sent");
@@ -142,7 +143,7 @@ function RegisterForm() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/`,
+        emailRedirectTo: getAuthRedirectUrl("/auth/callback"),
         data: { full_name: fullName, phone, role: "client" },
       },
     });
@@ -154,7 +155,7 @@ function RegisterForm() {
     }
 
     toast.success("Account created — check your email to verify.");
-    navigate({ to: "/", replace: true });
+    navigate({ to: "/home", replace: true });
   }
 
   return (

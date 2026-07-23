@@ -54,6 +54,26 @@ export const Route = createFileRoute("/api/stripe/webhook")({
           console.log(`[Stripe webhook] Credited ${seconds}s to user ${userId}`);
         }
 
+        async function refundWallet(
+          userId: string,
+          seconds: number,
+          amountCents: number,
+          stripeRef: string,
+          label: string,
+        ) {
+          const { error } = await supabaseAdmin.rpc("refund_wallet", {
+            p_user_id: userId,
+            p_seconds: seconds,
+            p_cents_amount: amountCents,
+            p_stripe_ref: stripeRef,
+            p_note: label,
+          });
+
+          if (error) throw new Error(`Wallet refund failed: ${error.message}`);
+
+          console.log(`[Stripe webhook] Refunded ${seconds}s from user ${userId}`);
+        }
+
         if (event.type === "checkout.session.completed") {
           const session = event.data.object as import("stripe").Stripe.Checkout.Session;
           const userId = session.metadata?.user_id;
@@ -136,14 +156,56 @@ export const Route = createFileRoute("/api/stripe/webhook")({
                   p_seconds: seconds,
                 });
                 if (capErr) {
+                  // Wallet already credited — don't fail webhook (Stripe would retry idempotently).
                   console.error("[Stripe webhook] extend_session_billing_cap error:", capErr);
-                  return new Response("Session cap extension failed", { status: 500 });
                 }
               }
             } catch (err) {
               console.error("[Stripe webhook] Top-up creditWallet error:", err);
               return new Response("Top-up wallet update failed", { status: 500 });
             }
+          }
+        }
+
+        if (event.type === "charge.refunded") {
+          const charge = event.data.object as import("stripe").Stripe.Charge;
+          const paymentIntentId =
+            typeof charge.payment_intent === "string"
+              ? charge.payment_intent
+              : charge.payment_intent?.id;
+
+          if (!paymentIntentId) {
+            console.error("[Stripe webhook] Refund missing payment_intent:", charge.id);
+            return new Response(JSON.stringify({ received: true }), {
+              headers: { "content-type": "application/json" },
+            });
+          }
+
+          const { data: original } = await supabaseAdmin
+            .from("credit_transactions")
+            .select("user_id, seconds_delta, cents_amount")
+            .eq("stripe_reference", paymentIntentId)
+            .eq("kind", "purchase")
+            .maybeSingle();
+
+          if (!original || original.seconds_delta <= 0) {
+            console.warn("[Stripe webhook] No purchase found for refund:", paymentIntentId);
+            return new Response(JSON.stringify({ received: true }), {
+              headers: { "content-type": "application/json" },
+            });
+          }
+
+          try {
+            await refundWallet(
+              original.user_id,
+              original.seconds_delta,
+              original.cents_amount ?? charge.amount_refunded ?? 0,
+              `refund_${charge.id}`,
+              `Refund for ${paymentIntentId}`,
+            );
+          } catch (err) {
+            console.error("[Stripe webhook] refundWallet error:", err);
+            return new Response("Refund wallet update failed", { status: 500 });
           }
         }
 

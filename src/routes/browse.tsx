@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { PalCard, type PalCardData } from "@/components/PalCard";
@@ -70,13 +71,21 @@ function Browse() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: c }, { data: p }] = await Promise.all([
+      const [catsRes, palsRes] = await Promise.all([
         supabase.from("categories").select("id, name, slug, emoji").order("sort_order"),
         supabase
           .from("pat_pals")
           .select("user_id, headline, price_cents_per_minute, availability, category_slugs, tier")
           .order("rating_avg", { ascending: false }),
       ]);
+      const loadError = catsRes.error?.message ?? palsRes.error?.message;
+      if (loadError) {
+        toast.error("Could not load Pat Pals. Please refresh.");
+        setLoading(false);
+        return;
+      }
+      const c = catsRes.data;
+      const p = palsRes.data;
       const rows = p ?? [];
       const nameMap = await fetchPublicProfiles(rows.map((r) => r.user_id));
       const merged: PalBrowseRow[] = rows.map((r) => ({

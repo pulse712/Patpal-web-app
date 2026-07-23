@@ -8,16 +8,7 @@ import {
   filterAdminUsers,
   type AppRole,
 } from "@/lib/admin-utils";
-
-async function assertAdmin(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
-    supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "admin" }),
-    supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "super_admin" }),
-  ]);
-  if (!isAdmin && !isSuperAdmin) throw new Error("Unauthorized");
-  return { isSuperAdmin: !!isSuperAdmin };
-}
+import { assertAdmin } from "@/lib/admin-guard";
 
 export const listAdminUsers = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
@@ -35,14 +26,18 @@ export const listAdminUsers = createServerFn({ method: "POST" })
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
+    const roleFilter = data.role ?? "all";
+    const hasFilters = !!data.search?.trim() || roleFilter !== "all";
+    const fetchPerPage = hasFilters ? 1000 : data.perPage;
+
     const { data: authList, error: authError } = await supabaseAdmin.auth.admin.listUsers({
-      page: data.page,
-      perPage: data.perPage,
+      page: hasFilters ? 1 : data.page,
+      perPage: fetchPerPage,
     });
     if (authError) throw new Error(authError.message);
 
     const users = authList?.users ?? [];
-    const total = authList?.total ?? users.length;
+    const authTotal = authList?.total ?? users.length;
     const ids = users.map((u) => u.id);
 
     const [{ data: profiles }, { data: roles }] = await Promise.all([
@@ -58,8 +53,6 @@ export const listAdminUsers = createServerFn({ method: "POST" })
       rolesMap.set(r.user_id, list);
     }
 
-    const roleFilter = data.role ?? "all";
-
     const rows = users.map((u) => {
       const profile = profileMap.get(u.id);
       const userRoles = rolesMap.get(u.id) ?? ["client"];
@@ -73,12 +66,26 @@ export const listAdminUsers = createServerFn({ method: "POST" })
       };
     });
 
+    const filtered = filterAdminUsers(rows, data.search, roleFilter);
+
+    if (hasFilters) {
+      const start = (data.page - 1) * data.perPage;
+      const pageUsers = filtered.slice(start, start + data.perPage);
+      return {
+        users: pageUsers,
+        total: filtered.length,
+        page: data.page,
+        perPage: data.perPage,
+        hasMore: start + data.perPage < filtered.length,
+      };
+    }
+
     return {
-      users: filterAdminUsers(rows, data.search, roleFilter),
-      total,
+      users: filtered,
+      total: authTotal,
       page: data.page,
       perPage: data.perPage,
-      hasMore: users.length === data.perPage && total > data.page * data.perPage,
+      hasMore: users.length === data.perPage && authTotal > data.page * data.perPage,
     };
   });
 

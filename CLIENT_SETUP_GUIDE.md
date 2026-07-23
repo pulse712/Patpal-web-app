@@ -28,6 +28,64 @@ Without this step, sign-in and sign-up will fail on the live site. Email confirm
 
 ---
 
+## 1b. Supabase — Verification emails not arriving (required for signup)
+
+PatPal uses **Supabase Auth** to send signup verification emails. The app cannot send those itself — they must be configured in Supabase.
+
+### A. Check auth settings
+
+1. [Supabase Dashboard](https://supabase.com/dashboard/project/xhgybcyvpasmtlpscdly) → **Authentication** → **Providers** → **Email**.
+2. Ensure **Email** provider is **enabled**.
+3. Note whether **Confirm email** is on:
+   - **On** (recommended): users must click the link in email before signing in.
+   - **Off**: no verification email is sent; users can sign in immediately after signup.
+
+### B. Check Supabase auth logs
+
+1. **Authentication** → **Logs** (or **Users** → select user → activity).
+2. After a test signup, confirm Supabase attempted to send mail.
+3. If logs show errors, note the message (rate limit, SMTP failure, etc.).
+
+### C. Default Supabase mail limits
+
+Free projects use Supabase’s shared mail sender (`noreply@mail.app.supabase.io`):
+
+- Low hourly send limits
+- Often lands in **spam/junk** (especially Gmail)
+- Not reliable for production
+
+**For production, configure custom SMTP** (recommended: [Resend](https://resend.com)):
+
+1. Supabase → **Project Settings** → **Authentication** → **SMTP Settings**.
+2. Enable custom SMTP and enter:
+
+| Field | Value |
+|-------|--------|
+| Host | `smtp.resend.com` |
+| Port | `465` |
+| Username | `resend` |
+| Password | Your Resend API key (`re_...`) |
+| Sender email | A verified sender on your domain (e.g. `noreply@yourdomain.com`) |
+| Sender name | `Pat My Back` |
+
+3. Save, then test signup again.
+
+### D. Manually confirm a user (support workaround)
+
+If email still fails, confirm a user in the dashboard:
+
+1. **Authentication** → **Users** → select the user.
+2. Use **Confirm user** / mark email as confirmed.
+
+Or delete the user and sign up again after SMTP is fixed.
+
+### E. In the app
+
+After signup, users see **“Verify your email”** with a **Resend verification email** button.  
+On the sign-in tab, **Resend verification email** appears when an email address is entered.
+
+---
+
 ## 2. Vercel — Environment variables (required for server features)
 
 The browser connects to Supabase automatically. The **server** (billing, admin actions, webhooks) needs one secret in Vercel.
@@ -154,6 +212,7 @@ If any are missing, run these files **in order** in SQL Editor (on a fresh proje
 | Login fails / “invalid redirect” | Section 1 — Supabase redirect URLs |
 | Email link opens `localhost:3000` | Section 1 — change **Site URL** from `localhost:3000` to your Vercel URL |
 | Email link has tokens but app does not sign in | Open the link on the live site: replace `localhost:3000` with `pat-my-back-m631.vercel.app` in the address bar, or sign up again after fixing Site URL |
+| No verification email received | Section 1b — SMTP, spam folder, Supabase auth logs |
 | Admin page access denied | Section 3 — admin SQL after signing up |
 | Payments fail | Section 2 — Stripe keys + webhook pointing to your Vercel URL |
 | “Missing SUPABASE_SERVICE_ROLE_KEY” | Section 2 — add key in Vercel and redeploy |

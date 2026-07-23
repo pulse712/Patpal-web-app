@@ -115,7 +115,10 @@ function Profile() {
     e.preventDefault();
     setSaving(true);
     const { data: sess } = await supabase.auth.getSession();
-    if (!sess.session) return;
+    if (!sess.session) {
+      setSaving(false);
+      return;
+    }
     const uid = sess.session.user.id;
     const [{ error }, { error: err2 }] = await Promise.all([
       supabase.from("profiles").update({ full_name: fullName, bio }).eq("id", uid),
@@ -123,10 +126,11 @@ function Profile() {
     ]);
     setSaving(false);
     const e1 = error || err2;
-    if (e1) toast.error(e1.message);
-    setSaving(false);
-    if (error) toast.error(error.message);
-    else toast.success("Profile saved");
+    if (e1) {
+      toast.error(e1.message);
+      return;
+    }
+    toast.success("Profile saved");
   }
 
   async function signOut() {
@@ -135,7 +139,7 @@ function Profile() {
   }
 
   async function changePassword() {
-    if (newPw.length < 6) return toast.error("Password must be at least 6 characters");
+    if (newPw.length < 8) return toast.error("Password must be at least 8 characters");
     if (newPw !== newPw2) return toast.error("Passwords do not match");
     setChangingPw(true);
     const { error } = await supabase.auth.updateUser({ password: newPw });

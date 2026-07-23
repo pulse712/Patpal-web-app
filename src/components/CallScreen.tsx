@@ -37,7 +37,8 @@ import {
   getActiveSessionBilling,
 } from "@/lib/session.functions";
 import { notifyIncomingCall } from "@/lib/notify.functions";
-import { getPublicEnv } from "@/lib/public-env";
+import { RatingModal } from "@/components/RatingModal";
+import { CallTopUpPayment } from "@/components/CallTopUpPayment";
 
 type CallKind = "audio" | "video";
 
@@ -62,6 +63,7 @@ type IRemoteVideo = import("agora-rtc-sdk-ng").IRemoteVideoTrack;
 
 const GRACE_SECONDS = 30; // extra seconds after balance runs out before forced end
 const WARN_SECONDS = 120; // show top-up warning when this many seconds remain
+const RING_TIMEOUT_MS = 45_000; // auto-cancel if pal never answers
 
 const TOP_UP_PRESETS = [
   { label: "$5", cents: 500 },
@@ -101,6 +103,8 @@ export function CallScreen({
   const [customInput, setCustomInput] = useState("");
   const [topUpBusy, setTopUpBusy] = useState(false);
   const [topUpDone, setTopUpDone] = useState(false);
+  const [topUpClientSecret, setTopUpClientSecret] = useState<string | null>(null);
+  const [topUpPurchasedSeconds, setTopUpPurchasedSeconds] = useState(0);
   const warnFiredRef = useRef(false);
   const [billingActive, setBillingActive] = useState(false);
   const billableCapRef = useRef<number | null>(null);
@@ -377,62 +381,55 @@ export function CallScreen({
     };
   }, []); // eslint-disable-line
 
+  // Caller-side ring timeout — free the active-session slot if pal never answers
+  useEffect(() => {
+    if (isCallee || status !== "connected" || remoteJoined || wasConnectedRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      if (wasConnectedRef.current || remoteJoined) return;
+      toast.info("No answer — call ended.");
+      void handleEnd();
+    }, RING_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [isCallee, status, remoteJoined]); // eslint-disable-line
+
   // ─────────────────────────────────────────────────────────────────────────
   // Mid-call top-up via Stripe PaymentIntent + Payment Element
   // Shows a minimal card input UI overlay if no saved card exists.
   // ─────────────────────────────────────────────────────────────────────────
-  async function confirmTopUp(cents: number) {
+  async function startTopUp(cents: number) {
     setTopUpBusy(true);
     try {
-      // 1. Create PaymentIntent on server
       const { clientSecret, seconds } = await createTopUpIntent({
         data: {
           cents,
           sessionId: sessionIdRef.current ?? undefined,
         },
       });
+      setTopUpPurchasedSeconds(seconds);
+      setTopUpClientSecret(clientSecret);
+    } catch (err: unknown) {
+      console.error("[CallScreen] Top-up setup failed:", err);
+      toast.error(err instanceof Error ? err.message : "Could not start payment");
+    } finally {
+      setTopUpBusy(false);
+    }
+  }
 
-      // 2. Load Stripe.js
-      const { loadStripe } = await import("@stripe/stripe-js");
-      const stripeKey = getPublicEnv("VITE_STRIPE_PUBLISHABLE_KEY");
-      if (!stripeKey || stripeKey.includes("YOUR_")) {
-        throw new Error("Stripe publishable key not configured.");
-      }
-      const stripeInstance = await loadStripe(stripeKey);
-      if (!stripeInstance) throw new Error("Stripe.js failed to load.");
-
-      // 3. Try confirming with saved payment method first (auto-confirm)
-      const { error, paymentIntent } = await stripeInstance.confirmCardPayment(clientSecret, {
-        payment_method: undefined, // Will prompt for card if none saved
-      });
-
-      // If requires_action or requires_payment_method, Stripe will handle it
-      // If card declined or not saved, user gets an error and can try again
-      if (error) {
-        // Common error: no saved card — show helpful message
-        if (error.code === "payment_method_required" || error.type === "validation_error") {
-          throw new Error(
-            "Please add a payment method to continue. Visit your wallet to save a card.",
-          );
-        }
-        throw new Error(error.message ?? "Payment failed");
-      }
-
-      if (paymentIntent?.status !== "succeeded") {
-        throw new Error("Payment incomplete. Please try again.");
-      }
-
-      // Cap extension + wallet credit happen via Stripe webhook only.
-      await waitForTopUpApplied(seconds);
-      warnFiredRef.current = false; // allow warning to fire again if balance drops low
+  async function onTopUpPaymentSuccess() {
+    setTopUpClientSecret(null);
+    setTopUpBusy(true);
+    try {
+      await waitForTopUpApplied(topUpPurchasedSeconds);
+      warnFiredRef.current = false;
       if (graceTimerRef.current) {
         clearInterval(graceTimerRef.current);
         graceTimerRef.current = null;
         setGraceRemaining(null);
       }
-
       setTopUpDone(true);
-      toast.success(`${Math.round(seconds / 60)} min added to your balance!`, {
+      toast.success(`${Math.round(topUpPurchasedSeconds / 60)} min added to your balance!`, {
         icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
       });
       setTimeout(() => {
@@ -441,16 +438,17 @@ export function CallScreen({
         setTopUpCents(null);
         setCustomInput("");
       }, 2000);
-    } catch (err: unknown) {
-      console.error("[CallScreen] Top-up failed:", err);
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Payment failed — try again or visit your wallet to save a card.",
-      );
     } finally {
       setTopUpBusy(false);
     }
+  }
+
+  function cancelTopUpPayment() {
+    setTopUpClientSecret(null);
+  }
+
+  async function confirmTopUp(cents: number) {
+    await startTopUp(cents);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -482,8 +480,11 @@ export function CallScreen({
     return `${m}:${sec}`;
   }
 
-  const remaining =
-    isCallee || balanceSec === null ? null : isUnlimited ? Infinity : balanceSec - elapsed;
+  const billableRemaining =
+    isCallee || balanceSec === null || isUnlimited
+      ? null
+      : Math.max(0, (billableCapRef.current ?? balanceSec) - elapsed);
+  const remaining = billableRemaining;
   const remainingLow =
     !isCallee && remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
   const inGrace = graceRemaining !== null;
@@ -585,7 +586,20 @@ export function CallScreen({
                 </div>
               </div>
 
-              {/* Preset buttons */}
+              {/* Preset buttons + payment */}
+              {topUpClientSecret ? (
+                <CallTopUpPayment
+                  clientSecret={topUpClientSecret}
+                  amountLabel={
+                    topUpCents
+                      ? `$${(topUpCents / 100).toFixed(topUpCents % 100 === 0 ? 0 : 2)}`
+                      : "selected amount"
+                  }
+                  onSuccess={onTopUpPaymentSuccess}
+                  onCancel={cancelTopUpPayment}
+                />
+              ) : (
+                <>
               <div className="mt-4 flex gap-2">
                 {TOP_UP_PRESETS.map((p) => (
                   <button
@@ -645,6 +659,8 @@ export function CallScreen({
               >
                 Dismiss
               </button>
+                </>
+              )}
             </>
           )}
         </div>

@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getRequest } from "@tanstack/react-start/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { getSupabasePublishableKey, getSupabaseUrl } from "@/lib/supabase-server-env";
 
 export const Route = createFileRoute("/api/stripe/checkout")({
   server: {
@@ -22,9 +23,7 @@ export const Route = createFileRoute("/api/stripe/checkout")({
         }
         const token = authHeader.replace("Bearer ", "");
 
-        const SUPABASE_URL = process.env.SUPABASE_URL!;
-        const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY!;
-        const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        const supabase = createClient<Database>(getSupabaseUrl(), getSupabasePublishableKey(), {
           global: { headers: { Authorization: `Bearer ${token}` } },
           auth: { persistSession: false, autoRefreshToken: false },
         });

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ function Wallet() {
   const [codeBusy, setCodeBusy] = useState(false);
   const [buyingId, setBuyingId] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState("");
+  const balanceBeforePaymentRef = useRef<number | null>(null);
 
   const load = useCallback(async (id: string) => {
     const [{ data: w }, { data: t }] = await Promise.all([
@@ -77,18 +78,57 @@ function Wallet() {
     setTx((t ?? []) as Tx[]);
   }, []);
 
-  // Handle return from Stripe checkout
+  // Handle return from Stripe checkout — poll until webhook credits wallet
   useEffect(() => {
-    if (search.payment === "success") {
-      toast.success("Payment successful! Your balance has been updated.", {
-        icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-        duration: 5000,
-      });
-      // Clear query param
-      navigate({ to: "/wallet", search: { payment: undefined }, replace: true });
-    } else if (search.payment === "cancelled") {
+    if (search.payment !== "success" || !uid) return;
+
+    navigate({ to: "/wallet", search: { payment: undefined }, replace: true });
+
+    let cancelled = false;
+    const baseline = balanceBeforePaymentRef.current ?? seconds;
+
+    (async () => {
+      for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
+        const { data: w, error } = await supabase
+          .from("wallets")
+          .select("balance_seconds")
+          .eq("user_id", uid)
+          .maybeSingle();
+
+        if (error) break;
+
+        const next = w?.balance_seconds ?? 0;
+        if (next > baseline) {
+          setSeconds(next);
+          toast.success("Payment successful! Your balance has been updated.", {
+            icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+            duration: 5000,
+          });
+          await load(uid);
+          balanceBeforePaymentRef.current = null;
+          return;
+        }
+
+        await new Promise((r) => window.setTimeout(r, 1500));
+      }
+
+      if (!cancelled) {
+        await load(uid);
+        toast.info("Payment received — balance may take a moment to update.", { duration: 6000 });
+        balanceBeforePaymentRef.current = null;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [search.payment, uid, navigate, load]);
+
+  useEffect(() => {
+    if (search.payment === "cancelled") {
       toast.info("Payment cancelled — no charge was made.");
       navigate({ to: "/wallet", search: { payment: undefined }, replace: true });
+      balanceBeforePaymentRef.current = null;
     }
   }, [search.payment, navigate]);
 
@@ -126,7 +166,8 @@ function Wallet() {
     }
   }
 
-  async function buyPackage(packageId: string, label: string) {
+  async function buyPackage(packageId: string, _label: string) {
+    balanceBeforePaymentRef.current = seconds;
     setBuyingId(packageId);
     try {
       const { url } = await createCheckoutSession({ data: { packageId } });
@@ -146,6 +187,7 @@ function Wallet() {
       return;
     }
     setBuyingId("custom");
+    balanceBeforePaymentRef.current = seconds;
     try {
       const customCents = Math.round(dollars * 100);
       const { url } = await createCheckoutSession({ data: { customCents } });

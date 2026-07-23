@@ -16,12 +16,14 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
-    await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("push_subscriptions")
       .upsert(
         { user_id: userId, endpoint: data.endpoint, p256dh: data.p256dh, auth: data.auth },
         { onConflict: "user_id,endpoint" },
       );
+
+    if (error) throw new Error(error.message);
 
     return { ok: true };
   });

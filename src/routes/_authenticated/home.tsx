@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -66,8 +67,7 @@ function Home() {
       const { data: sess } = await supabase.auth.getSession();
       if (!sess.session) return;
       const uid = sess.session.user.id;
-      const [{ data: p }, { data: w }, { data: cats }, { data: pals }, { data: bans }] =
-        await Promise.all([
+      const [pRes, wRes, catsRes, palsRes, bansRes] = await Promise.all([
           supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
           supabase.from("wallets").select("balance_seconds").eq("user_id", uid).maybeSingle(),
           supabase.from("categories").select("id, name, slug, emoji").order("sort_order").limit(12),
@@ -83,6 +83,22 @@ function Home() {
             .order("sort_order")
             .limit(3),
         ]);
+      const loadError =
+        pRes.error?.message ??
+        wRes.error?.message ??
+        catsRes.error?.message ??
+        palsRes.error?.message ??
+        bansRes.error?.message;
+      if (loadError) {
+        toast.error("Could not load your dashboard. Please refresh.");
+        setLoading(false);
+        return;
+      }
+      const p = pRes.data;
+      const w = wRes.data;
+      const cats = catsRes.data;
+      const pals = palsRes.data;
+      const bans = bansRes.data;
       setProfile(p as Profile | null);
       setBalanceSeconds(w?.balance_seconds ?? 0);
       setCategories((cats ?? []) as unknown as Category[]);

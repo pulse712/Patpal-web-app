@@ -1,4 +1,4 @@
-import { APP_CONFIG } from "@/config/app";
+import { getAppUrl } from "@/lib/app-url";
 
 /** Base URL for Supabase email links (confirm signup, reset password). */
 export function getAuthRedirectUrl(path: string): string {
@@ -8,5 +8,5 @@ export function getAuthRedirectUrl(path: string): string {
     return `${window.location.origin}${normalized}`;
   }
 
-  return `${APP_CONFIG.productionUrl}${normalized}`;
+  return `${getAppUrl()}${normalized}`;
 }

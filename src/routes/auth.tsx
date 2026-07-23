@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { HandHeart, Loader2 } from "lucide-react";
 import { sendWelcome } from "@/lib/welcome.functions";
+import { sendWelcomeOnce } from "@/lib/welcome-client";
 import { getAuthRedirectUrl } from "@/lib/auth-redirect";
 import { isEmailNotConfirmedError, resendSignupVerification } from "@/lib/auth-email";
 
@@ -215,7 +216,12 @@ function RegisterForm() {
     if (error) return toast.error(error.message);
 
     if (data.session) {
-      sendWelcome({ data: { name: fullName, email } }).catch(() => {});
+      void sendWelcomeOnce({
+        userId: data.session.user.id,
+        name: fullName,
+        email,
+        send: (payload) => sendWelcome({ data: payload }),
+      });
       toast.success("Account created!");
       navigate({ to: "/home", replace: true });
       return;

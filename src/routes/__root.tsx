@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { getOgImageUrl } from "@/lib/app-url";
 import { supabase } from "@/integrations/supabase/client";
 import { setPresenceUser } from "@/lib/presence";
 import { Toaster } from "@/components/ui/sonner";
@@ -104,13 +105,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       {
         property: "og:image",
-        content:
-          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c5e69d05-b8db-4a19-9795-93c39b744326/id-preview-a3608c5c--3369eda2-9820-4db8-90e7-9858df90de4c.lovable.app-1784098983453.png",
+        content: getOgImageUrl(),
       },
       {
         name: "twitter:image",
-        content:
-          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c5e69d05-b8db-4a19-9795-93c39b744326/id-preview-a3608c5c--3369eda2-9820-4db8-90e7-9858df90de4c.lovable.app-1784098983453.png",
+        content: getOgImageUrl(),
       },
     ],
     links: [

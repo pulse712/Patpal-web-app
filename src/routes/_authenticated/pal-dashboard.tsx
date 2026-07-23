@@ -11,8 +11,12 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { MessageCircle, DollarSign, Star, Clock } from "lucide-react";
 import { useIsOnline } from "@/lib/presence";
+import { checkPalAccess } from "@/lib/pal-guard";
 
 export const Route = createFileRoute("/_authenticated/pal-dashboard")({
+  beforeLoad: async () => {
+    await checkPalAccess();
+  },
   component: PalDashboard,
 });
 
@@ -97,6 +101,10 @@ function PalDashboard() {
 
   async function saveProfile() {
     if (!user) return;
+    if (!pal) {
+      toast.error("Pat Pal profile not found — contact support to finish setup.");
+      return;
+    }
     setSaving(true);
     const cents = Math.max(0, Math.round(parseFloat(price || "0") * 100));
     const { error } = await supabase

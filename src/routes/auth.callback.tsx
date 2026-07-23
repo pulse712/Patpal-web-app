@@ -3,12 +3,34 @@ import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { sendWelcome } from "@/lib/welcome.functions";
+import { sendWelcomeOnce } from "@/lib/welcome-client";
 
 /** Handles Supabase email links (#access_token=...) after signup or magic link. */
 export const Route = createFileRoute("/auth/callback")({
   head: () => ({ meta: [{ title: "Signing you in — Pat My Back" }] }),
   component: AuthCallbackPage,
 });
+
+function finishSignIn(
+  navigate: ReturnType<typeof useNavigate>,
+  session: NonNullable<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]>,
+) {
+  const email = session.user.email;
+  const name =
+    (session.user.user_metadata?.full_name as string | undefined) ??
+    email?.split("@")[0] ??
+    "there";
+  if (email) {
+    void sendWelcomeOnce({
+      userId: session.user.id,
+      name,
+      email,
+      send: (data) => sendWelcome({ data }),
+    });
+  }
+  navigate({ to: "/home", replace: true });
+}
 
 function AuthCallbackPage() {
   const navigate = useNavigate();
@@ -27,7 +49,7 @@ function AuthCallbackPage() {
       }
 
       if (data.session) {
-        navigate({ to: "/home", replace: true });
+        finishSignIn(navigate, data.session);
         return;
       }
 
@@ -35,7 +57,7 @@ function AuthCallbackPage() {
         if (cancelled) return;
         if (session) {
           sub.subscription.unsubscribe();
-          navigate({ to: "/home", replace: true });
+          finishSignIn(navigate, session);
         }
       });
 

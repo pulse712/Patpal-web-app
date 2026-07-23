@@ -35,6 +35,7 @@ import {
   setPromoBannerVisible,
   deletePromoBanner,
 } from "@/lib/admin.functions";
+import { checkAdminAccess } from "@/lib/admin-guard";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import {
   Select,
@@ -46,6 +47,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_authenticated/admin")({
+  beforeLoad: async () => {
+    await checkAdminAccess();
+  },
   component: AdminPanel,
 });
 

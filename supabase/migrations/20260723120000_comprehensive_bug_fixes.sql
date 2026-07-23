@@ -247,6 +247,7 @@ DROP POLICY IF EXISTS "user_roles admin write" ON public.user_roles;
 
 -- ── 5. trial_codes: admin-only read (no client enumeration) ─────────────────
 DROP POLICY IF EXISTS "trial_codes read active" ON public.trial_codes;
+DROP POLICY IF EXISTS "trial_codes admin read" ON public.trial_codes;
 CREATE POLICY "trial_codes admin read" ON public.trial_codes
   FOR SELECT TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'super_admin'));

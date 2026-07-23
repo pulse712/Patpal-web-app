@@ -12,4 +12,6 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Required for Vercel — default Lovable config targets Cloudflare Workers.
+  nitro: { preset: "vercel" },
 });

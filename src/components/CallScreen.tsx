@@ -37,7 +37,7 @@ import {
   getActiveSessionBilling,
 } from "@/lib/session.functions";
 import { notifyIncomingCall } from "@/lib/notify.functions";
-import { RatingModal } from "@/components/RatingModal";
+import { getPublicEnv } from "@/lib/public-env";
 
 type CallKind = "audio" | "video";
 
@@ -394,7 +394,7 @@ export function CallScreen({
 
       // 2. Load Stripe.js
       const { loadStripe } = await import("@stripe/stripe-js");
-      const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string;
+      const stripeKey = getPublicEnv("VITE_STRIPE_PUBLISHABLE_KEY");
       if (!stripeKey || stripeKey.includes("YOUR_")) {
         throw new Error("Stripe publishable key not configured.");
       }

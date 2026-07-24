@@ -150,10 +150,9 @@ export async function runSeedDemoPatPals() {
       { onConflict: "user_id" },
     );
 
-    await supabaseAdmin.from("user_roles").upsert(
-      { user_id: demoUserId, role: "pat_pal" },
-      { onConflict: "user_id,role" },
-    );
+    await supabaseAdmin
+      .from("user_roles")
+      .upsert({ user_id: demoUserId, role: "pat_pal" }, { onConflict: "user_id,role" });
 
     results.push(`ok ${d.email}`);
   }

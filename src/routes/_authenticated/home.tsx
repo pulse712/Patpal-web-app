@@ -68,21 +68,21 @@ function Home() {
       if (!sess.session) return;
       const uid = sess.session.user.id;
       const [pRes, wRes, catsRes, palsRes, bansRes] = await Promise.all([
-          supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
-          supabase.from("wallets").select("balance_seconds").eq("user_id", uid).maybeSingle(),
-          supabase.from("categories").select("id, name, slug, emoji").order("sort_order").limit(12),
-          supabase
-            .from("pat_pals")
-            .select(
-              "user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count",
-            ),
-          supabase
-            .from("promo_banners")
-            .select("id, title, body, cta_label, cta_href")
-            .eq("is_visible", true)
-            .order("sort_order")
-            .limit(3),
-        ]);
+        supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
+        supabase.from("wallets").select("balance_seconds").eq("user_id", uid).maybeSingle(),
+        supabase.from("categories").select("id, name, slug, emoji").order("sort_order").limit(12),
+        supabase
+          .from("pat_pals")
+          .select(
+            "user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count",
+          ),
+        supabase
+          .from("promo_banners")
+          .select("id, title, body, cta_label, cta_href")
+          .eq("is_visible", true)
+          .order("sort_order")
+          .limit(3),
+      ]);
       const loadError =
         pRes.error?.message ??
         wRes.error?.message ??

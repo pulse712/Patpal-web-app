@@ -527,6 +527,16 @@ export type Database = {
         };
         Returns: boolean;
       };
+      refund_wallet: {
+        Args: {
+          p_user_id: string;
+          p_seconds: number;
+          p_cents_amount: number;
+          p_stripe_ref: string;
+          p_note: string;
+        };
+        Returns: undefined;
+      };
       mark_session_connected: {
         Args: {
           p_session_id: string;

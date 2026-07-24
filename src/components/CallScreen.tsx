@@ -600,65 +600,65 @@ export function CallScreen({
                 />
               ) : (
                 <>
-              <div className="mt-4 flex gap-2">
-                {TOP_UP_PRESETS.map((p) => (
+                  <div className="mt-4 flex gap-2">
+                    {TOP_UP_PRESETS.map((p) => (
+                      <button
+                        key={p.cents}
+                        onClick={() => setTopUpCents(p.cents)}
+                        disabled={topUpBusy}
+                        className={cn(
+                          "flex-1 rounded-xl border py-2.5 text-sm font-semibold transition-colors",
+                          topUpCents === p.cents
+                            ? "border-primary bg-primary text-white"
+                            : "border-white/20 text-white hover:border-primary/60",
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom amount */}
+                  <div className="mt-3 flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                        $
+                      </span>
+                      <Input
+                        type="number"
+                        min="5"
+                        step="1"
+                        placeholder="Custom"
+                        value={customInput}
+                        onChange={(e) => {
+                          setCustomInput(e.target.value);
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v) && v >= 5) setTopUpCents(Math.round(v * 100));
+                        }}
+                        className="h-10 pl-7 bg-white/5 border-white/20 text-white placeholder:text-gray-500"
+                      />
+                    </div>
+                    <Button
+                      onClick={() => topUpCents && confirmTopUp(topUpCents)}
+                      disabled={!topUpCents || topUpBusy}
+                      className="h-10 px-5 font-semibold"
+                    >
+                      {topUpBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Plus className="h-4 w-4" /> Add
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
                   <button
-                    key={p.cents}
-                    onClick={() => setTopUpCents(p.cents)}
-                    disabled={topUpBusy}
-                    className={cn(
-                      "flex-1 rounded-xl border py-2.5 text-sm font-semibold transition-colors",
-                      topUpCents === p.cents
-                        ? "border-primary bg-primary text-white"
-                        : "border-white/20 text-white hover:border-primary/60",
-                    )}
+                    onClick={() => setShowTopUp(false)}
+                    className="mt-3 w-full text-center text-xs text-gray-500 hover:text-gray-300"
                   >
-                    {p.label}
+                    Dismiss
                   </button>
-                ))}
-              </div>
-
-              {/* Custom amount */}
-              <div className="mt-3 flex gap-2">
-                <div className="relative flex-1">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                    $
-                  </span>
-                  <Input
-                    type="number"
-                    min="5"
-                    step="1"
-                    placeholder="Custom"
-                    value={customInput}
-                    onChange={(e) => {
-                      setCustomInput(e.target.value);
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && v >= 5) setTopUpCents(Math.round(v * 100));
-                    }}
-                    className="h-10 pl-7 bg-white/5 border-white/20 text-white placeholder:text-gray-500"
-                  />
-                </div>
-                <Button
-                  onClick={() => topUpCents && confirmTopUp(topUpCents)}
-                  disabled={!topUpCents || topUpBusy}
-                  className="h-10 px-5 font-semibold"
-                >
-                  {topUpBusy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4" /> Add
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              <button
-                onClick={() => setShowTopUp(false)}
-                className="mt-3 w-full text-center text-xs text-gray-500 hover:text-gray-300"
-              >
-                Dismiss
-              </button>
                 </>
               )}
             </>

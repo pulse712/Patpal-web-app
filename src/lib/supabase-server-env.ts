@@ -7,11 +7,7 @@ function processEnv(name: string): string | undefined {
 
 /** Supabase URL for server routes and server functions (.env overrides config). */
 export function getSupabaseUrl(): string {
-  return (
-    processEnv("SUPABASE_URL") ||
-    processEnv("VITE_SUPABASE_URL") ||
-    SUPABASE_PROJECT.url
-  );
+  return processEnv("SUPABASE_URL") || processEnv("VITE_SUPABASE_URL") || SUPABASE_PROJECT.url;
 }
 
 /** Publishable key for auth middleware (.env overrides config). */

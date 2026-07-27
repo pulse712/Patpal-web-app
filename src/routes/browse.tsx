@@ -137,9 +137,10 @@ function Browse() {
 
   return (
     <AppShell>
-      <header className="sticky top-0 z-10 bg-background/95 px-5 pt-8 pb-3 backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-border/60 bg-background/95 px-5 pt-6 pb-4 backdrop-blur lg:px-8">
         <h1 className="text-2xl font-extrabold tracking-tight">Browse</h1>
-        <div className="relative mt-3">
+        <p className="mt-1 text-sm text-muted-foreground">Find a Pat Pal by topic, tier, or price</p>
+        <div className="relative mt-4">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
@@ -150,60 +151,73 @@ function Browse() {
         </div>
       </header>
 
-      <div className="scrollbar-hide -mx-1 flex gap-2 overflow-x-auto px-5 py-3">
-        <Chip
-          label="All"
-          active={!activeCategory}
-          onClick={() => updateSearch({ category: undefined })}
-        />
-        {cats.map((c) => (
-          <Chip
-            key={c.id}
-            label={`${c.emoji ?? ""} ${c.name}`.trim()}
-            active={activeCategory === c.slug}
-            onClick={() =>
-              updateSearch({
-                category: activeCategory === c.slug ? undefined : c.slug,
-              })
-            }
-          />
-        ))}
-      </div>
+      <section className="mx-5 mb-4 rounded-2xl border border-border bg-card/60 p-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Filters
+        </p>
 
-      <div className="flex gap-2 px-5 pb-3">
-        <Select
-          value={activeTier}
-          onValueChange={(v) => updateSearch({ tier: v as PalTier | "all" })}
-        >
-          <SelectTrigger className="h-9 flex-1">
-            <SelectValue placeholder="Tier" />
-          </SelectTrigger>
-          <SelectContent>
-            {TIER_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
+        <div className="mt-3">
+          <p className="mb-2 text-[11px] font-medium text-muted-foreground">Category</p>
+          <div className="flex flex-wrap gap-2">
+            <Chip
+              label="All"
+              active={!activeCategory}
+              onClick={() => updateSearch({ category: undefined })}
+            />
+            {cats.map((c) => (
+              <Chip
+                key={c.id}
+                label={`${c.emoji ?? ""} ${c.name}`.trim()}
+                active={activeCategory === c.slug}
+                onClick={() =>
+                  updateSearch({
+                    category: activeCategory === c.slug ? undefined : c.slug,
+                  })
+                }
+              />
             ))}
-          </SelectContent>
-        </Select>
+          </div>
+        </div>
 
-        <Select value={activePrice} onValueChange={(v) => updateSearch({ price: v })}>
-          <SelectTrigger className="h-9 flex-1">
-            <SelectValue placeholder="Price" />
-          </SelectTrigger>
-          <SelectContent>
-            {PRICE_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Tier</p>
+            <Select
+              value={activeTier}
+              onValueChange={(v) => updateSearch({ tier: v as PalTier | "all" })}
+            >
+              <SelectTrigger className="h-10 w-full bg-background">
+                <SelectValue placeholder="Tier" />
+              </SelectTrigger>
+              <SelectContent>
+                {TIER_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      {(activeCategory || activeTier !== "all" || activePrice !== "all" || q) && (
-        <div className="px-5 pb-2">
-          <p className="text-xs text-muted-foreground">
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Price</p>
+            <Select value={activePrice} onValueChange={(v) => updateSearch({ price: v })}>
+              <SelectTrigger className="h-10 w-full bg-background">
+                <SelectValue placeholder="Price" />
+              </SelectTrigger>
+              <SelectContent>
+                {PRICE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {(activeCategory || activeTier !== "all" || activePrice !== "all" || q) && (
+          <p className="mt-3 text-xs text-muted-foreground">
             {filtered.length} Pal{filtered.length === 1 ? "" : "s"} match
             {activeCategory
               ? ` · ${cats.find((c) => c.slug === activeCategory)?.name ?? activeCategory}`
@@ -213,14 +227,14 @@ function Browse() {
               ? ` · ${PRICE_OPTIONS.find((o) => o.value === activePrice)?.label ?? activePrice}`
               : ""}
           </p>
-        </div>
-      )}
+        )}
+      </section>
 
       <section className="grid grid-cols-1 gap-3 px-5 pb-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="col-span-full text-sm text-muted-foreground">Loading…</p>
         ) : filtered.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          <p className="col-span-full rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             No Pals match your filters.
           </p>
         ) : (
@@ -234,12 +248,13 @@ function Browse() {
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
-        "shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+        "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
         active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-card text-foreground hover:border-primary/40",
+          ? "border-primary bg-primary text-primary-foreground shadow-sm"
+          : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-muted/50",
       )}
     >
       {label}

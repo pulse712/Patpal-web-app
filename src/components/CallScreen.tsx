@@ -71,6 +71,116 @@ const TOP_UP_PRESETS = [
   { label: "$15", cents: 1500 },
 ];
 
+type AgoraSdk = typeof import("agora-rtc-sdk-ng").default;
+
+function mediaAccessError(err: unknown, device: "microphone" | "camera"): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes("PERMISSION_DENIED") || message.includes("NotAllowedError")) {
+    return device === "camera"
+      ? "Camera access denied. Allow camera permission in your browser and try again."
+      : "Microphone access denied. Allow microphone permission in your browser and try again.";
+  }
+  if (message.includes("DEVICE_NOT_FOUND") || message.includes("NotFoundError")) {
+    return device === "camera"
+      ? "No camera found on this device."
+      : "No microphone found. Connect a mic and allow browser access.";
+  }
+  return `Could not access ${device}. Check browser permissions and connected devices.`;
+}
+
+function isMediaDeviceError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes("DEVICE_NOT_FOUND") ||
+    message.includes("NotFoundError") ||
+    message.includes("PERMISSION_DENIED") ||
+    message.includes("NotAllowedError")
+  );
+}
+
+async function primeMediaPermission(constraints: MediaStreamConstraints): Promise<boolean> {
+  if (!navigator.mediaDevices?.getUserMedia) return false;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function createMicrophoneTrack(AgoraRTC: AgoraSdk): Promise<ILocalAudio | null> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This browser does not support microphone access. Try Chrome, Edge, or Safari.");
+  }
+
+  await primeMediaPermission({ audio: true });
+
+  const mics = await AgoraRTC.getMicrophones(true);
+  for (const mic of mics) {
+    if (!mic.deviceId) continue;
+    try {
+      return await AgoraRTC.createMicrophoneAudioTrack({ microphoneId: mic.deviceId });
+    } catch {
+      /* try next device */
+    }
+  }
+
+  try {
+    return await AgoraRTC.createMicrophoneAudioTrack();
+  } catch (err) {
+    if (isMediaDeviceError(err)) return null;
+    throw new Error(mediaAccessError(err, "microphone"));
+  }
+}
+
+async function createCameraTrack(AgoraRTC: AgoraSdk): Promise<ILocalVideo | null> {
+  if (!navigator.mediaDevices?.getUserMedia) return null;
+
+  await primeMediaPermission({ video: true });
+
+  const cameras = await AgoraRTC.getCameras(true);
+  for (const camera of cameras) {
+    if (!camera.deviceId) continue;
+    try {
+      return await AgoraRTC.createCameraVideoTrack({ cameraId: camera.deviceId });
+    } catch {
+      /* try next device */
+    }
+  }
+
+  try {
+    return await AgoraRTC.createCameraVideoTrack();
+  } catch (err) {
+    if (isMediaDeviceError(err)) return null;
+    throw new Error(mediaAccessError(err, "camera"));
+  }
+}
+
+async function createLocalMediaTracks(
+  AgoraRTC: AgoraSdk,
+  kind: CallKind,
+): Promise<{
+  audio: ILocalAudio | null;
+  video: ILocalVideo | null;
+  videoUnavailable: boolean;
+  listenOnly: boolean;
+}> {
+  const audio = await createMicrophoneTrack(AgoraRTC);
+
+  if (kind === "audio") {
+    return { audio, video: null, videoUnavailable: false, listenOnly: !audio };
+  }
+
+  const video = await createCameraTrack(AgoraRTC);
+  return {
+    audio,
+    video,
+    videoUnavailable: !video,
+    listenOnly: !audio,
+  };
+}
+
 export function CallScreen({
   channelName,
   kind,
@@ -86,6 +196,7 @@ export function CallScreen({
   // ── Agora state ──────────────────────────────────────────────────────────
   const [status, setStatus] = useState<"connecting" | "connected" | "ended">("connecting");
   const [muted, setMuted] = useState(false);
+  const [listenOnly, setListenOnly] = useState(false);
   const [camOff, setCamOff] = useState(false);
   const [remoteJoined, setRemoteJoined] = useState(false);
 
@@ -205,16 +316,28 @@ export function CallScreen({
 
       await client.join(appId, agoraChannel, token ?? null, agoraUid);
 
-      if (kind === "video") {
-        const [aud, vid] = await AgoraRTC.createMicrophoneAndCameraTracks();
-        localAudioRef.current = aud;
-        localVideoRef.current = vid;
-        await client.publish([aud, vid]);
-        if (localVideoElRef.current) vid.play(localVideoElRef.current);
-      } else {
-        const aud = await AgoraRTC.createMicrophoneAudioTrack();
-        localAudioRef.current = aud;
-        await client.publish([aud]);
+      const { audio, video, videoUnavailable, listenOnly: noMic } =
+        await createLocalMediaTracks(AgoraRTC, kind);
+      localAudioRef.current = audio;
+      if (noMic) {
+        setListenOnly(true);
+        setMuted(true);
+        toast.warning("No microphone detected — you can listen but not speak.");
+      }
+      if (videoUnavailable) {
+        setCamOff(true);
+        if (kind === "video") {
+          toast.warning("Camera not available — joined as audio only.");
+        }
+      }
+
+      const tracksToPublish = [audio, video].filter(Boolean) as Array<ILocalAudio | ILocalVideo>;
+      if (tracksToPublish.length > 0) {
+        await client.publish(tracksToPublish);
+      }
+      if (video) {
+        localVideoRef.current = video;
+        if (localVideoElRef.current) video.play(localVideoElRef.current);
       }
 
       setStatus("connected");
@@ -243,8 +366,21 @@ export function CallScreen({
           console.error("[CallScreen] Session cleanup failed:", cleanupErr);
         }
         sessionIdRef.current = null;
+      } else if (isCallee && sessionIdRef.current) {
+        try {
+          await declineIncomingCall({ data: { sessionId: sessionIdRef.current } });
+        } catch (cleanupErr) {
+          console.error("[CallScreen] Session cleanup failed:", cleanupErr);
+        }
+        sessionIdRef.current = null;
       }
-      toast.error(err instanceof Error ? err.message : "Could not start call");
+      const message =
+        err instanceof Error
+          ? err.message
+          : isMediaDeviceError(err)
+            ? "Could not access microphone or camera."
+            : "Could not start call";
+      toast.error(message);
       await leaveChannel();
       onEnd();
     }
@@ -679,10 +815,14 @@ export function CallScreen({
         {/* Mute */}
         <button
           onClick={toggleMute}
-          aria-label={muted ? "Unmute" : "Mute"}
+          disabled={listenOnly}
+          aria-label={listenOnly ? "No microphone" : muted ? "Unmute" : "Mute"}
           className={cn(
             "grid h-14 w-14 place-items-center rounded-full transition-colors",
-            muted ? "bg-red-500/20 text-red-400" : "bg-white/10 text-white hover:bg-white/20",
+            listenOnly || muted
+              ? "bg-red-500/20 text-red-400"
+              : "bg-white/10 text-white hover:bg-white/20",
+            listenOnly && "cursor-not-allowed opacity-60",
           )}
         >
           {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}

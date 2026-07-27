@@ -97,6 +97,8 @@ The browser connects to Supabase automatically. The **server** (billing, admin a
 |---------------|------------------------|
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → **Project Settings** → **API** → **Secret key** (`sb_secret_...`) |
 | `APP_URL` | `https://pat-my-back-m631.vercel.app` |
+| `AGORA_APP_ID` | [Agora Console](https://console.agora.io) → your project → **App ID** |
+| `AGORA_APP_CERTIFICATE` | Agora Console → same project → **Primary Certificate** |
 
 3. Optional (when you enable payments):
 
@@ -214,7 +216,8 @@ If any are missing, run these files **in order** in SQL Editor (on a fresh proje
 | Email link has tokens but app does not sign in | Open the link on the live site: replace `localhost:3000` with `pat-my-back-m631.vercel.app` in the address bar, or sign up again after fixing Site URL |
 | No verification email received | Section 1b — SMTP, spam folder, Supabase auth logs |
 | Admin page access denied | Section 3 — admin SQL after signing up |
-| Payments fail | Section 2 — Stripe keys + webhook pointing to your Vercel URL |
+| Calls fail / “Missing AGORA_APP_ID” | Section 2 — add `AGORA_APP_ID` + `AGORA_APP_CERTIFICATE`, redeploy |
+| “Insufficient balance” on call | Customer must redeem trial code on `/wallet` (Section 2b) |
 | “Missing SUPABASE_SERVICE_ROLE_KEY” | Section 2 — add key in Vercel and redeploy |
 
 ---

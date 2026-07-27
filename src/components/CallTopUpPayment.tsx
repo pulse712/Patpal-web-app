@@ -27,7 +27,7 @@ export function CallTopUpPayment({
 
   useEffect(() => {
     let mounted = true;
-    let paymentElement: ReturnType<StripeElements["create"]> | null = null;
+    let paymentElement: import("@stripe/stripe-js").StripePaymentElement | null = null;
 
     (async () => {
       const key = getPublicEnv("VITE_STRIPE_PUBLISHABLE_KEY");
@@ -97,7 +97,12 @@ export function CallTopUpPayment({
         >
           Back
         </Button>
-        <Button type="button" className="flex-1 font-semibold" disabled={!ready || busy} onClick={handlePay}>
+        <Button
+          type="button"
+          className="flex-1 font-semibold"
+          disabled={!ready || busy}
+          onClick={handlePay}
+        >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Pay now"}
         </Button>
       </div>

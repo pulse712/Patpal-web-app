@@ -64,13 +64,7 @@ function AuthPage() {
   );
 }
 
-function VerificationPendingPanel({
-  email,
-  onResent,
-}: {
-  email: string;
-  onResent?: () => void;
-}) {
+function VerificationPendingPanel({ email, onResent }: { email: string; onResent?: () => void }) {
   const [busy, setBusy] = useState(false);
 
   async function onResend() {

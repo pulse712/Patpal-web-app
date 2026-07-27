@@ -16,6 +16,7 @@ function agoraUidFromUserId(userId: string): number {
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { getAgoraAppCertificate, requireAgoraAppId } from "@/lib/agora-server-env";
 
 async function findActiveSessionForChannel(
   supabaseAdmin: SupabaseClient<Database>,
@@ -61,12 +62,10 @@ export const getAgoraToken = createServerFn({ method: "POST" })
     }
 
     const uid = agoraUidFromUserId(userId);
-    const appId = process.env.AGORA_APP_ID;
-    const appCertificate = process.env.AGORA_APP_CERTIFICATE;
-    const isProd = process.env.NODE_ENV === "production";
-    const allowUnsecure = process.env.AGORA_ALLOW_UNSECURE === "true";
-
-    if (!appId) throw new Error("Missing AGORA_APP_ID");
+    const appId = requireAgoraAppId();
+    const appCertificate = getAgoraAppCertificate();
+    const isProd = process.env["NODE_ENV"] === "production";
+    const allowUnsecure = process.env["AGORA_ALLOW_UNSECURE"] === "true";
 
     if (isProd && (!appCertificate || appCertificate === "TESTING_NO_CERT")) {
       throw new Error("Agora certificate is required in production.");

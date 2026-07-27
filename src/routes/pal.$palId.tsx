@@ -134,18 +134,36 @@ function PalProfile() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      let palData: Pal | null = null;
+
+      const rowRes = await supabase
         .from("pat_pals")
         .select(
           "user_id, headline, service_range, price_cents_per_minute, availability, rating_avg, rating_count, category_slugs, tier, is_team",
         )
         .eq("user_id", palId)
         .maybeSingle();
+
+      if (rowRes.error && /service_range|column/i.test(rowRes.error.message)) {
+        const basicRes = await supabase
+          .from("pat_pals")
+          .select(
+            "user_id, headline, price_cents_per_minute, availability, rating_avg, rating_count, category_slugs, tier, is_team",
+          )
+          .eq("user_id", palId)
+          .maybeSingle();
+        if (basicRes.data) {
+          palData = { ...basicRes.data, service_range: null } as Pal;
+        }
+      } else if (rowRes.data) {
+        palData = rowRes.data as Pal;
+      }
+
       let profile: Pal["profiles"] = null;
-      if (data) {
+      if (palData) {
         profile = await fetchPublicProfile(palId);
       }
-      setPal(data ? ({ ...(data as object), profiles: profile } as unknown as Pal) : null);
+      setPal(palData ? ({ ...(palData as object), profiles: profile } as unknown as Pal) : null);
       setLoading(false);
     })();
   }, [palId]);

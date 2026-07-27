@@ -42,13 +42,13 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { deleteMyAccount } from "@/lib/account.functions";
+import { getMyProfile, saveMyProfile } from "@/lib/profile.functions";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { AdminStaffProfileSection } from "@/components/AdminStaffLinks";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import {
   BIO_MAX,
   INTRODUCTION_MAX,
-  validateProfileFields,
 } from "@/lib/profile-fields";
 
 export const Route = createFileRoute("/_authenticated/profile")({
@@ -84,6 +84,7 @@ function Profile() {
   const [serviceRange, setServiceRange] = useState("");
   const [pricePerMinute, setPricePerMinute] = useState("");
   const [isListable, setIsListable] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Modals
@@ -105,147 +106,72 @@ function Profile() {
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const deleteAccountFn = useServerFn(deleteMyAccount);
+  const loadProfileFn = useServerFn(getMyProfile);
+  const saveProfileFn = useServerFn(saveMyProfile);
 
   useEffect(() => {
     setNotifs(loadNotifs());
+    let cancelled = false;
     (async () => {
-      const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) return;
-      setEmail(sess.session.user.email ?? "");
-      const uid = sess.session.user.id;
-      const [{ data: p, error: profileErr }, { data: c }, { data: pal }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("full_name, bio, introduction, languages")
-          .eq("id", uid)
-          .maybeSingle(),
-        supabase.from("profile_contacts").select("phone").eq("user_id", uid).maybeSingle(),
-        supabase
-          .from("pat_pals")
-          .select("headline, service_range, price_cents_per_minute")
-          .eq("user_id", uid)
-          .maybeSingle(),
-      ]);
-
-      let profile = p;
-      if (profileErr && /introduction|languages|column/i.test(profileErr.message)) {
-        const { data: basic } = await supabase
-          .from("profiles")
-          .select("full_name, bio")
-          .eq("id", uid)
-          .maybeSingle();
-        profile = basic ? { ...basic, introduction: null, languages: [] } : null;
-      }
-
-      if (profile) {
-        setFullName(profile.full_name ?? "");
-        setBio(profile.bio ?? "");
-        setIntroduction(profile.introduction ?? "");
-        const loadedLanguages = Array.isArray(profile.languages) ? profile.languages : [];
-        setLanguages(loadedLanguages.length > 0 ? loadedLanguages : ["English"]);
-      }
-      if (c) setPhone(c.phone ?? "");
-      if (pal) {
-        setIsListable(true);
-        setHeadline(pal.headline ?? "");
-        setServiceRange(pal.service_range ?? "");
-        setPricePerMinute(String((pal.price_cents_per_minute ?? 100) / 100));
-      } else {
-        const { data: palBasic } = await supabase
-          .from("pat_pals")
-          .select("headline, price_cents_per_minute")
-          .eq("user_id", uid)
-          .maybeSingle();
-        if (palBasic) {
-          setIsListable(true);
-          setHeadline(palBasic.headline ?? "");
-          setPricePerMinute(String((palBasic.price_cents_per_minute ?? 100) / 100));
+      setProfileLoading(true);
+      try {
+        const data = await loadProfileFn();
+        if (cancelled) return;
+        setEmail(data.email);
+        setFullName(data.fullName);
+        setBio(data.bio);
+        setIntroduction(data.introduction);
+        setLanguages(data.languages);
+        setPhone(data.phone);
+        setHeadline(data.headline);
+        setServiceRange(data.serviceRange);
+        setPricePerMinute(data.pricePerMinute);
+        setIsListable(data.isListable);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : "Could not load profile");
         }
+      } finally {
+        if (!cancelled) setProfileLoading(false);
       }
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadProfileFn]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (profileLoading) return;
     setSaving(true);
-    const { data: sess } = await supabase.auth.getSession();
-    if (!sess.session) {
-      setSaving(false);
-      return;
-    }
-    const uid = sess.session.user.id;
-
     try {
-      const price = parseFloat(pricePerMinute);
-      const { languages: normalizedLanguages } = validateProfileFields({
-        fullName,
-        bio,
-        introduction,
-        languages,
-        headline,
-        serviceRange,
-        pricePerMinute: isListable ? (Number.isFinite(price) ? price : undefined) : undefined,
-        isListable,
+      const data = await saveProfileFn({
+        data: {
+          fullName,
+          bio,
+          introduction,
+          languages,
+          phone,
+          headline,
+          serviceRange,
+          pricePerMinute,
+          isListable,
+        },
       });
-
-      const profileRes = await supabase
-        .from("profiles")
-        .update({
-          full_name: fullName.trim(),
-          bio: bio.trim() || null,
-          introduction: introduction.trim() || null,
-          languages: normalizedLanguages,
-        })
-        .eq("id", uid);
-
-      let profileError = profileRes.error;
-      if (profileError && /introduction|languages|column/i.test(profileError.message)) {
-        const fallbackRes = await supabase
-          .from("profiles")
-          .update({
-            full_name: fullName.trim(),
-            bio: bio.trim() || null,
-          })
-          .eq("id", uid);
-        profileError = fallbackRes.error;
-        if (!profileError) {
-          toast.warning(
-            "Basic profile saved. Run the latest Supabase migration to enable About and languages.",
-          );
-        }
-      }
-
-      const contactRes = await supabase
-        .from("profile_contacts")
-        .upsert({ user_id: uid, phone }, { onConflict: "user_id" });
-
-      let palRes: typeof profileRes | null = null;
-      if (isListable) {
-        const rate = Number.isFinite(price) ? price : 1;
-        const cents = Math.max(0, Math.round(rate * 100));
-        palRes = await supabase
-          .from("pat_pals")
-          .update({
-            headline: headline.trim() || null,
-            service_range: serviceRange.trim() || null,
-            price_cents_per_minute: cents,
-          })
-          .eq("user_id", uid);
-      }
-
-      setSaving(false);
-      const e1 = profileError ?? contactRes.error ?? palRes?.error;
-      if (e1) {
-        toast.error(e1.message);
-        return;
-      }
-      setLanguages(normalizedLanguages);
-      if (!profileRes.error) {
-        toast.success("Profile saved");
-      }
+      setFullName(data.fullName);
+      setBio(data.bio);
+      setIntroduction(data.introduction);
+      setLanguages(data.languages);
+      setPhone(data.phone);
+      setHeadline(data.headline);
+      setServiceRange(data.serviceRange);
+      setPricePerMinute(data.pricePerMinute);
+      setIsListable(data.isListable);
+      toast.success("Profile saved");
     } catch (err) {
-      setSaving(false);
       toast.error(err instanceof Error ? err.message : "Could not save profile");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -304,6 +230,10 @@ function Profile() {
       </header>
 
       <form onSubmit={save} className="space-y-5 px-5 pt-6 pb-2">
+        {profileLoading ? (
+          <p className="text-sm text-muted-foreground">Loading profile…</p>
+        ) : (
+          <>
         <div className="space-y-1.5">
           <Label htmlFor="p-name">Full name</Label>
           <Input id="p-name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
@@ -386,9 +316,11 @@ function Profile() {
           <Input id="p-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
 
-        <Button type="submit" disabled={saving} className="h-11 w-full font-semibold">
+        <Button type="submit" disabled={saving || profileLoading} className="h-11 w-full font-semibold">
           {saving ? "Saving…" : "Save changes"}
         </Button>
+          </>
+        )}
       </form>
 
       <AdminStaffProfileSection />

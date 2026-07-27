@@ -71,25 +71,54 @@ function Browse() {
 
   useEffect(() => {
     (async () => {
-      const [catsRes, palsRes, staffRes] = await Promise.all([
-        supabase.from("categories").select("id, name, slug, emoji").order("sort_order"),
-        supabase
+      const catsRes = await supabase
+        .from("categories")
+        .select("id, name, slug, emoji")
+        .order("sort_order");
+
+      let palRows:
+        | {
+            user_id: string;
+            headline: string | null;
+            service_range: string | null;
+            price_cents_per_minute: number;
+            availability: "available" | "busy" | "offline";
+            category_slugs: string[];
+            tier: "trusted" | "expert" | "premium";
+          }[]
+        | null = null;
+      let palsError: string | undefined;
+
+      const palsRes = await supabase
+        .from("pat_pals")
+        .select(
+          "user_id, headline, service_range, price_cents_per_minute, availability, category_slugs, tier",
+        )
+        .order("rating_avg", { ascending: false });
+
+      if (palsRes.error && /service_range|column/i.test(palsRes.error.message)) {
+        const basicPalsRes = await supabase
           .from("pat_pals")
           .select(
-            "user_id, headline, service_range, price_cents_per_minute, availability, category_slugs, tier",
+            "user_id, headline, price_cents_per_minute, availability, category_slugs, tier",
           )
-          .order("rating_avg", { ascending: false }),
-        getStaffUserIds(),
-      ]);
-      const loadError = catsRes.error?.message ?? palsRes.error?.message;
+          .order("rating_avg", { ascending: false });
+        palsError = basicPalsRes.error?.message;
+        palRows = (basicPalsRes.data ?? []).map((row) => ({ ...row, service_range: null }));
+      } else {
+        palsError = palsRes.error?.message;
+        palRows = palsRes.data;
+      }
+
+      const [staffRes] = await Promise.all([getStaffUserIds()]);
+      const loadError = catsRes.error?.message ?? palsError;
       if (loadError) {
         toast.error("Could not load Pat Pals. Please refresh.");
         setLoading(false);
         return;
       }
       const c = catsRes.data;
-      const p = palsRes.data;
-      const rows = p ?? [];
+      const rows = palRows ?? [];
       const staffIds = new Set(staffRes.userIds);
       const nameMap = await fetchPublicProfiles(rows.map((r) => r.user_id));
       const merged: PalBrowseRow[] = rows

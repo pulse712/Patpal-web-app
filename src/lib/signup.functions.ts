@@ -73,7 +73,7 @@ export const applySignupRole = createServerFn({ method: "POST" })
         {
           user_id: userId,
           headline: service!,
-          availability: "offline",
+          availability: "available",
           price_cents_per_minute: 100,
           tier: "trusted",
           category_slugs: [category.slug],

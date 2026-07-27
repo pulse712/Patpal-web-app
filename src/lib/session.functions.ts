@@ -45,7 +45,7 @@ export const startSession = createServerFn({ method: "POST" })
       supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "pat_pal" }),
       supabaseAdmin
         .from("pat_pals")
-        .select("user_id, price_cents_per_minute, availability")
+        .select("user_id, price_cents_per_minute, availability, is_team")
         .eq("user_id", data.palId)
         .maybeSingle(),
       supabaseAdmin
@@ -64,7 +64,7 @@ export const startSession = createServerFn({ method: "POST" })
       throw new Error("Pat Pal not found.");
     }
 
-    if (pal.availability !== "available") {
+    if (pal.availability !== "available" && !pal.is_team) {
       throw new Error("This Pat Pal is not available right now. Try again later.");
     }
 

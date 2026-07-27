@@ -38,14 +38,17 @@ export async function ensureTeamPalRecord(
     .maybeSingle();
 
   if (existing) {
-    await supabaseAdmin.from("pat_pals").update({ is_team: true }).eq("user_id", userId);
+    await supabaseAdmin
+      .from("pat_pals")
+      .update({ is_team: true, availability: "available" })
+      .eq("user_id", userId);
     return;
   }
 
   await supabaseAdmin.from("pat_pals").insert({
     user_id: userId,
     headline,
-    availability: "offline",
+    availability: "available",
     price_cents_per_minute: 100,
     tier: "trusted",
     is_team: true,

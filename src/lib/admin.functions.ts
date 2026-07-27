@@ -9,6 +9,7 @@ import {
   type AppRole,
 } from "@/lib/admin-utils";
 import { assertAdmin } from "@/lib/admin-guard";
+import { ensureTeamPalRecord } from "@/lib/team.functions";
 
 export const listAdminUsers = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
@@ -281,6 +282,10 @@ export const setUserRole = createServerFn({ method: "POST" })
           .from("pat_pals")
           .upsert({ user_id: data.userId }, { onConflict: "user_id", ignoreDuplicates: true });
       }
+
+      if (data.role === "admin" || data.role === "super_admin") {
+        await ensureTeamPalRecord(supabaseAdmin, data.userId);
+      }
     } else {
       const { error } = await supabaseAdmin
         .from("user_roles")
@@ -288,6 +293,20 @@ export const setUserRole = createServerFn({ method: "POST" })
         .eq("user_id", data.userId)
         .eq("role", data.role);
       if (error) throw new Error(error.message);
+
+      if (data.role === "admin" || data.role === "super_admin") {
+        const { data: remainingAdminRoles } = await supabaseAdmin
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", data.userId)
+          .in("role", ["admin", "super_admin"]);
+        if (!remainingAdminRoles?.length) {
+          await supabaseAdmin
+            .from("pat_pals")
+            .update({ is_team: false })
+            .eq("user_id", data.userId);
+        }
+      }
 
       // Every user should keep at least the client role
       if (data.role !== "client") {

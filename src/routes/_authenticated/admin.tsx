@@ -35,7 +35,7 @@ import {
   setPromoBannerVisible,
   deletePromoBanner,
 } from "@/lib/admin.functions";
-import { checkAdminAccess } from "@/lib/admin-guard";
+import { requireAdminBeforeLoad } from "@/lib/admin-guard";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import {
   Select,
@@ -47,7 +47,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_authenticated/admin")({
-  beforeLoad: async () => checkAdminAccess(),
+  beforeLoad: requireAdminBeforeLoad,
   component: AdminPanel,
 });
 
@@ -89,7 +89,7 @@ const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 function AdminPanel() {
-  const { isSuperAdmin } = Route.useRouteContext();
+  const { isSuperAdmin = false } = Route.useRouteContext();
   const { user, loading } = useSession();
   const [pals, setPals] = useState<Pal[]>([]);
   const [codes, setCodes] = useState<Code[]>([]);

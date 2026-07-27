@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users } from "lucide-react";
 import { useIsOnline, useOnlineUsers } from "@/lib/presence";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
+import { getTeamMembers, type TeamMember } from "@/lib/team.functions";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -48,7 +49,7 @@ function Home() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [balanceSeconds, setBalanceSeconds] = useState(0);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [team, setTeam] = useState<Pal[]>([]);
+  const [team, setTeam] = useState<TeamMember[]>([]);
   const [allPals, setAllPals] = useState<Pal[]>([]);
   const [topRated, setTopRated] = useState<Pal[]>([]);
   const [banners, setBanners] = useState<
@@ -67,7 +68,7 @@ function Home() {
       const { data: sess } = await supabase.auth.getSession();
       if (!sess.session) return;
       const uid = sess.session.user.id;
-      const [pRes, wRes, catsRes, palsRes, bansRes] = await Promise.all([
+      const [pRes, wRes, catsRes, palsRes, bansRes, teamRes] = await Promise.all([
         supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle(),
         supabase.from("wallets").select("balance_seconds").eq("user_id", uid).maybeSingle(),
         supabase.from("categories").select("id, name, slug, emoji").order("sort_order").limit(12),
@@ -82,6 +83,7 @@ function Home() {
           .eq("is_visible", true)
           .order("sort_order")
           .limit(3),
+        getTeamMembers(),
       ]);
       const loadError =
         pRes.error?.message ??
@@ -119,10 +121,10 @@ function Home() {
         availability: r.availability,
       }));
       setAllPals(merged);
-      setTeam(merged.filter((m) => m.is_team).slice(0, 4));
+      setTeam(teamRes.members);
       setTopRated(
         [...merged]
-          .filter((m) => !m.is_team)
+          .filter((m) => !teamRes.members.some((t) => t.user_id === m.user_id))
           .sort((a, b) => Number(b.rating_avg ?? 0) - Number(a.rating_avg ?? 0))
           .slice(0, 5),
       );
@@ -132,7 +134,12 @@ function Home() {
 
   // Derive "online now" from live presence + pal opted-in (availability !== "offline")
   const online = allPals
-    .filter((m) => !m.is_team && onlineIds.has(m.user_id) && m.availability !== "offline")
+    .filter(
+      (m) =>
+        !team.some((t) => t.user_id === m.user_id) &&
+        onlineIds.has(m.user_id) &&
+        m.availability !== "offline",
+    )
     .slice(0, 6);
 
   if (loading) {
@@ -338,9 +345,10 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
   );
 }
 
-function TeamRow({ pal }: { pal: Pal }) {
+function TeamRow({ pal }: { pal: TeamMember }) {
   const name = pal.full_name ?? "Team";
   const isOnline = useIsOnline(pal.user_id);
+  const roleLabel = pal.role === "super_admin" ? "Super Admin" : "Admin";
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary-soft/50 p-3">
       <div className="relative">
@@ -351,7 +359,7 @@ function TeamRow({ pal }: { pal: Pal }) {
         <div className="flex items-center gap-1.5">
           <p className="truncate font-semibold">{name}</p>
           <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
-            Admin
+            {roleLabel}
           </span>
         </div>
         <p className="truncate text-xs text-muted-foreground">{pal.headline ?? "Here to help."}</p>

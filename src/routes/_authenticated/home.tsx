@@ -194,23 +194,29 @@ function Home() {
   }
 
   const balanceMinutes = Math.floor(balanceSeconds / 60);
+  const welcomeName = profile?.full_name?.trim() || "Friend";
 
   return (
     <AppShell>
       {/* Header */}
-      <header className="flex items-center justify-between px-5 pt-5 lg:px-8">
-        <div>
-          <p className="text-xs text-muted-foreground">Welcome</p>
-          <h1 className="text-lg font-bold">Pat My Back 👋</h1>
+      <header className="space-y-3 px-5 pt-5 lg:px-8">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-muted-foreground">Welcome back</p>
+          <h1 className="mt-1 text-xl font-extrabold leading-tight tracking-tight break-words sm:text-2xl">
+            {welcomeName}{" "}
+            <span className="inline-block" aria-hidden="true">
+              👋
+            </span>
+          </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <AdminStaffHeaderButton />
           <Link
             to="/wallet"
             search={{ payment: undefined }}
-            className="flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-semibold text-primary"
+            className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-semibold text-primary"
           >
-            <Clock className="h-4 w-4" />
+            <Clock className="h-4 w-4 shrink-0" />
             {balanceMinutes} min
           </Link>
         </div>
@@ -269,7 +275,7 @@ function Home() {
             No team members available.
           </p>
         ) : (
-          <div className="space-y-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {team.map((p) => (
               <TeamRow key={p.user_id} pal={p} />
             ))}
@@ -397,32 +403,37 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 }
 
 function TeamRow({ pal }: { pal: TeamMember }) {
-  const name = pal.full_name ?? "Team";
+  const name = pal.full_name?.trim() || "Team member";
   const isOnline = useIsOnline(pal.user_id);
   const roleLabel = pal.role === "super_admin" ? "Super Admin" : "Admin";
+
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary-soft/50 p-3">
-      <div className="relative">
-        <Avatar name={name} url={pal.avatar_url} />
-        <PresenceDot online={isOnline} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <p className="truncate font-semibold">{name}</p>
-          <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
-            {roleLabel}
-          </span>
+    <div className="flex flex-col gap-3 rounded-2xl border border-primary/15 bg-primary-soft/40 p-4 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <div className="relative shrink-0">
+          <Avatar name={name} url={pal.avatar_url} />
+          <PresenceDot online={isOnline} />
         </div>
-        <p className="truncate text-xs text-muted-foreground">{pal.headline ?? "Here to help."}</p>
-        <p
-          className={`mt-0.5 text-[10px] font-medium ${isOnline ? "text-success" : "text-muted-foreground"}`}
-        >
-          {isOnline ? "● Online now" : "○ Offline"}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-bold leading-snug break-words">{name}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+              {roleLabel}
+            </span>
+            <span
+              className={`text-[11px] font-medium ${isOnline ? "text-success" : "text-muted-foreground"}`}
+            >
+              {isOnline ? "● Online now" : "○ Offline"}
+            </span>
+          </div>
+          <p className="mt-1.5 text-sm leading-snug text-muted-foreground">
+            {pal.headline ?? "Pat My Back team"}
+          </p>
+        </div>
       </div>
-      <Link to="/pal/$palId" params={{ palId: pal.user_id }}>
-        <Button size="sm" className="h-8 rounded-full px-4 text-xs font-bold">
-          <Phone className="mr-1 h-3 w-3" /> Call
+      <Link to="/pal/$palId" params={{ palId: pal.user_id }} className="shrink-0 sm:pl-1">
+        <Button size="sm" className="h-10 w-full rounded-xl px-5 text-sm font-bold sm:w-auto">
+          <Phone className="mr-1.5 h-4 w-4" /> Call
         </Button>
       </Link>
     </div>

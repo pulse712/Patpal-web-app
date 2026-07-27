@@ -46,7 +46,7 @@ export function AdminStaffHeaderButton() {
     <Link
       to="/admin"
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-soft px-3 py-1.5 text-sm font-semibold text-primary",
+        "inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-xs font-semibold text-primary sm:px-3 sm:text-sm",
         "hover:bg-primary/10 transition-colors",
       )}
     >

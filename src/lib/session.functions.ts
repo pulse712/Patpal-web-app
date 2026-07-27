@@ -4,15 +4,19 @@ import { createServerFn } from "@tanstack/react-start";
 import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 import { computeTopUpSeconds } from "@/lib/billing-utils";
+import { hasPlatformStaffRole, walletHasUnlimitedAccess } from "@/lib/billing-guard";
 
 async function fetchWalletBalance(userId: string): Promise<number> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("wallets")
-    .select("balance_seconds, unlimited_until")
-    .eq("user_id", userId)
-    .single();
-  const isUnlimited = data?.unlimited_until ? new Date(data.unlimited_until) > new Date() : false;
+  const [{ data }, isPlatformStaff] = await Promise.all([
+    supabaseAdmin
+      .from("wallets")
+      .select("balance_seconds, unlimited_until")
+      .eq("user_id", userId)
+      .single(),
+    hasPlatformStaffRole(userId),
+  ]);
+  const isUnlimited = walletHasUnlimitedAccess(data?.unlimited_until, isPlatformStaff);
   return isUnlimited ? 999999 : (data?.balance_seconds ?? 0);
 }
 
@@ -37,7 +41,7 @@ export const startSession = createServerFn({ method: "POST" })
       throw new Error("You cannot start a session with yourself.");
     }
 
-    const [{ data: isPatPal }, { data: pal }, { data: wallet }] = await Promise.all([
+    const [{ data: isPatPal }, { data: pal }, { data: wallet }, isPlatformStaff] = await Promise.all([
       supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "pat_pal" }),
       supabaseAdmin
         .from("pat_pals")
@@ -49,6 +53,7 @@ export const startSession = createServerFn({ method: "POST" })
         .select("balance_seconds, unlimited_until")
         .eq("user_id", userId)
         .single(),
+      hasPlatformStaffRole(userId),
     ]);
 
     if (isPatPal) {
@@ -64,10 +69,12 @@ export const startSession = createServerFn({ method: "POST" })
     }
 
     const balanceSeconds = wallet?.balance_seconds ?? 0;
-    const isUnlimited = wallet?.unlimited_until
-      ? new Date(wallet.unlimited_until) > new Date()
-      : false;
+    const isUnlimited = walletHasUnlimitedAccess(wallet?.unlimited_until, isPlatformStaff);
     const priceCentsPerMin = pal.price_cents_per_minute ?? 0;
+
+    if (isPlatformStaff && balanceSeconds < 60) {
+      throw new Error("Insufficient balance. Admin accounts must top up the wallet to place calls.");
+    }
 
     if (!isUnlimited && balanceSeconds < 60) {
       throw new Error("Insufficient balance. Please top up your wallet.");
@@ -265,13 +272,16 @@ export const getWalletBalance = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const balanceSeconds = await fetchWalletBalance(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data } = await supabaseAdmin
-      .from("wallets")
-      .select("unlimited_until")
-      .eq("user_id", context.userId)
-      .single();
+    const [isPlatformStaff, { data }] = await Promise.all([
+      hasPlatformStaffRole(context.userId),
+      supabaseAdmin
+        .from("wallets")
+        .select("unlimited_until")
+        .eq("user_id", context.userId)
+        .single(),
+    ]);
 
-    const isUnlimited = data?.unlimited_until ? new Date(data.unlimited_until) > new Date() : false;
+    const isUnlimited = walletHasUnlimitedAccess(data?.unlimited_until, isPlatformStaff);
 
     return { balanceSeconds, isUnlimited };
   });
@@ -326,9 +336,8 @@ export const getActiveSessionBilling = createServerFn({ method: "GET" })
       .eq("user_id", session.client_id)
       .single();
 
-    const isUnlimited = wallet?.unlimited_until
-      ? new Date(wallet.unlimited_until) > new Date()
-      : false;
+    const isPlatformStaff = await hasPlatformStaffRole(session.client_id);
+    const isUnlimited = walletHasUnlimitedAccess(wallet?.unlimited_until, isPlatformStaff);
     const balanceSeconds = isUnlimited ? 999999 : (wallet?.balance_seconds ?? 0);
 
     let billableSecondsRemaining = session.remaining_seconds_at_start ?? 0;

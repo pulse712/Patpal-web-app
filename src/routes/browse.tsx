@@ -75,7 +75,10 @@ function Browse() {
         supabase.from("categories").select("id, name, slug, emoji").order("sort_order"),
         supabase
           .from("pat_pals")
-          .select("user_id, headline, price_cents_per_minute, availability, category_slugs, tier")
+          .select(
+            "user_id, headline, price_cents_per_minute, availability, category_slugs, tier, is_team",
+          )
+          .eq("is_team", false)
           .order("rating_avg", { ascending: false }),
       ]);
       const loadError = catsRes.error?.message ?? palsRes.error?.message;
@@ -93,6 +96,7 @@ function Browse() {
         headline: r.headline,
         price_cents_per_minute: r.price_cents_per_minute,
         tier: r.tier,
+        availability: r.availability,
         category_slugs: r.category_slugs,
         profiles: nameMap.get(r.user_id) ?? { full_name: null, avatar_url: null },
       }));

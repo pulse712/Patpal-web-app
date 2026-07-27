@@ -10,6 +10,7 @@ import {
   normalizeTrialCode,
   TRIAL_GRANT_SECONDS,
 } from "@/lib/trial-utils";
+import { hasPlatformStaffRole } from "@/lib/billing-guard";
 
 export const redeemTrialCode = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
@@ -37,6 +38,11 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
       .maybeSingle();
 
     assertTrialCodeRedeemable(tc, !!prior);
+
+    const isPlatformStaff = await hasPlatformStaffRole(userId);
+    if (isPlatformStaff && tc.unlimited) {
+      throw new Error("Unlimited trial codes cannot be used on admin accounts. Top up the wallet instead.");
+    }
 
     const { data: wallet } = await supabaseAdmin
       .from("wallets")

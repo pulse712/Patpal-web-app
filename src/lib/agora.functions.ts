@@ -39,6 +39,8 @@ async function findActiveSessionForChannel(
     .select("id, client_id, pal_id, conversation_id")
     .eq("status", "active")
     .eq("conversation_id", channelName)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (byConvo && (byConvo.client_id === userId || byConvo.pal_id === userId)) {

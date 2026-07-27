@@ -153,7 +153,19 @@ function RootComponent() {
     // Register service worker for PWA support
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
-        .register("/sw.js", { scope: "/" })
+        .register("/sw.js", { scope: "/", updateViaCache: "none" })
+        .then((registration) => {
+          void registration.update();
+          registration.addEventListener("updatefound", () => {
+            const worker = registration.installing;
+            if (!worker) return;
+            worker.addEventListener("statechange", () => {
+              if (worker.state === "activated" && navigator.serviceWorker.controller) {
+                window.location.reload();
+              }
+            });
+          });
+        })
         .catch((err) => console.error("SW registration failed:", err));
     }
 

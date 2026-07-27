@@ -1,15 +1,16 @@
 // Pat My Back — Service Worker
-// Strategy: cache-first for static assets, network-first for API/dynamic routes
+// Keep HTML + hashed /assets on network so deploys never 404 stale bundles.
 
-const CACHE_NAME = "patmyback-v1";
+const CACHE_NAME = "patmyback-v3";
 
-// Assets to pre-cache on install
-const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const PRECACHE_URLS = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
-// Routes that should never be served from cache
-const NETWORK_ONLY = ["/api/", "supabase.co", "stripe.com", "agora.io"];
+const NETWORK_ONLY = ["/api/", "/assets/", "supabase.co", "stripe.com", "agora.io"];
 
-// ─── Install ────────────────────────────────────────────────────────────────
+function isNetworkOnly(url) {
+  return NETWORK_ONLY.some((pattern) => url.includes(pattern));
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
@@ -19,52 +20,49 @@ self.addEventListener("install", (event) => {
   );
 });
 
-// ─── Activate ───────────────────────────────────────────────────────────────
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
-      )
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
 });
 
-// ─── Fetch ───────────────────────────────────────────────────────────────────
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET and network-only urls
   if (request.method !== "GET") return;
-  if (NETWORK_ONLY.some((pattern) => request.url.includes(pattern))) return;
-  // Skip chrome-extension and non-http(s)
   if (!url.protocol.startsWith("http")) return;
-
-  // Navigation requests — network first, fall back to cached "/"
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          return response;
-        })
-        .catch(() => caches.match("/")),
-    );
+  if (isNetworkOnly(request.url)) {
+    event.respondWith(fetch(request));
     return;
   }
 
-  // Static assets (JS, CSS, fonts, images) — cache first, then network
-  if (url.pathname.match(/\.(js|css|woff2?|png|ico|svg|webp|jpg|jpeg)$/)) {
+  // Never cache HTML navigations — always fetch latest shell + asset manifest.
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // Hashed bundles (legacy paths without /assets prefix).
+  if (url.pathname.match(/\.(js|css|mjs)$/)) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // Icons / manifest — cache first for offline PWA shell.
+  if (url.pathname.startsWith("/icons/") || url.pathname.endsWith("manifest.webmanifest")) {
     event.respondWith(
       caches.match(request).then(
         (cached) =>
           cached ||
           fetch(request).then((response) => {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            if (response.ok) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            }
             return response;
           }),
       ),
@@ -72,11 +70,9 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else — network first, no caching
   event.respondWith(fetch(request));
 });
 
-// ─── Push Notifications ──────────────────────────────────────────────────────
 self.addEventListener("push", (event) => {
   let data = { title: "Pat My Back", body: "You have a new notification." };
   try {
@@ -97,7 +93,6 @@ self.addEventListener("push", (event) => {
   );
 });
 
-// ─── Notification Click ───────────────────────────────────────────────────────
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const targetPath = event.notification.data?.url ?? "/";

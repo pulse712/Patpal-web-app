@@ -64,7 +64,7 @@ export function useIncomingCalls(userId: string | null) {
         conversationId: row.conversation_id,
         clientId: row.client_id,
         callerName: profile?.full_name ?? "Client",
-        channelName: row.conversation_id ?? row.id,
+        channelName: row.id,
       };
 
       setIncoming(call);

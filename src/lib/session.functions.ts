@@ -13,7 +13,7 @@ async function fetchWalletBalance(userId: string): Promise<number> {
       .from("wallets")
       .select("balance_seconds, unlimited_until")
       .eq("user_id", userId)
-      .single(),
+      .maybeSingle(),
     hasPlatformStaffRole(userId),
   ]);
   const isUnlimited = walletHasUnlimitedAccess(data?.unlimited_until, isPlatformStaff);
@@ -52,7 +52,7 @@ export const startSession = createServerFn({ method: "POST" })
         .from("wallets")
         .select("balance_seconds, unlimited_until")
         .eq("user_id", userId)
-        .single(),
+        .maybeSingle(),
       hasPlatformStaffRole(userId),
     ]);
 

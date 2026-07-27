@@ -116,7 +116,7 @@ async function createMicrophoneTrack(AgoraRTC: AgoraSdk): Promise<ILocalAudio | 
 
   await primeMediaPermission({ audio: true });
 
-  const mics = await AgoraRTC.getMicrophones(true);
+  const mics = await AgoraRTC.getMicrophones();
   for (const mic of mics) {
     if (!mic.deviceId) continue;
     try {
@@ -139,7 +139,7 @@ async function createCameraTrack(AgoraRTC: AgoraSdk): Promise<ILocalVideo | null
 
   await primeMediaPermission({ video: true });
 
-  const cameras = await AgoraRTC.getCameras(true);
+  const cameras = await AgoraRTC.getCameras();
   for (const camera of cameras) {
     if (!camera.deviceId) continue;
     try {
@@ -287,9 +287,24 @@ export function CallScreen({
         sessionCreated = true;
         setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
         setIsUnlimited(sessionData.isUnlimited);
+
+        notifyIncomingCall({
+          data: {
+            recipientId: palId,
+            kind,
+            conversationId,
+            sessionId: sessionData.sessionId,
+          },
+        }).catch(() => {
+          /* best-effort push */
+        });
       }
 
-      const agoraChannel = conversationId ?? sessionIdRef.current ?? channelName;
+      if (!sessionIdRef.current) {
+        throw new Error("No active call session.");
+      }
+
+      const agoraChannel = sessionIdRef.current;
       const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName: agoraChannel } });
       if (!appId) throw new Error("Agora App ID not configured.");
 
@@ -343,19 +358,6 @@ export function CallScreen({
       setStatus("connected");
       if (client.remoteUsers.length > 0) {
         void ensureSessionConnected();
-      }
-
-      if (!isCallee && sessionIdRef.current) {
-        notifyIncomingCall({
-          data: {
-            recipientId: palId,
-            kind,
-            conversationId,
-            sessionId: sessionIdRef.current,
-          },
-        }).catch(() => {
-          /* best-effort */
-        });
       }
     } catch (err: unknown) {
       console.error("[CallScreen] Join failed:", err);

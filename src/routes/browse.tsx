@@ -13,7 +13,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Search } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getStaffUserIds } from "@/lib/team.functions";
 import {
@@ -156,30 +155,29 @@ function Browse() {
           Filters
         </p>
 
-        <div className="mt-3">
-          <p className="mb-2 text-[11px] font-medium text-muted-foreground">Category</p>
-          <div className="flex flex-wrap gap-2">
-            <Chip
-              label="All"
-              active={!activeCategory}
-              onClick={() => updateSearch({ category: undefined })}
-            />
-            {cats.map((c) => (
-              <Chip
-                key={c.id}
-                label={`${c.emoji ?? ""} ${c.name}`.trim()}
-                active={activeCategory === c.slug}
-                onClick={() =>
-                  updateSearch({
-                    category: activeCategory === c.slug ? undefined : c.slug,
-                  })
-                }
-              />
-            ))}
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Category</p>
+            <Select
+              value={activeCategory ?? "all"}
+              onValueChange={(v) =>
+                updateSearch({ category: v === "all" ? undefined : v })
+              }
+            >
+              <SelectTrigger className="h-10 w-full bg-background">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {cats.map((c) => (
+                  <SelectItem key={c.id} value={c.slug}>
+                    {`${c.emoji ?? ""} ${c.name}`.trim()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
           <div>
             <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Tier</p>
             <Select
@@ -242,22 +240,5 @@ function Browse() {
         )}
       </section>
     </AppShell>
-  );
-}
-
-function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-        active
-          ? "border-primary bg-primary text-primary-foreground shadow-sm"
-          : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-muted/50",
-      )}
-    >
-      {label}
-    </button>
   );
 }

@@ -29,7 +29,8 @@ function finishSignIn(
       send: (data) => sendWelcome({ data }),
     });
   }
-  navigate({ to: "/home", replace: true });
+  const role = session.user.user_metadata?.role as string | undefined;
+  navigate({ to: role === "pat_pal" ? "/pal-dashboard" : "/home", replace: true });
 }
 
 function AuthCallbackPage() {

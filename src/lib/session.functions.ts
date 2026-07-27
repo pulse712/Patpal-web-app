@@ -68,10 +68,6 @@ export const startSession = createServerFn({ method: "POST" })
     const isUnlimited = walletHasUnlimitedAccess(wallet?.unlimited_until, isPlatformStaff);
     const priceCentsPerMin = pal.price_cents_per_minute ?? 0;
 
-    if (isPlatformStaff && balanceSeconds < 60) {
-      throw new Error("Insufficient balance. Admin accounts must top up the wallet to place calls.");
-    }
-
     if (!isUnlimited && balanceSeconds < 60) {
       throw new Error("Insufficient balance. Please top up your wallet.");
     }

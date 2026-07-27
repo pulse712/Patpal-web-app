@@ -8,6 +8,7 @@ import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users } from "lucide-react"
 import { useIsOnline, useOnlineUsers } from "@/lib/presence";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getTeamMembers, type TeamMember } from "@/lib/team.functions";
+import { AdminStaffBanner, AdminStaffHeaderButton } from "@/components/AdminStaffLinks";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -197,20 +198,25 @@ function Home() {
   return (
     <AppShell>
       {/* Header */}
-      <header className="flex items-center justify-between px-5 pt-5">
+      <header className="flex items-center justify-between px-5 pt-5 lg:px-8">
         <div>
           <p className="text-xs text-muted-foreground">Welcome</p>
           <h1 className="text-lg font-bold">Pat My Back 👋</h1>
         </div>
-        <Link
-          to="/wallet"
-          search={{ payment: undefined }}
-          className="flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-semibold text-primary"
-        >
-          <Clock className="h-4 w-4" />
-          {balanceMinutes} min
-        </Link>
+        <div className="flex items-center gap-2">
+          <AdminStaffHeaderButton />
+          <Link
+            to="/wallet"
+            search={{ payment: undefined }}
+            className="flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-semibold text-primary"
+          >
+            <Clock className="h-4 w-4" />
+            {balanceMinutes} min
+          </Link>
+        </div>
       </header>
+
+      <AdminStaffBanner />
 
       {/* Gradient banner */}
       <section className="px-5 pt-4 lg:px-8">

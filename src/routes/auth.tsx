@@ -13,7 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { HandHeart, Loader2, MessageCircle, Users } from "lucide-react";
+import { Loader2, MessageCircle, Users } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { sendWelcome } from "@/lib/welcome.functions";
@@ -56,10 +57,7 @@ function AuthPage() {
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-md px-6 pt-14 pb-10">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-hero-gradient shadow-hero">
-            <HandHeart className="h-7 w-7 text-white" />
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Pat My Back</h1>
+          <BrandLogo className="mb-4 h-14 max-w-[240px]" />
           <p className="mt-1.5 text-sm text-muted-foreground">
             Talk to a real person who has your back.
           </p>

@@ -90,5 +90,5 @@ export function resolveCheckoutReturnOrigin(opts?: {
 
 /** Absolute URL for Open Graph / Twitter card images (served from /public). */
 export function getOgImageUrl(): string {
-  return `${getAppUrl()}/icons/icon-512.png`;
+  return `${getAppUrl()}/logo.png`;
 }

@@ -11,20 +11,15 @@
   "theme_color": "#0EA5A0",
   "categories": ["lifestyle", "health", "social"],
   "icons": [
+    { "src": "/favicon.png", "sizes": "547x547", "type": "image/png", "purpose": "any" },
+    { "src": "/favicon.png", "sizes": "547x547", "type": "image/png", "purpose": "maskable" },
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ],
   "screenshots": [
     {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
+      "src": "/logo.png",
+      "sizes": "844x396",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Pat My Back home screen"

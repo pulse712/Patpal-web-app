@@ -1,9 +1,9 @@
 // Pat My Back — Service Worker
 // Keep HTML + hashed /assets on network so deploys never 404 stale bundles.
 
-const CACHE_NAME = "patmyback-v3";
+const CACHE_NAME = "patmyback-v4";
 
-const PRECACHE_URLS = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const PRECACHE_URLS = ["/manifest.webmanifest", "/favicon.png", "/logo.png", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 const NETWORK_ONLY = ["/api/", "/assets/", "supabase.co", "stripe.com", "agora.io"];
 

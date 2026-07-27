@@ -42,6 +42,7 @@ import {
 import { useTheme } from "@/hooks/use-theme";
 import { deleteMyAccount } from "@/lib/account.functions";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { AdminStaffProfileSection } from "@/components/AdminStaffLinks";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
@@ -209,6 +210,8 @@ function Profile() {
           Save changes
         </Button>
       </form>
+
+      <AdminStaffProfileSection />
 
       {/* Preferences list */}
       <div className="px-5 pt-8">

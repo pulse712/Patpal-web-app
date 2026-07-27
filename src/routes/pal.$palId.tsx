@@ -208,13 +208,6 @@ function PalProfile() {
   }
 
   async function startCall(kind: "audio" | "video") {
-    if (!pal) return;
-    const acceptingCalls = pal.availability === "available" || !!pal.is_team;
-    if (!acceptingCalls) {
-      toast.error("This Pat Pal is not accepting calls right now.");
-      return;
-    }
-
     setStarting(kind);
     const { data: sess } = await supabase.auth.getSession();
     if (!sess.session) {
@@ -259,7 +252,6 @@ function PalProfile() {
 
   const name = pal.profiles?.full_name ?? "Pat Pal";
   const isOnline = palPresenceOnline;
-  const acceptingCalls = pal.availability === "available" || !!pal.is_team;
   const ratingAvg = Number(pal.rating_avg ?? 0);
   const ratingCount = pal.rating_count ?? 0;
 
@@ -311,11 +303,7 @@ function PalProfile() {
             <span
               className={cn(
                 "absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-background",
-                acceptingCalls
-                  ? "bg-success"
-                  : isOnline
-                    ? "bg-accent"
-                    : "bg-muted-foreground/50",
+                isOnline ? "bg-success" : "bg-muted-foreground/50",
               )}
             />
           </div>
@@ -324,11 +312,7 @@ function PalProfile() {
             <BadgeCheck className="h-5 w-5 text-primary" />
           </div>
           <p className="mt-1 text-xs font-medium text-muted-foreground">
-            {acceptingCalls
-              ? "Available for calls"
-              : isOnline
-                ? "Online · not accepting calls"
-                : "Not accepting calls"}
+            {isOnline ? "Online now" : "Offline"}
           </p>
           <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-semibold text-accent">
             <Crown className="h-3 w-3" /> {TIER_LABEL[pal.tier ?? ""] ?? "Supporter"}
@@ -369,7 +353,7 @@ function PalProfile() {
             <div className="mt-3 grid grid-cols-2 gap-2">
               <Button
                 onClick={() => startCall("audio")}
-                disabled={starting !== null || !acceptingCalls}
+                disabled={starting !== null}
                 className="h-11 rounded-xl font-semibold"
               >
                 <Phone className="h-4 w-4" /> Audio Call
@@ -377,17 +361,12 @@ function PalProfile() {
               <Button
                 onClick={() => startCall("video")}
                 variant="outline"
-                disabled={starting !== null || !acceptingCalls}
+                disabled={starting !== null}
                 className="h-11 rounded-xl font-semibold"
               >
                 <Video className="h-4 w-4" /> Video
               </Button>
             </div>
-            {!acceptingCalls && (
-              <p className="mt-2 text-center text-xs text-muted-foreground">
-                Turn on &quot;Accepting calls&quot; in the Pat Pal dashboard to receive calls.
-              </p>
-            )}
             <div className="mt-2 grid grid-cols-2 gap-2">
               <Button
                 onClick={startChat}

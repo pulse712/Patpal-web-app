@@ -5,7 +5,6 @@ import { useSession } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -84,21 +83,6 @@ function PalDashboard() {
     })();
   }, [user, loading]);
 
-  async function toggleAvailability(available: boolean) {
-    if (!user || !pal) return;
-    const next = available ? "available" : "offline";
-    const { error } = await supabase
-      .from("pat_pals")
-      .update({ availability: next })
-      .eq("user_id", user.id);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    setPal({ ...pal, availability: next });
-    toast.success(available ? "You're online" : "You're offline");
-  }
-
   async function saveProfile() {
     if (!user) return;
     if (!pal) {
@@ -144,8 +128,6 @@ function PalDashboard() {
     );
   }
 
-  const acceptingCalls = pal?.availability === "available";
-
   return (
     <AppShell>
       <div className="space-y-4 p-4 pb-24">
@@ -160,14 +142,11 @@ function PalDashboard() {
               {livePresence ? "You're online right now" : "You appear offline"}
             </span>
           </div>
-          <div className="mt-4 flex items-center justify-between rounded-xl bg-white/15 px-4 py-3 backdrop-blur">
-            <div>
-              <p className="text-xs opacity-80">Accepting calls</p>
-              <p className="text-sm font-semibold">
-                {acceptingCalls ? "Available for calls" : "Not accepting"}
-              </p>
-            </div>
-            <Switch checked={acceptingCalls} onCheckedChange={toggleAvailability} />
+          <div className="mt-4 rounded-xl bg-white/15 px-4 py-3 backdrop-blur">
+            <p className="text-xs opacity-80">Status</p>
+            <p className="text-sm font-semibold">
+              {livePresence ? "You're online — clients can call you" : "You appear offline"}
+            </p>
           </div>
         </header>
 

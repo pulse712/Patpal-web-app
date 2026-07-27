@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 import { getAgoraToken } from "@/lib/agora.functions";
 import {
   startSession,
@@ -226,6 +227,8 @@ export function CallScreen({
   const hasEndedRef = useRef(false); // guard against double-end
   const wasConnectedRef = useRef(false);
   const hasMarkedConnectedRef = useRef(false);
+  const endCallRemotelyRef = useRef<() => void>(() => {});
+  const [watchSessionId, setWatchSessionId] = useState<string | null>(sessionId ?? null);
 
   async function ensureSessionConnected() {
     if (hasMarkedConnectedRef.current || !sessionIdRef.current) return;
@@ -279,11 +282,13 @@ export function CallScreen({
 
       if (isCallee) {
         sessionIdRef.current = sessionId ?? null;
+        if (sessionIdRef.current) setWatchSessionId(sessionIdRef.current);
       } else {
         const sessionData = await startSession({
           data: { palId, conversationId, kind },
         });
         sessionIdRef.current = sessionData.sessionId;
+        setWatchSessionId(sessionData.sessionId);
         sessionCreated = true;
         setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
         setIsUnlimited(sessionData.isUnlimited);
@@ -326,7 +331,7 @@ export function CallScreen({
       });
       client.on("user-left", () => {
         setRemoteJoined(false);
-        toast.info(`${remoteName} left the call.`);
+        endCallRemotelyRef.current();
       });
 
       await client.join(appId, agoraChannel, token ?? null, agoraUid);
@@ -500,6 +505,51 @@ export function CallScreen({
       console.error("[CallScreen] session cleanup failed:", err);
     }
   }
+
+  const handleRemoteEnd = useCallback(async () => {
+    if (hasEndedRef.current) return;
+    hasEndedRef.current = true;
+    setStatus("ended");
+    toast.info(`${remoteName} ended the call.`);
+    if (wasConnectedRef.current) {
+      await cleanupSession(true);
+    }
+    await leaveChannel();
+    onEnd();
+  }, [leaveChannel, onEnd, remoteName, isCallee]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    endCallRemotelyRef.current = () => {
+      void handleRemoteEnd();
+    };
+  }, [handleRemoteEnd]);
+
+  useEffect(() => {
+    if (!watchSessionId) return;
+
+    const channel = supabase
+      .channel(`call-session:${watchSessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "sessions",
+          filter: `id=eq.${watchSessionId}`,
+        },
+        (payload) => {
+          const row = payload.new as { status?: string };
+          if (row.status === "ended" || row.status === "cancelled") {
+            endCallRemotelyRef.current();
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [watchSessionId]);
 
   async function handleEnd() {
     if (hasEndedRef.current) return; // prevent double-end from race conditions

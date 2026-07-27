@@ -12,17 +12,20 @@ DECLARE
   _phone     TEXT;
   _bio       TEXT;
   _role      TEXT;
+  _category  TEXT;
 BEGIN
   BEGIN
     _full_name := COALESCE(NEW.raw_user_meta_data->>'full_name', '');
     _phone     := NEW.raw_user_meta_data->>'phone';
     _bio       := NEW.raw_user_meta_data->>'bio';
     _role      := COALESCE(NEW.raw_user_meta_data->>'role', 'client');
+    _category  := NULLIF(TRIM(NEW.raw_user_meta_data->>'category_slug'), '');
   EXCEPTION WHEN OTHERS THEN
     _full_name := '';
     _phone     := NULL;
     _bio       := NULL;
     _role      := 'client';
+    _category  := NULL;
   END;
 
   -- Never allow self-promotion to admin roles via signup metadata.
@@ -79,14 +82,19 @@ BEGIN
         headline,
         availability,
         price_cents_per_minute,
-        tier
+        tier,
+        category_slugs
       )
       VALUES (
         NEW.id,
         COALESCE(NULLIF(_bio, ''), 'Available for support'),
         'offline',
         100,
-        'trusted'
+        'trusted',
+        CASE
+          WHEN _category IS NOT NULL THEN ARRAY[_category]
+          ELSE ARRAY[]::TEXT[]
+        END
       )
       ON CONFLICT (user_id) DO NOTHING;
     EXCEPTION WHEN OTHERS THEN

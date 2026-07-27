@@ -2,17 +2,32 @@ import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
 
+export type PalCardProfile = {
+  full_name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  introduction?: string | null;
+  languages?: string[] | null;
+};
+
 export type PalCardData = {
   user_id: string;
   headline: string | null;
+  service_range?: string | null;
   price_cents_per_minute: number;
   availability: "available" | "busy" | "offline" | null;
-  profiles: { full_name: string | null; avatar_url: string | null } | null;
+  profiles: PalCardProfile | null;
 };
 
 export function PalCard({ pal }: { pal: PalCardData }) {
   const name = pal.profiles?.full_name?.trim() || "Pat Pal";
   const isOnline = useIsOnline(pal.user_id);
+  const summary =
+    pal.headline?.trim() ||
+    pal.profiles?.bio?.trim() ||
+    pal.profiles?.introduction?.trim() ||
+    "Here to listen.";
+  const languages = (pal.profiles?.languages ?? []).slice(0, 4);
 
   return (
     <Link
@@ -43,6 +58,9 @@ export function PalCard({ pal }: { pal: PalCardData }) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-base font-bold leading-snug break-words">{name}</p>
+          {pal.headline?.trim() && (
+            <p className="mt-0.5 text-sm font-medium text-primary">{pal.headline}</p>
+          )}
           <p
             className={cn(
               "mt-1 text-[11px] font-medium",
@@ -54,13 +72,35 @@ export function PalCard({ pal }: { pal: PalCardData }) {
         </div>
       </div>
 
-      <p className="mt-3 line-clamp-2 text-sm leading-snug text-muted-foreground">
-        {pal.headline ?? "Here to listen."}
-      </p>
+      <p className="mt-3 line-clamp-2 text-sm leading-snug text-muted-foreground">{summary}</p>
+
+      {pal.service_range?.trim() && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">Range:</span> {pal.service_range}
+        </p>
+      )}
+
+      {languages.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {languages.map((lang) => (
+            <span
+              key={lang}
+              className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+            >
+              {lang}
+            </span>
+          ))}
+          {(pal.profiles?.languages?.length ?? 0) > languages.length && (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              +{(pal.profiles?.languages?.length ?? 0) - languages.length}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mt-auto flex items-center justify-between gap-2 pt-4">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Talk time
+          Rate
         </span>
         <div className="rounded-full bg-primary-soft px-3 py-1 text-right">
           <span className="text-sm font-bold text-primary">

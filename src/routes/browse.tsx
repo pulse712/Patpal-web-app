@@ -76,7 +76,7 @@ function Browse() {
         supabase
           .from("pat_pals")
           .select(
-            "user_id, headline, price_cents_per_minute, availability, category_slugs, tier",
+            "user_id, headline, service_range, price_cents_per_minute, availability, category_slugs, tier",
           )
           .order("rating_avg", { ascending: false }),
         getStaffUserIds(),
@@ -97,11 +97,18 @@ function Browse() {
         .map((r) => ({
           user_id: r.user_id,
           headline: r.headline,
+          service_range: r.service_range,
           price_cents_per_minute: r.price_cents_per_minute,
           tier: r.tier,
           availability: r.availability,
           category_slugs: r.category_slugs,
-          profiles: nameMap.get(r.user_id) ?? { full_name: null, avatar_url: null },
+          profiles: nameMap.get(r.user_id) ?? {
+            full_name: null,
+            avatar_url: null,
+            bio: null,
+            introduction: null,
+            languages: null,
+          },
         }));
       setCats((c ?? []) as Category[]);
       setPals(merged);

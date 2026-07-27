@@ -6,6 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
@@ -43,6 +44,12 @@ import { useTheme } from "@/hooks/use-theme";
 import { deleteMyAccount } from "@/lib/account.functions";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { AdminStaffProfileSection } from "@/components/AdminStaffLinks";
+import { LanguagePicker } from "@/components/LanguagePicker";
+import {
+  BIO_MAX,
+  INTRODUCTION_MAX,
+  validateProfileFields,
+} from "@/lib/profile-fields";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
@@ -71,6 +78,12 @@ function Profile() {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [bio, setBio] = useState("");
+  const [introduction, setIntroduction] = useState("");
+  const [languages, setLanguages] = useState<string[]>([]);
+  const [headline, setHeadline] = useState("");
+  const [serviceRange, setServiceRange] = useState("");
+  const [pricePerMinute, setPricePerMinute] = useState("");
+  const [isListable, setIsListable] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Modals
@@ -100,15 +113,32 @@ function Profile() {
       if (!sess.session) return;
       setEmail(sess.session.user.email ?? "");
       const uid = sess.session.user.id;
-      const [{ data: p }, { data: c }] = await Promise.all([
-        supabase.from("profiles").select("full_name, bio").eq("id", uid).maybeSingle(),
+      const [{ data: p }, { data: c }, { data: pal }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("full_name, bio, introduction, languages")
+          .eq("id", uid)
+          .maybeSingle(),
         supabase.from("profile_contacts").select("phone").eq("user_id", uid).maybeSingle(),
+        supabase
+          .from("pat_pals")
+          .select("headline, service_range, price_cents_per_minute")
+          .eq("user_id", uid)
+          .maybeSingle(),
       ]);
       if (p) {
         setFullName(p.full_name ?? "");
         setBio(p.bio ?? "");
+        setIntroduction(p.introduction ?? "");
+        setLanguages(Array.isArray(p.languages) ? p.languages : []);
       }
       if (c) setPhone(c.phone ?? "");
+      if (pal) {
+        setIsListable(true);
+        setHeadline(pal.headline ?? "");
+        setServiceRange(pal.service_range ?? "");
+        setPricePerMinute(String((pal.price_cents_per_minute ?? 100) / 100));
+      }
     })();
   }, []);
 
@@ -121,17 +151,59 @@ function Profile() {
       return;
     }
     const uid = sess.session.user.id;
-    const [{ error }, { error: err2 }] = await Promise.all([
-      supabase.from("profiles").update({ full_name: fullName, bio }).eq("id", uid),
-      supabase.from("profile_contacts").upsert({ user_id: uid, phone }, { onConflict: "user_id" }),
-    ]);
-    setSaving(false);
-    const e1 = error || err2;
-    if (e1) {
-      toast.error(e1.message);
-      return;
+
+    try {
+      const price = parseFloat(pricePerMinute);
+      const { languages: normalizedLanguages } = validateProfileFields({
+        fullName,
+        bio,
+        introduction,
+        languages,
+        headline,
+        serviceRange,
+        pricePerMinute: isListable ? (Number.isFinite(price) ? price : undefined) : undefined,
+        isListable,
+      });
+
+      const profileRes = await supabase
+          .from("profiles")
+          .update({
+            full_name: fullName.trim(),
+            bio: bio.trim() || null,
+            introduction: introduction.trim() || null,
+            languages: normalizedLanguages,
+          })
+          .eq("id", uid);
+
+      const contactRes = await supabase
+        .from("profile_contacts")
+        .upsert({ user_id: uid, phone }, { onConflict: "user_id" });
+
+      let palRes: typeof profileRes | null = null;
+      if (isListable) {
+        const cents = Math.max(0, Math.round(price * 100));
+        palRes = await supabase
+          .from("pat_pals")
+          .update({
+            headline: headline.trim(),
+            service_range: serviceRange.trim() || null,
+            price_cents_per_minute: cents,
+          })
+          .eq("user_id", uid);
+      }
+
+      setSaving(false);
+      const e1 = profileRes.error ?? contactRes.error ?? palRes?.error;
+      if (e1) {
+        toast.error(e1.message);
+        return;
+      }
+      setLanguages(normalizedLanguages);
+      toast.success("Profile saved");
+    } catch (err) {
+      setSaving(false);
+      toast.error(err instanceof Error ? err.message : "Could not save profile");
     }
-    toast.success("Profile saved");
   }
 
   async function signOut() {
@@ -180,7 +252,7 @@ function Profile() {
             <User className="h-8 w-8" />
           </div>
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-extrabold tracking-tight">
+            <h1 className="text-2xl font-extrabold leading-tight tracking-tight break-words">
               {fullName || "Your profile"}
             </h1>
             <p className="truncate text-sm opacity-90">{email}</p>
@@ -188,26 +260,91 @@ function Profile() {
         </div>
       </header>
 
-      <form onSubmit={save} className="space-y-4 px-5 pt-6">
+      <form onSubmit={save} className="space-y-5 px-5 pt-6 pb-2">
         <div className="space-y-1.5">
           <Label htmlFor="p-name">Full name</Label>
           <Input id="p-name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
         </div>
+
         <div className="space-y-1.5">
-          <Label htmlFor="p-phone">Phone</Label>
-          <Input id="p-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <Label htmlFor="p-headline">Headline</Label>
+          <Input
+            id="p-headline"
+            value={headline}
+            onChange={(e) => setHeadline(e.target.value)}
+            disabled={!isListable}
+            placeholder={
+              isListable ? "Short tagline shown on Browse" : "Available when you have a public listing"
+            }
+          />
         </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="p-bio">Bio</Label>
           <Input
             id="p-bio"
             value={bio}
+            maxLength={BIO_MAX}
             onChange={(e) => setBio(e.target.value)}
-            placeholder="Tell your Pals a bit about you"
+            placeholder="Short summary for your card"
           />
+          <p className="text-[11px] text-muted-foreground">
+            {bio.length}/{BIO_MAX} characters
+          </p>
         </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="p-intro">Introduction</Label>
+          <Textarea
+            id="p-intro"
+            value={introduction}
+            maxLength={INTRODUCTION_MAX}
+            onChange={(e) => setIntroduction(e.target.value)}
+            placeholder="About you — what you offer and how you help"
+            className="min-h-[120px] resize-y"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            {introduction.length}/{INTRODUCTION_MAX} characters
+          </p>
+        </div>
+
+        {isListable && (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-range">Range</Label>
+              <Input
+                id="p-range"
+                value={serviceRange}
+                onChange={(e) => setServiceRange(e.target.value)}
+                placeholder="e.g. Career coaching, leadership, startups"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-rate">Rate (USD / min)</Label>
+              <Input
+                id="p-rate"
+                type="number"
+                min="0"
+                step="0.01"
+                value={pricePerMinute}
+                onChange={(e) => setPricePerMinute(e.target.value)}
+              />
+            </div>
+          </>
+        )}
+
+        <div className="space-y-1.5">
+          <Label>Languages</Label>
+          <LanguagePicker value={languages} onChange={setLanguages} disabled={saving} />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="p-phone">Phone</Label>
+          <Input id="p-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </div>
+
         <Button type="submit" disabled={saving} className="h-11 w-full font-semibold">
-          Save changes
+          {saving ? "Saving…" : "Save changes"}
         </Button>
       </form>
 

@@ -10,11 +10,18 @@ export type BrowseFilters = {
 export type PalBrowseRow = {
   user_id: string;
   headline: string | null;
+  service_range: string | null;
   price_cents_per_minute: number;
   tier: string | null;
   availability?: string;
   category_slugs: string[] | null;
-  profiles: { full_name: string | null; avatar_url: string | null } | null;
+  profiles: {
+    full_name: string | null;
+    avatar_url: string | null;
+    bio: string | null;
+    introduction: string | null;
+    languages: string[] | null;
+  } | null;
 };
 
 export function parseMaxPriceParam(value: unknown): number | undefined {
@@ -49,7 +56,8 @@ export function filterBrowsePals(pals: PalBrowseRow[], filters: BrowseFilters): 
     }
 
     if (q) {
-      const hay = `${p.profiles?.full_name ?? ""} ${p.headline ?? ""}`.toLowerCase();
+      const langs = (p.profiles?.languages ?? []).join(" ");
+      const hay = `${p.profiles?.full_name ?? ""} ${p.headline ?? ""} ${p.profiles?.bio ?? ""} ${p.profiles?.introduction ?? ""} ${p.service_range ?? ""} ${langs}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
 

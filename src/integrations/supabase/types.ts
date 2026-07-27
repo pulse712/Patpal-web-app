@@ -145,6 +145,7 @@ export type Database = {
           price_cents_per_minute: number;
           rating_avg: number;
           rating_count: number;
+          service_range: string | null;
           tier: Database["public"]["Enums"]["pal_tier"];
           updated_at: string;
           user_id: string;
@@ -158,6 +159,7 @@ export type Database = {
           price_cents_per_minute?: number;
           rating_avg?: number;
           rating_count?: number;
+          service_range?: string | null;
           tier?: Database["public"]["Enums"]["pal_tier"];
           updated_at?: string;
           user_id: string;
@@ -171,6 +173,7 @@ export type Database = {
           price_cents_per_minute?: number;
           rating_avg?: number;
           rating_count?: number;
+          service_range?: string | null;
           tier?: Database["public"]["Enums"]["pal_tier"];
           updated_at?: string;
           user_id?: string;
@@ -229,7 +232,9 @@ export type Database = {
           created_at: string;
           full_name: string;
           id: string;
+          introduction: string | null;
           is_active: boolean;
+          languages: string[];
           updated_at: string;
         };
         Insert: {
@@ -238,7 +243,9 @@ export type Database = {
           created_at?: string;
           full_name?: string;
           id: string;
+          introduction?: string | null;
           is_active?: boolean;
+          languages?: string[];
           updated_at?: string;
         };
         Update: {
@@ -247,7 +254,9 @@ export type Database = {
           created_at?: string;
           full_name?: string;
           id?: string;
+          introduction?: string | null;
           is_active?: boolean;
+          languages?: string[];
           updated_at?: string;
         };
         Relationships: [];
@@ -462,6 +471,8 @@ export type Database = {
           full_name: string | null;
           avatar_url: string | null;
           bio: string | null;
+          introduction: string | null;
+          languages: string[] | null;
         };
         Relationships: [];
       };

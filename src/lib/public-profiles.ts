@@ -5,6 +5,8 @@ export type PublicProfile = {
   full_name: string | null;
   avatar_url: string | null;
   bio: string | null;
+  introduction: string | null;
+  languages: string[] | null;
 };
 
 /** Safe cross-user profile fields (via public_profiles view). */
@@ -13,7 +15,7 @@ export async function fetchPublicProfiles(ids: string[]): Promise<Map<string, Pu
 
   const { data } = await supabase
     .from("public_profiles")
-    .select("id, full_name, avatar_url, bio")
+    .select("id, full_name, avatar_url, bio, introduction, languages")
     .in("id", ids);
 
   return new Map((data ?? []).map((p) => [p.id, p as PublicProfile]));

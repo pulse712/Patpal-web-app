@@ -52,6 +52,7 @@ export const Route = createFileRoute("/pal/$palId")({
 type Pal = {
   user_id: string;
   headline: string | null;
+  service_range: string | null;
   price_cents_per_minute: number;
   availability: "available" | "busy" | "offline" | null;
   rating_avg: number | null;
@@ -59,7 +60,13 @@ type Pal = {
   category_slugs: string[] | null;
   tier: "trusted" | "premium" | "expert" | string | null;
   is_team: boolean | null;
-  profiles: { full_name: string | null; avatar_url: string | null; bio: string | null } | null;
+  profiles: {
+    full_name: string | null;
+    avatar_url: string | null;
+    bio: string | null;
+    introduction: string | null;
+    languages: string[] | null;
+  } | null;
 };
 
 const TIER_LABEL: Record<string, string> = {
@@ -130,21 +137,13 @@ function PalProfile() {
       const { data } = await supabase
         .from("pat_pals")
         .select(
-          "user_id, headline, price_cents_per_minute, availability, rating_avg, rating_count, category_slugs, tier, is_team",
+          "user_id, headline, service_range, price_cents_per_minute, availability, rating_avg, rating_count, category_slugs, tier, is_team",
         )
         .eq("user_id", palId)
         .maybeSingle();
-      let profile: {
-        full_name: string | null;
-        avatar_url: string | null;
-        bio: string | null;
-      } | null = null;
+      let profile: Pal["profiles"] = null;
       if (data) {
-        profile = (await fetchPublicProfile(palId)) ?? {
-          full_name: null,
-          avatar_url: null,
-          bio: null,
-        };
+        profile = await fetchPublicProfile(palId);
       }
       setPal(data ? ({ ...(data as object), profiles: profile } as unknown as Pal) : null);
       setLoading(false);
@@ -391,8 +390,16 @@ function PalProfile() {
         <section className="px-5 pt-6">
           <h3 className="text-sm font-bold">About</h3>
           <p className="mt-1.5 whitespace-pre-line text-sm text-muted-foreground">
-            {pal.profiles?.bio ?? pal.headline ?? "This Pal hasn't added a bio yet."}
+            {pal.profiles?.introduction?.trim() ||
+              pal.profiles?.bio?.trim() ||
+              pal.headline ||
+              "This Pal hasn't added a bio yet."}
           </p>
+          {pal.service_range?.trim() && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">Range:</span> {pal.service_range}
+            </p>
+          )}
         </section>
 
         {/* Specialties */}
@@ -413,12 +420,23 @@ function PalProfile() {
         )}
 
         {/* Languages */}
-        <section className="px-5 pt-5">
-          <h3 className="flex items-center gap-1.5 text-sm font-bold">
-            <Globe className="h-4 w-4" /> Languages
-          </h3>
-          <p className="mt-1.5 text-sm text-muted-foreground">English</p>
-        </section>
+        {(pal.profiles?.languages?.length ?? 0) > 0 && (
+          <section className="px-5 pt-5">
+            <h3 className="flex items-center gap-1.5 text-sm font-bold">
+              <Globe className="h-4 w-4" /> Languages
+            </h3>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {pal.profiles!.languages!.map((lang) => (
+                <span
+                  key={lang}
+                  className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground"
+                >
+                  {lang}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Credentials */}
         <section className="px-5 pt-5">

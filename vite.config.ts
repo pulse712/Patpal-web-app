@@ -15,10 +15,5 @@ export default defineConfig({
   // Required for Vercel — default Lovable config targets Cloudflare Workers.
   nitro: {
     preset: "vercel",
-    // Expose Agora env to the Nitro server runtime on Vercel.
-    runtimeConfig: {
-      agoraAppId: process.env["AGORA_APP_ID"] ?? "",
-      agoraAppCertificate: process.env["AGORA_APP_CERTIFICATE"] ?? "",
-    },
   },
 });

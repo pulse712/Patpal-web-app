@@ -44,15 +44,14 @@ type Pal = {
   availability: string;
 };
 
-function isOnlineNowPal(
-  pal: { user_id: string; availability: string },
+/** Online Pat Pals only — presence-based, excludes admin/team profiles. */
+function isOnlinePatPal(
+  pal: { user_id: string; is_team: boolean },
   onlineIds: Set<string>,
-  teamIds: Set<string>,
+  adminIds: Set<string>,
 ): boolean {
-  if (!onlineIds.has(pal.user_id)) return false;
-  // Team admins may be logged in (presence) before toggling accepting calls on.
-  if (teamIds.has(pal.user_id)) return true;
-  return pal.availability === "available" || pal.availability === "busy";
+  if (adminIds.has(pal.user_id) || pal.is_team) return false;
+  return onlineIds.has(pal.user_id);
 }
 
 function Home() {
@@ -170,41 +169,19 @@ function Home() {
     };
   }, []);
 
-  const teamIds = useMemo(() => new Set(team.map((t) => t.user_id)), [team]);
-
-  const onlineCandidates = useMemo(() => {
-    const byId = new Map<string, Pal>();
-    for (const pal of allPals) byId.set(pal.user_id, pal);
-    for (const member of team) {
-      if (!byId.has(member.user_id)) {
-        byId.set(member.user_id, {
-          user_id: member.user_id,
-          headline: member.headline,
-          price_cents_per_minute: member.price_cents_per_minute,
-          tier: member.tier,
-          is_team: true,
-          rating_avg: member.rating_avg,
-          rating_count: member.rating_count,
-          full_name: member.full_name,
-          avatar_url: member.avatar_url,
-          availability: member.availability,
-        });
-      }
-    }
-    return [...byId.values()];
-  }, [allPals, team]);
+  const adminIds = useMemo(() => new Set(team.map((t) => t.user_id)), [team]);
 
   const online = useMemo(
     () =>
-      onlineCandidates
-        .filter((pal) => isOnlineNowPal(pal, onlineIds, teamIds))
+      allPals
+        .filter((pal) => isOnlinePatPal(pal, onlineIds, adminIds))
         .sort((a, b) => {
           const rank = (availability: string) =>
             availability === "available" ? 0 : availability === "busy" ? 1 : 2;
           return rank(a.availability) - rank(b.availability);
         })
         .slice(0, 6),
-    [onlineCandidates, onlineIds, teamIds],
+    [allPals, onlineIds, adminIds],
   );
 
   if (loading) {
@@ -484,7 +461,11 @@ function PalRow({ pal }: { pal: Pal }) {
           ${(pal.price_cents_per_minute / 100).toFixed(0)}/min
         </p>
         {isOnline ? (
-          <p className="text-[10px] font-medium text-success">Online now</p>
+          <p className="text-[10px] font-medium text-success">
+            {pal.availability === "available" || pal.availability === "busy"
+              ? "Online now"
+              : "Online"}
+          </p>
         ) : pal.rating_avg ? (
           <p className="flex items-center justify-end gap-0.5 text-[10px] text-muted-foreground">
             <Star className="h-2.5 w-2.5 fill-accent text-accent" />

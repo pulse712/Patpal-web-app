@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { sendWelcome } from "@/lib/welcome.functions";
 import { sendWelcomeOnce } from "@/lib/welcome-client";
+import { applySignupRole } from "@/lib/signup.functions";
+import { parseSignupRole } from "@/lib/signup-role";
 
 /** Handles Supabase email links (#access_token=...) after signup or magic link. */
 export const Route = createFileRoute("/auth/callback")({
@@ -21,16 +23,26 @@ function finishSignIn(
     (session.user.user_metadata?.full_name as string | undefined) ??
     email?.split("@")[0] ??
     "there";
-  if (email) {
-    void sendWelcomeOnce({
-      userId: session.user.id,
-      name,
-      email,
-      send: (data) => sendWelcome({ data }),
-    });
-  }
-  const role = session.user.user_metadata?.role as string | undefined;
-  navigate({ to: role === "pat_pal" ? "/pal-dashboard" : "/home", replace: true });
+  const signupRole = parseSignupRole(session.user.user_metadata?.role);
+
+  void (async () => {
+    try {
+      await applySignupRole({ data: { role: signupRole } });
+    } catch (err) {
+      console.error("[auth/callback] applySignupRole failed:", err);
+    }
+
+    if (email) {
+      void sendWelcomeOnce({
+        userId: session.user.id,
+        name,
+        email,
+        send: (data) => sendWelcome({ data }),
+      });
+    }
+
+    navigate({ to: signupRole === "pat_pal" ? "/pal-dashboard" : "/home", replace: true });
+  })();
 }
 
 function AuthCallbackPage() {

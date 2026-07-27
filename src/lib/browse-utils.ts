@@ -35,9 +35,6 @@ export function filterBrowsePals(pals: PalBrowseRow[], filters: BrowseFilters): 
   const q = filters.query?.trim().toLowerCase();
 
   return pals.filter((p) => {
-    // Filter out offline pals
-    if (p.availability === "offline") return false;
-
     const slugs = p.category_slugs ?? [];
     if (filters.category && !slugs.includes(filters.category)) return false;
 

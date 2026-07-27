@@ -61,6 +61,14 @@ describe("filterBrowsePals", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.user_id).toBe("2");
   });
+
+  it("includes offline pals", () => {
+    const result = filterBrowsePals(
+      [{ ...pals[0]!, availability: "offline" }],
+      {},
+    );
+    expect(result).toHaveLength(1);
+  });
 });
 
 describe("search param helpers", () => {

@@ -15,6 +15,7 @@ import {
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
+import { getStaffUserIds } from "@/lib/team.functions";
 import {
   filterBrowsePals,
   paramToMaxPrice,
@@ -71,15 +72,15 @@ function Browse() {
 
   useEffect(() => {
     (async () => {
-      const [catsRes, palsRes] = await Promise.all([
+      const [catsRes, palsRes, staffRes] = await Promise.all([
         supabase.from("categories").select("id, name, slug, emoji").order("sort_order"),
         supabase
           .from("pat_pals")
           .select(
-            "user_id, headline, price_cents_per_minute, availability, category_slugs, tier, is_team",
+            "user_id, headline, price_cents_per_minute, availability, category_slugs, tier",
           )
-          .eq("is_team", false)
           .order("rating_avg", { ascending: false }),
+        getStaffUserIds(),
       ]);
       const loadError = catsRes.error?.message ?? palsRes.error?.message;
       if (loadError) {
@@ -90,16 +91,19 @@ function Browse() {
       const c = catsRes.data;
       const p = palsRes.data;
       const rows = p ?? [];
+      const staffIds = new Set(staffRes.userIds);
       const nameMap = await fetchPublicProfiles(rows.map((r) => r.user_id));
-      const merged: PalBrowseRow[] = rows.map((r) => ({
-        user_id: r.user_id,
-        headline: r.headline,
-        price_cents_per_minute: r.price_cents_per_minute,
-        tier: r.tier,
-        availability: r.availability,
-        category_slugs: r.category_slugs,
-        profiles: nameMap.get(r.user_id) ?? { full_name: null, avatar_url: null },
-      }));
+      const merged: PalBrowseRow[] = rows
+        .filter((r) => !staffIds.has(r.user_id))
+        .map((r) => ({
+          user_id: r.user_id,
+          headline: r.headline,
+          price_cents_per_minute: r.price_cents_per_minute,
+          tier: r.tier,
+          availability: r.availability,
+          category_slugs: r.category_slugs,
+          profiles: nameMap.get(r.user_id) ?? { full_name: null, avatar_url: null },
+        }));
       setCats((c ?? []) as Category[]);
       setPals(merged);
       setLoading(false);

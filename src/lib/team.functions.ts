@@ -52,6 +52,17 @@ export async function ensureTeamPalRecord(
   });
 }
 
+/** Public staff id list — used to hide admin profiles from browse listings. */
+export const getStaffUserIds = createServerFn({ method: "GET" }).handler(async () => {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("user_id")
+    .in("role", ["admin", "super_admin"]);
+  if (error) throw new Error(error.message);
+  return { userIds: [...new Set((data ?? []).map((r) => r.user_id))] };
+});
+
 export const getTeamMembers = createServerFn({ method: "GET" })
   .middleware([...serverAuth])
   .handler(async (): Promise<{ members: TeamMember[] }> => {

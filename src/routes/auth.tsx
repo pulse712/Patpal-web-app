@@ -6,11 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { HandHeart, Loader2 } from "lucide-react";
+import { HandHeart, Loader2, MessageCircle, Users } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
+
+type SignupRole = "client" | "pat_pal";
 import { sendWelcome } from "@/lib/welcome.functions";
 import { sendWelcomeOnce } from "@/lib/welcome-client";
 import { getAuthRedirectUrl } from "@/lib/auth-redirect";
-import { isEmailNotConfirmedError, resendSignupVerification } from "@/lib/auth-email";
+import { isEmailNotConfirmedError, isEmailRateLimitError, emailRateLimitMessage, resendSignupVerification } from "@/lib/auth-email";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -189,6 +193,7 @@ function RegisterForm() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [signupRole, setSignupRole] = useState<SignupRole>("client");
   const [busy, setBusy] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
 
@@ -203,11 +208,14 @@ function RegisterForm() {
       password,
       options: {
         emailRedirectTo: getAuthRedirectUrl("/auth/callback"),
-        data: { full_name: fullName, phone, role: "client" },
+        data: { full_name: fullName, phone, role: signupRole },
       },
     });
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      if (isEmailRateLimitError(error.message)) return toast.error(emailRateLimitMessage());
+      return toast.error(error.message);
+    }
 
     if (data.session) {
       void sendWelcomeOnce({
@@ -217,7 +225,10 @@ function RegisterForm() {
         send: (payload) => sendWelcome({ data: payload }),
       });
       toast.success("Account created!");
-      navigate({ to: "/home", replace: true });
+      navigate({
+        to: signupRole === "pat_pal" ? "/pal-dashboard" : "/home",
+        replace: true,
+      });
       return;
     }
 
@@ -267,6 +278,55 @@ function RegisterForm() {
           autoComplete="tel"
         />
       </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium leading-none">I am signing up as</legend>
+        <RadioGroup
+          value={signupRole}
+          onValueChange={(value) => setSignupRole(value as SignupRole)}
+          className="grid gap-2"
+        >
+          <label
+            htmlFor="role-client"
+            className={cn(
+              "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+              signupRole === "client"
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-primary/40",
+            )}
+          >
+            <RadioGroupItem value="client" id="role-client" className="mt-0.5" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                <MessageCircle className="h-4 w-4 text-primary" />
+                Customer
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Browse Pat Pals, buy credits, and start chats or calls.
+              </p>
+            </div>
+          </label>
+          <label
+            htmlFor="role-pal"
+            className={cn(
+              "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+              signupRole === "pat_pal"
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-primary/40",
+            )}
+          >
+            <RadioGroupItem value="pat_pal" id="role-pal" className="mt-0.5" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                <Users className="h-4 w-4 text-primary" />
+                Pat Pal
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Offer support, set your availability, and receive sessions.
+              </p>
+            </div>
+          </label>
+        </RadioGroup>
+      </fieldset>
       <div className="space-y-1.5">
         <Label htmlFor="reg-password">Password</Label>
         <Input

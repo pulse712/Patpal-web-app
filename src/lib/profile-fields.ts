@@ -55,21 +55,18 @@ export function validateProfileFields(opts: {
     throw new Error(`Bio must be ${BIO_MAX} characters or less.`);
   }
   if (opts.introduction.length > INTRODUCTION_MAX) {
-    throw new Error(`Introduction must be ${INTRODUCTION_MAX} characters or less.`);
+    throw new Error(`About must be ${INTRODUCTION_MAX} characters or less.`);
   }
 
-  const languages = normalizeLanguages(opts.languages);
+  let languages = normalizeLanguages(opts.languages);
   if (languages.length < LANGUAGES_MIN) {
-    throw new Error(`Add at least ${LANGUAGES_MIN} language.`);
+    languages = ["English"];
   }
   if (languages.length > LANGUAGES_MAX) {
     throw new Error(`You can add up to ${LANGUAGES_MAX} languages.`);
   }
 
   if (opts.isListable) {
-    if (!opts.headline?.trim()) {
-      throw new Error("Headline is required for your public listing.");
-    }
     if ((opts.headline?.length ?? 0) > HEADLINE_MAX) {
       throw new Error(`Headline must be ${HEADLINE_MAX} characters or less.`);
     }

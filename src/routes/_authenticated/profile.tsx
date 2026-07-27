@@ -113,7 +113,7 @@ function Profile() {
       if (!sess.session) return;
       setEmail(sess.session.user.email ?? "");
       const uid = sess.session.user.id;
-      const [{ data: p }, { data: c }, { data: pal }] = await Promise.all([
+      const [{ data: p, error: profileErr }, { data: c }, { data: pal }] = await Promise.all([
         supabase
           .from("profiles")
           .select("full_name, bio, introduction, languages")
@@ -126,11 +126,23 @@ function Profile() {
           .eq("user_id", uid)
           .maybeSingle(),
       ]);
-      if (p) {
-        setFullName(p.full_name ?? "");
-        setBio(p.bio ?? "");
-        setIntroduction(p.introduction ?? "");
-        setLanguages(Array.isArray(p.languages) ? p.languages : []);
+
+      let profile = p;
+      if (profileErr && /introduction|languages|column/i.test(profileErr.message)) {
+        const { data: basic } = await supabase
+          .from("profiles")
+          .select("full_name, bio")
+          .eq("id", uid)
+          .maybeSingle();
+        profile = basic ? { ...basic, introduction: null, languages: [] } : null;
+      }
+
+      if (profile) {
+        setFullName(profile.full_name ?? "");
+        setBio(profile.bio ?? "");
+        setIntroduction(profile.introduction ?? "");
+        const loadedLanguages = Array.isArray(profile.languages) ? profile.languages : [];
+        setLanguages(loadedLanguages.length > 0 ? loadedLanguages : ["English"]);
       }
       if (c) setPhone(c.phone ?? "");
       if (pal) {
@@ -138,6 +150,17 @@ function Profile() {
         setHeadline(pal.headline ?? "");
         setServiceRange(pal.service_range ?? "");
         setPricePerMinute(String((pal.price_cents_per_minute ?? 100) / 100));
+      } else {
+        const { data: palBasic } = await supabase
+          .from("pat_pals")
+          .select("headline, price_cents_per_minute")
+          .eq("user_id", uid)
+          .maybeSingle();
+        if (palBasic) {
+          setIsListable(true);
+          setHeadline(palBasic.headline ?? "");
+          setPricePerMinute(String((palBasic.price_cents_per_minute ?? 100) / 100));
+        }
       }
     })();
   }, []);
@@ -166,14 +189,31 @@ function Profile() {
       });
 
       const profileRes = await supabase
+        .from("profiles")
+        .update({
+          full_name: fullName.trim(),
+          bio: bio.trim() || null,
+          introduction: introduction.trim() || null,
+          languages: normalizedLanguages,
+        })
+        .eq("id", uid);
+
+      let profileError = profileRes.error;
+      if (profileError && /introduction|languages|column/i.test(profileError.message)) {
+        const fallbackRes = await supabase
           .from("profiles")
           .update({
             full_name: fullName.trim(),
             bio: bio.trim() || null,
-            introduction: introduction.trim() || null,
-            languages: normalizedLanguages,
           })
           .eq("id", uid);
+        profileError = fallbackRes.error;
+        if (!profileError) {
+          toast.warning(
+            "Basic profile saved. Run the latest Supabase migration to enable About and languages.",
+          );
+        }
+      }
 
       const contactRes = await supabase
         .from("profile_contacts")
@@ -181,11 +221,12 @@ function Profile() {
 
       let palRes: typeof profileRes | null = null;
       if (isListable) {
-        const cents = Math.max(0, Math.round(price * 100));
+        const rate = Number.isFinite(price) ? price : 1;
+        const cents = Math.max(0, Math.round(rate * 100));
         palRes = await supabase
           .from("pat_pals")
           .update({
-            headline: headline.trim(),
+            headline: headline.trim() || null,
             service_range: serviceRange.trim() || null,
             price_cents_per_minute: cents,
           })
@@ -193,13 +234,15 @@ function Profile() {
       }
 
       setSaving(false);
-      const e1 = profileRes.error ?? contactRes.error ?? palRes?.error;
+      const e1 = profileError ?? contactRes.error ?? palRes?.error;
       if (e1) {
         toast.error(e1.message);
         return;
       }
       setLanguages(normalizedLanguages);
-      toast.success("Profile saved");
+      if (!profileRes.error) {
+        toast.success("Profile saved");
+      }
     } catch (err) {
       setSaving(false);
       toast.error(err instanceof Error ? err.message : "Could not save profile");
@@ -294,13 +337,13 @@ function Profile() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="p-intro">Introduction</Label>
+          <Label htmlFor="p-about">About</Label>
           <Textarea
-            id="p-intro"
+            id="p-about"
             value={introduction}
             maxLength={INTRODUCTION_MAX}
             onChange={(e) => setIntroduction(e.target.value)}
-            placeholder="About you — what you offer and how you help"
+            placeholder="What you offer and how you help"
             className="min-h-[120px] resize-y"
           />
           <p className="text-[11px] text-muted-foreground">

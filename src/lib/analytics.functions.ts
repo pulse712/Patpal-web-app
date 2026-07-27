@@ -2,6 +2,7 @@
 // Server-only: uses service role to read across all users.
 import { createServerFn } from "@tanstack/react-start";
 import { serverAuth } from "@/lib/server-auth";
+import { topPalsBySessionCount } from "@/lib/analytics-utils";
 
 export const getAnalytics = createServerFn({ method: "GET" })
   .middleware([...serverAuth])
@@ -20,10 +21,10 @@ export const getAnalytics = createServerFn({ method: "GET" })
     });
     if (!isAdmin && !isSuperAdmin) throw new Error("Unauthorized");
 
-    const now = new Date();
-    const startOf30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const startOf7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const startOfToday = new Date(now.setHours(0, 0, 0, 0)).toISOString();
+    const nowMs = Date.now();
+    const startOf30Days = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const startOf7Days = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const startOf14Days = new Date(nowMs - 14 * 24 * 60 * 60 * 1000).toISOString();
 
     const [
       { count: totalUsers },
@@ -99,7 +100,7 @@ export const getAnalytics = createServerFn({ method: "GET" })
         .from("sessions")
         .select("started_at")
         .eq("status", "ended")
-        .gte("started_at", new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString())
+        .gte("started_at", startOf14Days)
         .order("started_at", { ascending: true }),
     ]);
 
@@ -107,28 +108,20 @@ export const getAnalytics = createServerFn({ method: "GET" })
     const totalRevCents = (revData ?? []).reduce((s, r) => s + (r.cents_amount ?? 0), 0);
     const rev7dCents = (rev7dData ?? []).reduce((s, r) => s + (r.cents_amount ?? 0), 0);
 
-    // Top pals by session count (last 30 days)
-    const palSessionMap: Record<string, number> = {};
-    for (const s of topPals ?? []) {
-      palSessionMap[s.pal_id] = (palSessionMap[s.pal_id] ?? 0) + 1;
-    }
-    const topPalIds = Object.entries(palSessionMap)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id, count]) => ({ id, count }));
+    const rankedTopPals = topPalsBySessionCount(topPals ?? []);
 
     // Fetch names for top pals
     let topPalNames: { id: string; name: string; count: number }[] = [];
-    if (topPalIds.length) {
+    if (rankedTopPals.length) {
       const { data: palProfiles } = await supabaseAdmin
         .from("profiles")
         .select("id, full_name")
         .in(
           "id",
-          topPalIds.map((p) => p.id),
+          rankedTopPals.map((p) => p.id),
         );
       const nameMap = new Map((palProfiles ?? []).map((p) => [p.id, p.full_name]));
-      topPalNames = topPalIds.map((p) => ({
+      topPalNames = rankedTopPals.map((p) => ({
         id: p.id,
         name: nameMap.get(p.id) ?? "Unknown",
         count: p.count,
@@ -138,7 +131,7 @@ export const getAnalytics = createServerFn({ method: "GET" })
     // Sessions per day (last 14 days)
     const dayMap: Record<string, number> = {};
     for (let i = 13; i >= 0; i--) {
-      const d = new Date();
+      const d = new Date(nowMs);
       d.setDate(d.getDate() - i);
       dayMap[d.toISOString().slice(0, 10)] = 0;
     }

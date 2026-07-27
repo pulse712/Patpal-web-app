@@ -31,6 +31,8 @@ type Message = {
 };
 type ConvoParty = { pal_id: string; client_id: string };
 
+const PAGE_SIZE = 50;
+
 function Chat() {
   const { conversationId } = Route.useParams();
   const search = Route.useSearch();
@@ -44,7 +46,11 @@ function Chat() {
   const [isClient, setIsClient] = useState(false);
   const [myName, setMyName] = useState("Someone");
   const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [oldestCreatedAt, setOldestCreatedAt] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const isOnline = useIsOnline(otherId);
 
   useEffect(() => {
@@ -70,15 +76,46 @@ function Chat() {
       const myProf = await fetchPublicProfile(sess.session.user.id);
       setMyName(myProf?.full_name ?? "Someone");
 
+      // Load most recent PAGE_SIZE messages
       const { data: msgs } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true })
-        .limit(200);
-      setMessages((msgs ?? []) as Message[]);
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE);
+
+      const sorted = ((msgs ?? []) as Message[]).reverse();
+      setMessages(sorted);
+      setHasMore((msgs ?? []).length === PAGE_SIZE);
+      if (sorted.length > 0) setOldestCreatedAt(sorted[0].created_at);
     })();
   }, [conversationId]);
+
+  async function loadOlderMessages() {
+    if (!oldestCreatedAt || loadingMore) return;
+    setLoadingMore(true);
+    const scroller = scrollerRef.current;
+    const prevHeight = scroller?.scrollHeight ?? 0;
+
+    const { data: older } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .lt("created_at", oldestCreatedAt)
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+
+    const sorted = ((older ?? []) as Message[]).reverse();
+    stickToBottomRef.current = false;
+    setMessages((prev) => [...sorted, ...prev]);
+    setHasMore(sorted.length === PAGE_SIZE);
+    if (sorted.length > 0) setOldestCreatedAt(sorted[0].created_at);
+    setLoadingMore(false);
+
+    requestAnimationFrame(() => {
+      if (scroller) scroller.scrollTop = scroller.scrollHeight - prevHeight;
+    });
+  }
 
   useEffect(() => {
     if (!search.call || !me || !incomingCtx) return;
@@ -96,7 +133,10 @@ function Chat() {
           table: "messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        (payload) => setMessages((prev) => [...prev, payload.new as Message]),
+        (payload) => {
+          stickToBottomRef.current = true;
+          setMessages((prev) => [...prev, payload.new as Message]);
+        },
       )
       .subscribe();
     return () => {
@@ -105,6 +145,7 @@ function Chat() {
   }, [conversationId]);
 
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
@@ -113,6 +154,7 @@ function Chat() {
     if (!text.trim() || !me) return;
     const body = text.trim();
     setText("");
+    stickToBottomRef.current = true;
     const { error } = await supabase
       .from("messages")
       .insert({ conversation_id: conversationId, sender_id: me, body });
@@ -198,6 +240,19 @@ function Chat() {
         </header>
 
         <div ref={scrollerRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
+          {hasMore && (
+            <div className="flex justify-center pb-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={loadOlderMessages}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Loading…" : "Load older messages"}
+              </Button>
+            </div>
+          )}
           {messages.length === 0 && (
             <p className="mt-10 text-center text-sm text-muted-foreground">
               Say hi to break the ice 👋

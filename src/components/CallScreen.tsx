@@ -161,7 +161,14 @@ export function CallScreen({
   // Join Agora + start session
   // ─────────────────────────────────────────────────────────────────────────
   const joinChannel = useCallback(async () => {
+    let sessionCreated = false;
     try {
+      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
+
+      const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName } });
+      if (!appId) throw new Error("Agora App ID not configured.");
+
       if (isCallee) {
         sessionIdRef.current = sessionId ?? null;
       } else {
@@ -169,15 +176,10 @@ export function CallScreen({
           data: { palId, conversationId, kind },
         });
         sessionIdRef.current = sessionData.sessionId;
+        sessionCreated = true;
         setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
         setIsUnlimited(sessionData.isUnlimited);
       }
-
-      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
-
-      const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName } });
-      if (!appId) throw new Error("Agora App ID not configured.");
 
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
       clientRef.current = client;
@@ -223,9 +225,7 @@ export function CallScreen({
         notifyIncomingCall({
           data: {
             recipientId: palId,
-            callerName: callerName ?? "Someone",
             kind,
-            channelName,
             conversationId,
             sessionId: sessionIdRef.current,
           },
@@ -235,12 +235,19 @@ export function CallScreen({
       }
     } catch (err: unknown) {
       console.error("[CallScreen] Join failed:", err);
+      if (sessionCreated && sessionIdRef.current) {
+        try {
+          await cancelSession({ data: { sessionId: sessionIdRef.current } });
+        } catch (cleanupErr) {
+          console.error("[CallScreen] Session cleanup failed:", cleanupErr);
+        }
+        sessionIdRef.current = null;
+      }
       toast.error(err instanceof Error ? err.message : "Could not start call");
-      void cleanupSession(false);
       await leaveChannel();
       onEnd();
     }
-  }, [channelName, kind, palId, conversationId, remoteName, callerName, isCallee, sessionId]); // eslint-disable-line
+  }, [channelName, kind, palId, conversationId, remoteName, isCallee, sessionId]); // eslint-disable-line
 
   function startElapsedTimer() {
     if (elapsedTimerRef.current) return; // already running

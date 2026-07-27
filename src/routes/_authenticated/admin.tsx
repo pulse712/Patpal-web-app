@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
@@ -47,9 +47,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_authenticated/admin")({
-  beforeLoad: async () => {
-    await checkAdminAccess();
-  },
+  beforeLoad: async () => checkAdminAccess(),
   component: AdminPanel,
 });
 
@@ -91,9 +89,8 @@ const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 function AdminPanel() {
+  const { isSuperAdmin } = Route.useRouteContext();
   const { user, loading } = useSession();
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [pals, setPals] = useState<Pal[]>([]);
   const [codes, setCodes] = useState<Code[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
@@ -113,15 +110,7 @@ function AdminPanel() {
 
   useEffect(() => {
     if (loading || !user) return;
-    (async () => {
-      const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
-        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-        supabase.rpc("has_role", { _user_id: user.id, _role: "super_admin" }),
-      ]);
-      setIsAdmin(!!isAdmin || !!isSuperAdmin);
-      setIsSuperAdmin(!!isSuperAdmin);
-      if (isAdmin || isSuperAdmin) await refresh();
-    })();
+    void refresh();
   }, [user, loading]);
 
   async function refresh() {
@@ -293,26 +282,10 @@ function AdminPanel() {
     }
   }
 
-  if (loading || isAdmin === null) {
+  if (loading) {
     return (
       <AppShell>
         <div className="p-6 text-sm text-muted-foreground">Loading...</div>
-      </AppShell>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <AppShell>
-        <div className="p-6 space-y-3">
-          <h1 className="text-xl font-semibold">Admins only</h1>
-          <p className="text-sm text-muted-foreground">
-            You don't have permission to view this page.
-          </p>
-          <Button asChild>
-            <Link to="/">Back home</Link>
-          </Button>
-        </div>
       </AppShell>
     );
   }

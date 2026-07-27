@@ -17,8 +17,8 @@ export const checkAdminAccess = createServerFn({ method: "GET" })
   .middleware([...serverAuth])
   .handler(async ({ context }) => {
     try {
-      await assertAdmin(context.userId);
-      return { ok: true as const };
+      const { isSuperAdmin } = await assertAdmin(context.userId);
+      return { isSuperAdmin };
     } catch {
       throw redirect({ to: "/home", replace: true });
     }

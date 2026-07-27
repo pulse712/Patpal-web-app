@@ -56,12 +56,10 @@ export const notifyIncomingCall = createServerFn({ method: "POST" })
   .validator((data: unknown) =>
     z
       .object({
+        sessionId: z.string().uuid(),
         recipientId: z.string().uuid(),
-        callerName: z.string().max(100).optional(),
         kind: z.enum(["audio", "video"]),
-        channelName: z.string().uuid(),
         conversationId: z.string().uuid().optional(),
-        sessionId: z.string().uuid().optional(),
       })
       .parse(data),
   )
@@ -70,60 +68,26 @@ export const notifyIncomingCall = createServerFn({ method: "POST" })
     const { sendPushToUser } = await import("@/lib/push.functions");
     const { userId } = context;
 
-    let sessionQuery = supabaseAdmin
+    const { data: session } = await supabaseAdmin
       .from("sessions")
-      .select("id, client_id, pal_id, status")
-      .eq("status", "active");
+      .select("id, client_id, pal_id, status, kind, conversation_id")
+      .eq("id", data.sessionId)
+      .maybeSingle();
 
-    if (data.sessionId) {
-      sessionQuery = sessionQuery.eq("id", data.sessionId);
-    } else if (data.conversationId) {
-      sessionQuery = sessionQuery.eq("conversation_id", data.conversationId);
-    } else {
-      const { data: byId } = await supabaseAdmin
-        .from("sessions")
-        .select("id, client_id, pal_id, status")
-        .eq("status", "active")
-        .eq("id", data.channelName)
-        .maybeSingle();
-
-      const { data: byConvo } = byId
-        ? { data: null }
-        : await supabaseAdmin
-            .from("sessions")
-            .select("id, client_id, pal_id, status")
-            .eq("status", "active")
-            .eq("conversation_id", data.channelName)
-            .maybeSingle();
-
-      const session = byId ?? byConvo;
-      if (!session || session.client_id !== userId || session.pal_id !== data.recipientId) {
-        throw new Error("Unauthorized: no active call session for this recipient.");
-      }
-
-      const { data: callerProfile } = await supabaseAdmin
-        .from("profiles")
-        .select("full_name")
-        .eq("id", userId)
-        .single();
-
-      const callerName = data.callerName?.trim() || callerProfile?.full_name?.trim() || "Someone";
-      const url = data.conversationId ? `/chat/${data.conversationId}?call=${data.kind}` : "/";
-
-      await sendPushToUser(data.recipientId, {
-        title: `Incoming ${data.kind} call`,
-        body: `${callerName} is calling you`,
-        url,
-        tag: `call-${data.channelName}`,
-      });
-
-      return { ok: true };
+    if (!session || session.status !== "active") {
+      throw new Error("Unauthorized: no active call session.");
     }
-
-    const { data: session } = await sessionQuery.maybeSingle();
-
-    if (!session || session.client_id !== userId || session.pal_id !== data.recipientId) {
-      throw new Error("Unauthorized: no active call session for this recipient.");
+    if (session.client_id !== userId) {
+      throw new Error("Unauthorized: only the caller may notify.");
+    }
+    if (session.pal_id !== data.recipientId) {
+      throw new Error("Unauthorized: recipient does not match session.");
+    }
+    if (session.kind !== data.kind) {
+      throw new Error("Unauthorized: call kind mismatch.");
+    }
+    if (data.conversationId && session.conversation_id !== data.conversationId) {
+      throw new Error("Unauthorized: conversation mismatch.");
     }
 
     const { data: callerProfile } = await supabaseAdmin
@@ -132,14 +96,14 @@ export const notifyIncomingCall = createServerFn({ method: "POST" })
       .eq("id", userId)
       .single();
 
-    const callerName = data.callerName?.trim() || callerProfile?.full_name?.trim() || "Someone";
+    const callerName = callerProfile?.full_name?.trim() || "Someone";
     const url = data.conversationId ? `/chat/${data.conversationId}?call=${data.kind}` : "/";
 
     await sendPushToUser(data.recipientId, {
       title: `Incoming ${data.kind} call`,
       body: `${callerName} is calling you`,
       url,
-      tag: `call-${data.channelName}`,
+      tag: `call-${data.sessionId}`,
     });
 
     return { ok: true };

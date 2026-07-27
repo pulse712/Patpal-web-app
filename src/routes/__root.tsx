@@ -16,6 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { setPresenceUser } from "@/lib/presence";
 import { Toaster } from "@/components/ui/sonner";
 import { PublicEnvScript } from "@/components/PublicEnvScript";
+import { StaffRoleProvider } from "@/hooks/use-staff-role";
 
 function NotFoundComponent() {
   return (
@@ -182,8 +183,10 @@ function RootComponent() {
   }, [router, queryClient]);
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
-      <Toaster position="top-center" richColors />
+      <StaffRoleProvider>
+        <Outlet />
+        <Toaster position="top-center" richColors />
+      </StaffRoleProvider>
     </QueryClientProvider>
   );
 }

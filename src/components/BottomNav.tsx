@@ -62,8 +62,7 @@ function NavItem({
 }
 
 function useNavTabs() {
-  const { isStaff, loading } = useStaffRole();
-  if (loading) return baseTabs;
+  const { isStaff } = useStaffRole();
   return isStaff ? [...baseTabs, adminTab] : baseTabs;
 }
 

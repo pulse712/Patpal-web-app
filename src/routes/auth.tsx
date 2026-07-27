@@ -14,7 +14,7 @@ type SignupRole = "client" | "pat_pal";
 import { sendWelcome } from "@/lib/welcome.functions";
 import { sendWelcomeOnce } from "@/lib/welcome-client";
 import { getAuthRedirectUrl } from "@/lib/auth-redirect";
-import { isEmailNotConfirmedError, resendSignupVerification } from "@/lib/auth-email";
+import { isEmailNotConfirmedError, isEmailRateLimitError, emailRateLimitMessage, resendSignupVerification } from "@/lib/auth-email";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -212,7 +212,10 @@ function RegisterForm() {
       },
     });
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      if (isEmailRateLimitError(error.message)) return toast.error(emailRateLimitMessage());
+      return toast.error(error.message);
+    }
 
     if (data.session) {
       void sendWelcomeOnce({

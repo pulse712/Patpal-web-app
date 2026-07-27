@@ -97,13 +97,16 @@ export const notifyIncomingCall = createServerFn({ method: "POST" })
       .single();
 
     const callerName = callerProfile?.full_name?.trim() || "Someone";
-    const url = data.conversationId ? `/chat/${data.conversationId}?call=${data.kind}` : "/";
+    const url = data.conversationId
+      ? `/chat/${data.conversationId}?call=${data.kind}`
+      : `/home?incomingSession=${data.sessionId}&call=${data.kind}`;
 
     await sendPushToUser(data.recipientId, {
-      title: `Incoming ${data.kind} call`,
-      body: `${callerName} is calling you`,
+      title: data.kind === "video" ? "Incoming video call" : "Incoming voice call",
+      body: `${callerName} is calling you — tap to answer`,
       url,
       tag: `call-${data.sessionId}`,
+      requireInteraction: true,
     });
 
     return { ok: true };

@@ -37,7 +37,6 @@ import {
   markSessionConnected,
   getActiveSessionBilling,
 } from "@/lib/session.functions";
-import { notifyIncomingCall } from "@/lib/notify.functions";
 import { RatingModal } from "@/components/RatingModal";
 import { CallTopUpPayment } from "@/components/CallTopUpPayment";
 
@@ -292,17 +291,6 @@ export function CallScreen({
         sessionCreated = true;
         setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
         setIsUnlimited(sessionData.isUnlimited);
-
-        notifyIncomingCall({
-          data: {
-            recipientId: palId,
-            kind,
-            conversationId,
-            sessionId: sessionData.sessionId,
-          },
-        }).catch(() => {
-          /* best-effort push */
-        });
       }
 
       if (!sessionIdRef.current) {

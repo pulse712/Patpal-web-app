@@ -94,6 +94,19 @@ export const startSession = createServerFn({ method: "POST" })
     }
     if (!session) throw new Error("Could not create session record.");
 
+    if (data.kind === "audio" || data.kind === "video") {
+      const { sendIncomingCallPush } = await import("@/lib/push.functions");
+      void sendIncomingCallPush({
+        sessionId: session.id,
+        palId: data.palId,
+        callerId: userId,
+        kind: data.kind,
+        conversationId: data.conversationId ?? null,
+      }).catch((err) => {
+        console.error("[startSession] incoming call push failed:", err);
+      });
+    }
+
     return {
       sessionId: session.id,
       balanceSeconds: isUnlimited ? 999999 : balanceSeconds,

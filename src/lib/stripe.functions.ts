@@ -4,16 +4,26 @@ import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 
 const checkoutSchema = z.union([
-  z.object({ packageId: z.string(), customCents: z.undefined().optional() }),
-  z.object({ customCents: z.number().min(500), packageId: z.undefined().optional() }),
+  z.object({
+    packageId: z.string(),
+    customCents: z.undefined().optional(),
+    returnOrigin: z.string().optional(),
+  }),
+  z.object({
+    customCents: z.number().min(500),
+    packageId: z.undefined().optional(),
+    returnOrigin: z.string().optional(),
+  }),
 ]);
 
 export const createCheckoutSession = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
   .validator((data: unknown) => checkoutSchema.parse(data))
   .handler(async ({ data, context }) => {
+    const { getRequest } = await import("@tanstack/react-start/server");
     const { CREDIT_PACKAGES, createWalletCheckoutSession } = await import("@/lib/stripe.server");
     const { userId } = context;
+    const request = getRequest();
 
     let seconds: number;
     let amountCents: number;
@@ -37,6 +47,8 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
       seconds,
       amountCents,
       label,
+      returnOrigin: data.returnOrigin,
+      request,
     });
 
     return { url };

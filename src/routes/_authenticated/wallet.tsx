@@ -170,7 +170,9 @@ function Wallet() {
     balanceBeforePaymentRef.current = seconds;
     setBuyingId(packageId);
     try {
-      const { url } = await createCheckoutSession({ data: { packageId } });
+      const { url } = await createCheckoutSession({
+        data: { packageId, returnOrigin: window.location.origin },
+      });
       window.location.href = url;
     } catch (err) {
       console.error(err);
@@ -196,7 +198,9 @@ function Wallet() {
     balanceBeforePaymentRef.current = seconds;
     try {
       const customCents = Math.round(dollars * 100);
-      const { url } = await createCheckoutSession({ data: { customCents } });
+      const { url } = await createCheckoutSession({
+        data: { customCents, returnOrigin: window.location.origin },
+      });
       window.location.href = url;
     } catch (err) {
       console.error(err);

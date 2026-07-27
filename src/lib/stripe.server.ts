@@ -1,7 +1,7 @@
 // Server-only Stripe client — never import this from client code.
 // Import pattern: const { stripe } = await import("@/lib/stripe.server");
 import Stripe from "stripe";
-import { getAppUrl } from "@/lib/app-url";
+import { resolveCheckoutReturnOrigin } from "@/lib/app-url";
 
 function createStripeClient() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -34,8 +34,13 @@ export async function createWalletCheckoutSession(opts: {
   seconds: number;
   amountCents: number;
   label: string;
+  returnOrigin?: string;
+  request?: Request;
 }): Promise<string> {
-  const origin = getAppUrl();
+  const origin = resolveCheckoutReturnOrigin({
+    request: opts.request,
+    clientOrigin: opts.returnOrigin,
+  });
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     payment_method_types: ["card"],

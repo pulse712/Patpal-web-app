@@ -2,8 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "tanstack-start",
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "env": {
-    "APP_URL": "https://pat-my-back-m631.vercel.app"
-  }
+  "installCommand": "npm install"
 }

@@ -83,6 +83,8 @@ export const Route = createFileRoute("/api/stripe/checkout")({
             seconds,
             amountCents,
             label,
+            returnOrigin: typeof body.returnOrigin === "string" ? body.returnOrigin : undefined,
+            request,
           });
           return new Response(JSON.stringify({ url }), {
             headers: { "content-type": "application/json" },

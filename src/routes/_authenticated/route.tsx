@@ -5,6 +5,8 @@ import { requireAuthBeforeLoad } from "@/lib/auth-guard";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
 import { IncomingCallProvider } from "@/components/IncomingCallProvider";
+import { PushRegistration } from "@/components/PushRegistration";
+import { IncomingCallDeepLink } from "@/components/IncomingCallDeepLink";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: requireAuthBeforeLoad,
@@ -51,6 +53,8 @@ function AuthenticatedLayout() {
 
   return (
     <IncomingCallProvider userId={user.id}>
+      <PushRegistration />
+      <IncomingCallDeepLink />
       <Outlet />
     </IncomingCallProvider>
   );

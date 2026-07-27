@@ -1,8 +1,14 @@
 // Server-only push delivery — never import from client code.
-export async function sendPushToUser(
-  targetUserId: string,
-  payload: { title: string; body: string; url?: string; tag?: string },
-) {
+
+export type PushPayload = {
+  title: string;
+  body: string;
+  url?: string;
+  tag?: string;
+  requireInteraction?: boolean;
+};
+
+export async function sendPushToUser(targetUserId: string, payload: PushPayload) {
   const vapidPublic = process.env.VAPID_PUBLIC_KEY;
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
   const vapidEmail = process.env.VAPID_EMAIL ?? "mailto:admin@patmyback.com";
@@ -46,4 +52,34 @@ export async function sendPushToUser(
       }
     }),
   );
+}
+
+/** Notify a Pat Pal on all registered browsers/devices (Web Push). */
+export async function sendIncomingCallPush(opts: {
+  sessionId: string;
+  palId: string;
+  callerId: string;
+  kind: "audio" | "video";
+  conversationId: string | null;
+}) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: profile } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name")
+    .eq("id", opts.callerId)
+    .maybeSingle();
+
+  const callerName = profile?.full_name?.trim() || "Someone";
+  const url = opts.conversationId
+    ? `/chat/${opts.conversationId}?call=${opts.kind}`
+    : `/home?incomingSession=${opts.sessionId}&call=${opts.kind}`;
+
+  await sendPushToUser(opts.palId, {
+    title: opts.kind === "video" ? "Incoming video call" : "Incoming voice call",
+    body: `${callerName} is calling you — tap to answer`,
+    url,
+    tag: `call-${opts.sessionId}`,
+    requireInteraction: true,
+  });
 }

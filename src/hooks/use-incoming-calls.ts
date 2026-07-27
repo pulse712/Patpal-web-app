@@ -92,6 +92,21 @@ export function useIncomingCalls(userId: string | null) {
     [userId, showIncoming],
   );
 
+  const checkSessionCall = useCallback(
+    async (sessionId: string) => {
+      if (!userId || activeCallRef.current) return;
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, kind, conversation_id, client_id, status")
+        .eq("id", sessionId)
+        .eq("pal_id", userId)
+        .eq("status", "active")
+        .maybeSingle();
+      if (data) await showIncoming(data);
+    },
+    [userId, showIncoming],
+  );
+
   useEffect(() => {
     if (!userId) return;
 
@@ -176,5 +191,6 @@ export function useIncomingCalls(userId: string | null) {
     declineIncoming,
     endActiveCall,
     checkConversationCall,
+    checkSessionCall,
   };
 }

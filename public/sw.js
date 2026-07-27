@@ -81,6 +81,8 @@ self.addEventListener("push", (event) => {
     data.body = event.data?.text() ?? data.body;
   }
 
+  const isIncomingCall = (data.tag ?? "").startsWith("call-");
+
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
@@ -88,7 +90,9 @@ self.addEventListener("push", (event) => {
       badge: "/icons/icon-192.png",
       tag: data.tag ?? "patmyback",
       data: data.url ? { url: data.url } : undefined,
-      vibrate: [200, 100, 200],
+      vibrate: isIncomingCall ? [300, 100, 300, 100, 300] : [200, 100, 200],
+      requireInteraction: isIncomingCall || !!data.requireInteraction,
+      renotify: isIncomingCall,
     }),
   );
 });

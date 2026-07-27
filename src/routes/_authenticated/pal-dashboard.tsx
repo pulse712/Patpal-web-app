@@ -8,9 +8,10 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { MessageCircle, DollarSign, Star, Clock } from "lucide-react";
+import { MessageCircle, DollarSign, Star, Clock, Bell } from "lucide-react";
 import { useIsOnline } from "@/lib/presence";
 import { checkPalAccess } from "@/lib/pal-guard";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 export const Route = createFileRoute("/_authenticated/pal-dashboard")({
   beforeLoad: async () => {
@@ -40,6 +41,7 @@ function PalDashboard() {
 
   // Must be called unconditionally — before any early returns
   const livePresence = useIsOnline(user?.id ?? null);
+  const push = usePushNotifications();
 
   useEffect(() => {
     if (loading || !user) return;
@@ -149,6 +151,27 @@ function PalDashboard() {
             </p>
           </div>
         </header>
+
+        {!push.subscribed && push.permission !== "denied" && push.permission !== "unsupported" && (
+          <Card className="flex items-start gap-3 border-primary/30 bg-primary/5 p-4">
+            <Bell className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Get call alerts on this device</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Enable notifications to receive incoming calls even when this browser is in the
+                background or you&apos;re using another device.
+              </p>
+              <Button
+                size="sm"
+                className="mt-3"
+                disabled={push.loading}
+                onClick={() => void push.enable()}
+              >
+                {push.loading ? "Enabling…" : "Enable call notifications"}
+              </Button>
+            </div>
+          </Card>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <StatCard icon={MessageCircle} label="Sessions" value={stats.sessions} />

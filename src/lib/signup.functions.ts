@@ -48,10 +48,17 @@ export const applySignupRole = createServerFn({ method: "POST" })
       return { ok: true, role };
     }
 
-    const { error: clientErr } = await supabaseAdmin
+    const targetRole = role;
+    const { error: deleteErr } = await supabaseAdmin
       .from("user_roles")
-      .upsert({ user_id: userId, role: "client" }, { onConflict: "user_id,role" });
-    if (clientErr) throw new Error(clientErr.message);
+      .delete()
+      .eq("user_id", userId);
+    if (deleteErr) throw new Error(deleteErr.message);
+
+    const { error: roleErr } = await supabaseAdmin
+      .from("user_roles")
+      .insert({ user_id: userId, role: targetRole });
+    if (roleErr) throw new Error(roleErr.message);
 
     if (role === "pat_pal") {
       const { data: category, error: catErr } = await supabaseAdmin
@@ -61,11 +68,6 @@ export const applySignupRole = createServerFn({ method: "POST" })
         .maybeSingle();
       if (catErr) throw new Error(catErr.message);
       if (!category) throw new Error("Invalid support category.");
-
-      const { error: palRoleErr } = await supabaseAdmin
-        .from("user_roles")
-        .upsert({ user_id: userId, role: "pat_pal" }, { onConflict: "user_id,role" });
-      if (palRoleErr) throw new Error(palRoleErr.message);
 
       const { error: palErr } = await supabaseAdmin.from("pat_pals").upsert(
         {

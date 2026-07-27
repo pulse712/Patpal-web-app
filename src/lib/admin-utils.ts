@@ -10,28 +10,28 @@ export function assertCanDeactivateUser(
   }
 }
 
-export function assertCanManageRole(opts: {
+export function assertCanAssignRole(opts: {
   role: AppRole;
-  action: "add" | "remove";
+  currentRole: AppRole;
   targetUserId: string;
   actorUserId: string;
   isSuperAdmin: boolean;
 }): void {
   if (opts.role === "super_admin" && !opts.isSuperAdmin) {
-    throw new Error("Only super admins can manage the super admin role");
+    throw new Error("Only super admins can assign the super admin role");
   }
 
   if (
     opts.targetUserId === opts.actorUserId &&
-    opts.action === "remove" &&
-    (opts.role === "admin" || opts.role === "super_admin")
+    opts.role !== opts.currentRole &&
+    (opts.currentRole === "admin" || opts.currentRole === "super_admin")
   ) {
-    throw new Error("You cannot remove your own admin role");
+    throw new Error("You cannot change your own admin role");
   }
 }
 
 export function filterAdminUsers<
-  T extends { email: string; fullName: string; roles: AppRole[]; createdAt?: string | null },
+  T extends { email: string; fullName: string; role: AppRole; createdAt?: string | null },
 >(users: T[], search?: string, roleFilter: AppRole | "all" = "all"): T[] {
   let rows = users;
 
@@ -43,7 +43,7 @@ export function filterAdminUsers<
   }
 
   if (roleFilter !== "all") {
-    rows = rows.filter((r) => r.roles.includes(roleFilter));
+    rows = rows.filter((r) => r.role === roleFilter);
   }
 
   return [...rows].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));

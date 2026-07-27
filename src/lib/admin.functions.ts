@@ -3,8 +3,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 import {
+  assertCanAssignRole,
   assertCanDeactivateUser,
-  assertCanManageRole,
   filterAdminUsers,
   type AppRole,
 } from "@/lib/admin-utils";
@@ -47,22 +47,19 @@ export const listAdminUsers = createServerFn({ method: "POST" })
     ]);
 
     const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
-    const rolesMap = new Map<string, AppRole[]>();
+    const roleMap = new Map<string, AppRole>();
     for (const r of roles ?? []) {
-      const list = rolesMap.get(r.user_id) ?? [];
-      list.push(r.role as AppRole);
-      rolesMap.set(r.user_id, list);
+      roleMap.set(r.user_id, r.role as AppRole);
     }
 
     const rows = users.map((u) => {
       const profile = profileMap.get(u.id);
-      const userRoles = rolesMap.get(u.id) ?? ["client"];
       return {
         id: u.id,
         email: u.email ?? "",
         fullName: profile?.full_name ?? "",
         isActive: profile?.is_active ?? true,
-        roles: userRoles,
+        role: roleMap.get(u.id) ?? "client",
         createdAt: profile?.created_at ?? u.created_at,
       };
     });
@@ -254,66 +251,56 @@ export const setUserRole = createServerFn({ method: "POST" })
       .object({
         userId: z.string().uuid(),
         role: z.enum(["client", "pat_pal", "admin", "super_admin"]),
-        action: z.enum(["add", "remove"]),
       })
       .parse(data),
   )
   .handler(async ({ data, context }) => {
     const { isSuperAdmin } = await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    assertCanManageRole({
+    const { data: currentRows, error: currentError } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.userId)
+      .limit(1);
+    if (currentError) throw new Error(currentError.message);
+
+    const currentRole = (currentRows?.[0]?.role as AppRole | undefined) ?? "client";
+
+    assertCanAssignRole({
       role: data.role,
-      action: data.action,
+      currentRole,
       targetUserId: data.userId,
       actorUserId: context.userId,
       isSuperAdmin,
     });
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    if (currentRole === data.role) return { ok: true };
 
-    if (data.action === "add") {
-      const { error } = await supabaseAdmin
-        .from("user_roles")
-        .upsert({ user_id: data.userId, role: data.role }, { onConflict: "user_id,role" });
-      if (error) throw new Error(error.message);
+    const { error: deleteError } = await supabaseAdmin
+      .from("user_roles")
+      .delete()
+      .eq("user_id", data.userId);
+    if (deleteError) throw new Error(deleteError.message);
 
-      if (data.role === "pat_pal") {
-        await supabaseAdmin
-          .from("pat_pals")
-          .upsert({ user_id: data.userId }, { onConflict: "user_id", ignoreDuplicates: true });
-      }
+    const { error: insertError } = await supabaseAdmin
+      .from("user_roles")
+      .insert({ user_id: data.userId, role: data.role });
+    if (insertError) throw new Error(insertError.message);
 
-      if (data.role === "admin" || data.role === "super_admin") {
-        await ensureTeamPalRecord(supabaseAdmin, data.userId);
-      }
-    } else {
-      const { error } = await supabaseAdmin
-        .from("user_roles")
-        .delete()
-        .eq("user_id", data.userId)
-        .eq("role", data.role);
-      if (error) throw new Error(error.message);
+    if (data.role === "pat_pal") {
+      await supabaseAdmin
+        .from("pat_pals")
+        .upsert({ user_id: data.userId }, { onConflict: "user_id", ignoreDuplicates: true });
+    }
 
-      if (data.role === "admin" || data.role === "super_admin") {
-        const { data: remainingAdminRoles } = await supabaseAdmin
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", data.userId)
-          .in("role", ["admin", "super_admin"]);
-        if (!remainingAdminRoles?.length) {
-          await supabaseAdmin
-            .from("pat_pals")
-            .update({ is_team: false })
-            .eq("user_id", data.userId);
-        }
-      }
-
-      // Every user should keep at least the client role
-      if (data.role !== "client") {
-        await supabaseAdmin
-          .from("user_roles")
-          .upsert({ user_id: data.userId, role: "client" }, { onConflict: "user_id,role" });
-      }
+    if (data.role === "admin" || data.role === "super_admin") {
+      await ensureTeamPalRecord(supabaseAdmin, data.userId);
+    } else if (currentRole === "admin" || currentRole === "super_admin") {
+      await supabaseAdmin
+        .from("pat_pals")
+        .update({ is_team: false })
+        .eq("user_id", data.userId);
     }
 
     return { ok: true };

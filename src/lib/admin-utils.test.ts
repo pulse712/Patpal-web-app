@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertCanDeactivateUser,
-  assertCanManageRole,
+  assertCanAssignRole,
   filterAdminUsers,
   type AppRole,
 } from "./admin-utils";
@@ -16,12 +16,12 @@ describe("assertCanDeactivateUser", () => {
   });
 });
 
-describe("assertCanManageRole", () => {
-  it("requires super admin to manage super admin role", () => {
+describe("assertCanAssignRole", () => {
+  it("requires super admin to assign super admin role", () => {
     expect(() =>
-      assertCanManageRole({
+      assertCanAssignRole({
         role: "super_admin",
-        action: "add",
+        currentRole: "client",
         targetUserId: "u2",
         actorUserId: "u1",
         isSuperAdmin: false,
@@ -29,16 +29,16 @@ describe("assertCanManageRole", () => {
     ).toThrow(/super admin role/);
   });
 
-  it("blocks removing your own admin role", () => {
+  it("blocks changing your own admin role", () => {
     expect(() =>
-      assertCanManageRole({
-        role: "admin",
-        action: "remove",
+      assertCanAssignRole({
+        role: "client",
+        currentRole: "admin",
         targetUserId: "u1",
         actorUserId: "u1",
         isSuperAdmin: true,
       }),
-    ).toThrow(/remove your own admin role/);
+    ).toThrow(/change your own admin role/);
   });
 });
 
@@ -47,13 +47,13 @@ describe("filterAdminUsers", () => {
     {
       email: "alice@example.com",
       fullName: "Alice",
-      roles: ["client"] as AppRole[],
+      role: "client" as AppRole,
       createdAt: "2024-02-01T00:00:00.000Z",
     },
     {
       email: "bob@example.com",
       fullName: "Bob Pal",
-      roles: ["pat_pal"] as AppRole[],
+      role: "pat_pal" as AppRole,
       createdAt: "2024-03-01T00:00:00.000Z",
     },
   ];

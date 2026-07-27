@@ -166,17 +166,11 @@ function AdminPanel() {
     }
   }
 
-  async function toggleUserRole(userId: string, role: AppRole, hasRole: boolean) {
-    if (role === "client") return;
-    const key = `${userId}:${role}`;
-    setRoleBusy(key);
+  async function assignUserRole(userId: string, role: AppRole) {
+    setRoleBusy(userId);
     try {
-      await setUserRole({
-        data: { userId, role, action: hasRole ? "remove" : "add" },
-      });
-      toast.success(
-        hasRole ? `${ROLE_LABELS[role]} role removed` : `${ROLE_LABELS[role]} role added`,
-      );
+      await setUserRole({ data: { userId, role } });
+      toast.success(`Role updated to ${ROLE_LABELS[role]}`);
       await loadUsers();
       await refresh();
     } catch (err) {
@@ -531,11 +525,9 @@ function AdminPanel() {
                       {u.email || "No email"}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {u.roles.map((role) => (
-                        <Badge key={role} variant="secondary" className="text-[10px]">
-                          {ROLE_LABELS[role]}
-                        </Badge>
-                      ))}
+                      <Badge variant="secondary" className="text-[10px]">
+                        {ROLE_LABELS[u.role]}
+                      </Badge>
                       {!u.isActive && (
                         <Badge variant="destructive" className="text-[10px]">
                           Inactive
@@ -558,24 +550,29 @@ function AdminPanel() {
 
                 <div className="space-y-2 border-t border-border pt-2">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Roles
+                    Role
                   </p>
-                  {(["pat_pal", "admin", "super_admin"] as const)
-                    .filter((role) => role !== "super_admin" || isSuperAdmin)
-                    .map((role) => {
-                      const hasRole = u.roles.includes(role);
-                      const busy = roleBusy === `${u.id}:${role}`;
-                      return (
-                        <div key={role} className="flex items-center justify-between">
-                          <span className="text-sm">{ROLE_LABELS[role]}</span>
-                          <Switch
-                            checked={hasRole}
-                            disabled={busy || (u.id === user?.id && role === "admin" && hasRole)}
-                            onCheckedChange={() => toggleUserRole(u.id, role, hasRole)}
-                          />
-                        </div>
-                      );
-                    })}
+                  <Select
+                    value={u.role}
+                    disabled={
+                      roleBusy === u.id ||
+                      (u.id === user?.id &&
+                        (u.role === "admin" || u.role === "super_admin"))
+                    }
+                    onValueChange={(value) => assignUserRole(u.id, value as AppRole)}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="client">{ROLE_LABELS.client}</SelectItem>
+                      <SelectItem value="pat_pal">{ROLE_LABELS.pat_pal}</SelectItem>
+                      <SelectItem value="admin">{ROLE_LABELS.admin}</SelectItem>
+                      {isSuperAdmin && (
+                        <SelectItem value="super_admin">{ROLE_LABELS.super_admin}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               </Card>
             ))}

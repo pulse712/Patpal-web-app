@@ -213,9 +213,9 @@ function Home() {
       </header>
 
       {/* Gradient banner */}
-      <section className="px-5 pt-4">
-        <div className="relative overflow-hidden rounded-2xl bg-hero-gradient p-5 text-white shadow-hero">
-          <h2 className="text-lg font-extrabold leading-tight">
+      <section className="px-5 pt-4 lg:px-8">
+        <div className="relative overflow-hidden rounded-2xl bg-hero-gradient p-5 text-white shadow-hero lg:p-8">
+          <h2 className="text-lg font-extrabold leading-tight lg:text-2xl">
             Talk to a real person who has your back
           </h2>
           <p className="mt-1 text-sm/relaxed opacity-95">
@@ -274,7 +274,7 @@ function Home() {
       {/* Categories */}
       <section className="px-5 pt-6">
         <h3 className="mb-3 text-sm font-bold">Browse by category</h3>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-4 gap-3 sm:grid-cols-6 lg:grid-cols-8">
           {categories.map((c, i) => (
             <Link
               key={c.id}
@@ -294,8 +294,10 @@ function Home() {
         </div>
       </section>
 
+      {/* Online now + Top rated — side by side on large screens */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:px-5">
       {/* Online now */}
-      <section className="px-5 pt-6">
+      <section className="px-5 pt-6 lg:px-0">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-bold">
             <span className="inline-block h-2 w-2 rounded-full bg-success" /> Online now
@@ -319,7 +321,7 @@ function Home() {
       </section>
 
       {/* Top rated */}
-      <section className="px-5 pt-6">
+      <section className="px-5 pt-6 lg:px-0">
         <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
           <Star className="h-4 w-4 fill-accent text-accent" /> Top rated
         </h3>
@@ -335,6 +337,7 @@ function Home() {
           </div>
         )}
       </section>
+      </div>
     </AppShell>
   );
 }

@@ -7,6 +7,7 @@ import { ArrowLeft, Send, Phone, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
 import { CallScreen } from "@/components/CallScreen";
+import { AppShell } from "@/components/AppShell";
 import { useIncomingCallContext } from "@/components/IncomingCallProvider";
 import { notifyNewMessage } from "@/lib/notify.functions";
 import { fetchPublicProfile } from "@/lib/public-profiles";
@@ -174,8 +175,7 @@ function Chat() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-muted/30">
-      {/* Call overlay */}
+    <>
       {activeCall && palId && (
         <CallScreen
           channelName={conversationId}
@@ -188,7 +188,8 @@ function Chat() {
         />
       )}
 
-      <div className="mx-auto flex h-[100dvh] max-w-md flex-col bg-background shadow-card">
+      <AppShell fullHeight>
+        <div className="flex h-[calc(100dvh-4rem)] min-h-0 flex-1 flex-col bg-background md:h-[calc(100dvh-2rem)] md:rounded-2xl md:border md:border-border md:shadow-card">
         <header className="flex items-center gap-3 border-b border-border bg-background px-4 py-3">
           <Link
             to="/chats"
@@ -297,7 +298,8 @@ function Chat() {
             <Send className="h-4 w-4" />
           </Button>
         </form>
-      </div>
-    </div>
+        </div>
+      </AppShell>
+    </>
   );
 }

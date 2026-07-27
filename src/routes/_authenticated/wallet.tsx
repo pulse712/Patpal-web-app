@@ -259,7 +259,7 @@ function Wallet() {
       <section className="px-5 pt-6">
         <h2 className="text-base font-bold">Buy Minutes</h2>
         <p className="text-sm text-muted-foreground">One-time credit — never expires.</p>
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           {PACKAGES.map((pkg) => (
             <button
               key={pkg.id}

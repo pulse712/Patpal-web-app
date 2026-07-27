@@ -216,7 +216,7 @@ function Browse() {
         </div>
       )}
 
-      <section className="space-y-3 px-5 pb-6">
+      <section className="grid grid-cols-1 gap-3 px-5 pb-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : filtered.length === 0 ? (

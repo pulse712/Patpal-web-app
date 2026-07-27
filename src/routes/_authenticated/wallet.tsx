@@ -174,7 +174,13 @@ function Wallet() {
       window.location.href = url;
     } catch (err) {
       console.error(err);
-      toast.error("Could not start checkout — please try again.");
+      const message =
+        err instanceof Error && err.message.includes("STRIPE_SECRET_KEY")
+          ? "Payments are not configured yet. Ask the site owner to add Stripe keys in Vercel."
+          : err instanceof Error
+            ? err.message
+            : "Could not start checkout — please try again.";
+      toast.error(message);
       setBuyingId(null);
     }
   }
@@ -194,7 +200,13 @@ function Wallet() {
       window.location.href = url;
     } catch (err) {
       console.error(err);
-      toast.error("Could not start checkout — please try again.");
+      const message =
+        err instanceof Error && err.message.includes("STRIPE_SECRET_KEY")
+          ? "Payments are not configured yet. Ask the site owner to add Stripe keys in Vercel."
+          : err instanceof Error
+            ? err.message
+            : "Could not start checkout — please try again.";
+      toast.error(message);
       setBuyingId(null);
     }
   }

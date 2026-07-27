@@ -14,7 +14,7 @@ const requireActiveAccount = createMiddleware({ type: "function" }).server(
       .from("profiles")
       .select("is_active")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
 
     if (profile?.is_active === false) {
       throw new Error("Unauthorized: Account deactivated");

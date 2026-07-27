@@ -9,14 +9,24 @@ const applySignupRoleSchema = z
   .object({
     role: z.enum(["client", "pat_pal"]),
     categorySlug: z.string().min(1).max(64).optional(),
+    service: z.string().min(3).max(200).optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.role === "pat_pal" && !data.categorySlug?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Please choose a support category.",
-        path: ["categorySlug"],
-      });
+    if (data.role === "pat_pal") {
+      if (!data.categorySlug?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please choose a support category.",
+          path: ["categorySlug"],
+        });
+      }
+      if (!data.service?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please describe the service you offer.",
+          path: ["service"],
+        });
+      }
     }
   });
 
@@ -28,6 +38,7 @@ export const applySignupRole = createServerFn({ method: "POST" })
     const userId = context.userId;
     const role: SignupRole = data.role;
     const categorySlug = data.categorySlug?.trim();
+    const service = data.service?.trim();
 
     const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
       supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "admin" }),
@@ -59,7 +70,7 @@ export const applySignupRole = createServerFn({ method: "POST" })
       const { error: palErr } = await supabaseAdmin.from("pat_pals").upsert(
         {
           user_id: userId,
-          headline: "Available for support",
+          headline: service!,
           availability: "offline",
           price_cents_per_minute: 100,
           tier: "trusted",

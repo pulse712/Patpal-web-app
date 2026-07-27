@@ -17,3 +17,14 @@ export function parseSignupCategorySlug(metadata: unknown): string | undefined {
   }
   return undefined;
 }
+
+/** Service description / headline (Pat Pal only). */
+export function parseSignupService(metadata: unknown): string | undefined {
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const record = metadata as Record<string, unknown>;
+  for (const key of ["service", "headline"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}

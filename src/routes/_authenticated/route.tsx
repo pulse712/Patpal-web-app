@@ -37,7 +37,7 @@ function AuthenticatedLayout() {
       .from("profiles")
       .select("is_active")
       .eq("id", user.id)
-      .single()
+      .maybeSingle()
       .then(({ data }) => {
         if (data?.is_active === false) {
           void supabase.auth.signOut();

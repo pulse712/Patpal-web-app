@@ -209,6 +209,7 @@ function RegisterForm() {
   const [confirm, setConfirm] = useState("");
   const [signupRole, setSignupRole] = useState<SignupRole>("client");
   const [categorySlug, setCategorySlug] = useState("");
+  const [service, setService] = useState("");
   const [categories, setCategories] = useState<SignupCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -232,6 +233,9 @@ function RegisterForm() {
     if (signupRole === "pat_pal" && !categorySlug) {
       return toast.error("Please choose your support category.");
     }
+    if (signupRole === "pat_pal" && service.trim().length < 3) {
+      return toast.error("Please describe your service (at least 3 characters).");
+    }
     setBusy(true);
     setPendingVerificationEmail(null);
     const signupMetadata: Record<string, string> = {
@@ -241,6 +245,7 @@ function RegisterForm() {
     };
     if (signupRole === "pat_pal") {
       signupMetadata.category_slug = categorySlug;
+      signupMetadata.service = service.trim();
     }
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -261,7 +266,9 @@ function RegisterForm() {
         await applySignupRole({
           data: {
             role: signupRole,
-            ...(signupRole === "pat_pal" ? { categorySlug } : {}),
+            ...(signupRole === "pat_pal"
+              ? { categorySlug, service: service.trim() }
+              : {}),
           },
         });
       } catch (err) {
@@ -336,7 +343,10 @@ function RegisterForm() {
           value={signupRole}
           onValueChange={(value) => {
             setSignupRole(value as SignupRole);
-            if (value === "client") setCategorySlug("");
+            if (value === "client") {
+              setCategorySlug("");
+              setService("");
+            }
           }}
           className="grid gap-2"
         >
@@ -412,6 +422,23 @@ function RegisterForm() {
           </Select>
           <p className="text-xs text-muted-foreground">
             Customers will find you when browsing this category.
+          </p>
+        </div>
+      )}
+      {signupRole === "pat_pal" && categorySlug && (
+        <div className="space-y-1.5">
+          <Label htmlFor="reg-service">Your service</Label>
+          <Input
+            id="reg-service"
+            required
+            minLength={3}
+            maxLength={200}
+            value={service}
+            onChange={(e) => setService(e.target.value)}
+            placeholder="e.g. Career coaching for new graduates"
+          />
+          <p className="text-xs text-muted-foreground">
+            A short line about what you offer — shown on your Pat Pal profile.
           </p>
         </div>
       )}

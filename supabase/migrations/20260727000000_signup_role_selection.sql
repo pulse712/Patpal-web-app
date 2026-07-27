@@ -13,6 +13,7 @@ DECLARE
   _bio       TEXT;
   _role      TEXT;
   _category  TEXT;
+  _service   TEXT;
 BEGIN
   BEGIN
     _full_name := COALESCE(NEW.raw_user_meta_data->>'full_name', '');
@@ -20,12 +21,18 @@ BEGIN
     _bio       := NEW.raw_user_meta_data->>'bio';
     _role      := COALESCE(NEW.raw_user_meta_data->>'role', 'client');
     _category  := NULLIF(TRIM(NEW.raw_user_meta_data->>'category_slug'), '');
+    _service   := NULLIF(TRIM(COALESCE(
+      NEW.raw_user_meta_data->>'service',
+      NEW.raw_user_meta_data->>'headline',
+      ''
+    )), '');
   EXCEPTION WHEN OTHERS THEN
     _full_name := '';
     _phone     := NULL;
     _bio       := NULL;
     _role      := 'client';
     _category  := NULL;
+    _service   := NULL;
   END;
 
   -- Never allow self-promotion to admin roles via signup metadata.
@@ -87,7 +94,7 @@ BEGIN
       )
       VALUES (
         NEW.id,
-        COALESCE(NULLIF(_bio, ''), 'Available for support'),
+        COALESCE(_service, NULLIF(_bio, ''), 'Available for support'),
         'offline',
         100,
         'trusted',

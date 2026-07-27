@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
@@ -43,6 +43,17 @@ type Pal = {
   avatar_url: string | null;
   availability: string;
 };
+
+function isOnlineNowPal(
+  pal: { user_id: string; availability: string },
+  onlineIds: Set<string>,
+  teamIds: Set<string>,
+): boolean {
+  if (!onlineIds.has(pal.user_id)) return false;
+  // Team admins may be logged in (presence) before toggling accepting calls on.
+  if (teamIds.has(pal.user_id)) return true;
+  return pal.availability === "available" || pal.availability === "busy";
+}
 
 function Home() {
   const [loading, setLoading] = useState(true);
@@ -132,15 +143,69 @@ function Home() {
     })();
   }, []);
 
-  // Derive "online now" from live presence + pal opted-in (availability !== "offline")
-  const online = allPals
-    .filter(
-      (m) =>
-        !team.some((t) => t.user_id === m.user_id) &&
-        onlineIds.has(m.user_id) &&
-        m.availability !== "offline",
-    )
-    .slice(0, 6);
+  // Keep availability in sync when Pals toggle accepting calls while this page is open.
+  useEffect(() => {
+    const channel = supabase
+      .channel("home-pat-pals-availability")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "pat_pals" },
+        (payload) => {
+          const row = payload.new as { user_id: string; availability: string };
+          setAllPals((prev) =>
+            prev.map((p) =>
+              p.user_id === row.user_id ? { ...p, availability: row.availability } : p,
+            ),
+          );
+          setTeam((prev) =>
+            prev.map((t) =>
+              t.user_id === row.user_id ? { ...t, availability: row.availability } : t,
+            ),
+          );
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const teamIds = useMemo(() => new Set(team.map((t) => t.user_id)), [team]);
+
+  const onlineCandidates = useMemo(() => {
+    const byId = new Map<string, Pal>();
+    for (const pal of allPals) byId.set(pal.user_id, pal);
+    for (const member of team) {
+      if (!byId.has(member.user_id)) {
+        byId.set(member.user_id, {
+          user_id: member.user_id,
+          headline: member.headline,
+          price_cents_per_minute: member.price_cents_per_minute,
+          tier: member.tier,
+          is_team: true,
+          rating_avg: member.rating_avg,
+          rating_count: member.rating_count,
+          full_name: member.full_name,
+          avatar_url: member.avatar_url,
+          availability: member.availability,
+        });
+      }
+    }
+    return [...byId.values()];
+  }, [allPals, team]);
+
+  const online = useMemo(
+    () =>
+      onlineCandidates
+        .filter((pal) => isOnlineNowPal(pal, onlineIds, teamIds))
+        .sort((a, b) => {
+          const rank = (availability: string) =>
+            availability === "available" ? 0 : availability === "busy" ? 1 : 2;
+          return rank(a.availability) - rank(b.availability);
+        })
+        .slice(0, 6),
+    [onlineCandidates, onlineIds, teamIds],
+  );
 
   if (loading) {
     return (

@@ -511,12 +511,12 @@ export function CallScreen({
     hasEndedRef.current = true;
     setStatus("ended");
     toast.info(`${remoteName} ended the call.`);
-    if (wasConnectedRef.current) {
-      await cleanupSession(true);
-    }
-    await leaveChannel();
+    void leaveChannel();
     onEnd();
-  }, [leaveChannel, onEnd, remoteName, isCallee]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (wasConnectedRef.current && sessionIdRef.current) {
+      void cleanupSession(true);
+    }
+  }, [leaveChannel, onEnd, remoteName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     endCallRemotelyRef.current = () => {
@@ -527,15 +527,33 @@ export function CallScreen({
   useEffect(() => {
     if (!watchSessionId) return;
 
+    const sessionId = watchSessionId;
+    let cancelled = false;
+
+    async function checkSessionEnded() {
+      if (cancelled || hasEndedRef.current) return;
+      const { data } = await supabase
+        .from("sessions")
+        .select("status")
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (data?.status === "ended" || data?.status === "cancelled") {
+        endCallRemotelyRef.current();
+      }
+    }
+
+    void checkSessionEnded();
+    const poll = window.setInterval(() => void checkSessionEnded(), 1500);
+
     const channel = supabase
-      .channel(`call-session:${watchSessionId}`)
+      .channel(`call-session:${sessionId}`)
       .on(
         "postgres_changes",
         {
           event: "UPDATE",
           schema: "public",
           table: "sessions",
-          filter: `id=eq.${watchSessionId}`,
+          filter: `id=eq.${sessionId}`,
         },
         (payload) => {
           const row = payload.new as { status?: string };
@@ -547,6 +565,8 @@ export function CallScreen({
       .subscribe();
 
     return () => {
+      cancelled = true;
+      window.clearInterval(poll);
       void supabase.removeChannel(channel);
     };
   }, [watchSessionId]);

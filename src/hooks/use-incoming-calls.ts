@@ -95,6 +95,12 @@ export function useIncomingCalls(userId: string | null) {
   useEffect(() => {
     if (!userId) return;
 
+    function onSessionEnded(row: { id: string; status: string }) {
+      if (row.status === "active") return;
+      dismissIncoming(row.id);
+      setActiveCall((current) => (current?.sessionId === row.id ? null : current));
+    }
+
     const channel = supabase
       .channel(`incoming-calls:${userId}`)
       .on(
@@ -118,11 +124,19 @@ export function useIncomingCalls(userId: string | null) {
           filter: `pal_id=eq.${userId}`,
         },
         (payload) => {
-          const row = payload.new as { id: string; status: string };
-          if (row.status !== "active") {
-            dismissIncoming(row.id);
-            setActiveCall((current) => (current?.sessionId === row.id ? null : current));
-          }
+          onSessionEnded(payload.new as { id: string; status: string });
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "sessions",
+          filter: `client_id=eq.${userId}`,
+        },
+        (payload) => {
+          onSessionEnded(payload.new as { id: string; status: string });
         },
       )
       .subscribe();

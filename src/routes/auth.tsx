@@ -9,12 +9,17 @@ import { toast } from "sonner";
 import { HandHeart, Loader2, MessageCircle, Users } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-
-type SignupRole = "client" | "pat_pal";
 import { sendWelcome } from "@/lib/welcome.functions";
 import { sendWelcomeOnce } from "@/lib/welcome-client";
 import { getAuthRedirectUrl } from "@/lib/auth-redirect";
-import { isEmailNotConfirmedError, isEmailRateLimitError, emailRateLimitMessage, resendSignupVerification } from "@/lib/auth-email";
+import {
+  isEmailNotConfirmedError,
+  isEmailRateLimitError,
+  emailRateLimitMessage,
+  resendSignupVerification,
+} from "@/lib/auth-email";
+import { applySignupRole } from "@/lib/signup.functions";
+import type { SignupRole } from "@/lib/signup-role";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -218,6 +223,14 @@ function RegisterForm() {
     }
 
     if (data.session) {
+      try {
+        await applySignupRole({ data: { role: signupRole } });
+      } catch (err) {
+        console.error("[signup] applySignupRole failed:", err);
+        toast.error("Account created, but role setup failed. Try signing in or contact support.");
+        navigate({ to: "/auth", replace: true });
+        return;
+      }
       void sendWelcomeOnce({
         userId: data.session.user.id,
         name: fullName,

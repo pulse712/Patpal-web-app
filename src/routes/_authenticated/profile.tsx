@@ -46,10 +46,7 @@ import { getMyProfile, saveMyProfile } from "@/lib/profile.functions";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { AdminStaffProfileSection } from "@/components/AdminStaffLinks";
 import { LanguagePicker } from "@/components/LanguagePicker";
-import {
-  BIO_MAX,
-  INTRODUCTION_MAX,
-} from "@/lib/profile-fields";
+import { INTRODUCTION_MAX } from "@/lib/profile-fields";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
@@ -76,12 +73,9 @@ function Profile() {
   const { theme, toggle: toggleTheme } = useTheme();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [bio, setBio] = useState("");
   const [introduction, setIntroduction] = useState("");
   const [languages, setLanguages] = useState<string[]>([]);
   const [headline, setHeadline] = useState("");
-  const [serviceRange, setServiceRange] = useState("");
   const [pricePerMinute, setPricePerMinute] = useState("");
   const [isListable, setIsListable] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -119,12 +113,9 @@ function Profile() {
         if (cancelled) return;
         setEmail(data.email);
         setFullName(data.fullName);
-        setBio(data.bio);
         setIntroduction(data.introduction);
         setLanguages(data.languages);
-        setPhone(data.phone);
         setHeadline(data.headline);
-        setServiceRange(data.serviceRange);
         setPricePerMinute(data.pricePerMinute);
         setIsListable(data.isListable);
       } catch (err) {
@@ -148,23 +139,17 @@ function Profile() {
       const data = await saveProfileFn({
         data: {
           fullName,
-          bio,
           introduction,
           languages,
-          phone,
           headline,
-          serviceRange,
           pricePerMinute,
           isListable,
         },
       });
       setFullName(data.fullName);
-      setBio(data.bio);
       setIntroduction(data.introduction);
       setLanguages(data.languages);
-      setPhone(data.phone);
       setHeadline(data.headline);
-      setServiceRange(data.serviceRange);
       setPricePerMinute(data.pricePerMinute);
       setIsListable(data.isListable);
       toast.success("Profile saved");
@@ -253,20 +238,6 @@ function Profile() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="p-bio">Bio</Label>
-          <Input
-            id="p-bio"
-            value={bio}
-            maxLength={BIO_MAX}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="Short summary for your card"
-          />
-          <p className="text-[11px] text-muted-foreground">
-            {bio.length}/{BIO_MAX} characters
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
           <Label htmlFor="p-about">About</Label>
           <Textarea
             id="p-about"
@@ -282,38 +253,22 @@ function Profile() {
         </div>
 
         {isListable && (
-          <>
-            <div className="space-y-1.5">
-              <Label htmlFor="p-range">Range</Label>
-              <Input
-                id="p-range"
-                value={serviceRange}
-                onChange={(e) => setServiceRange(e.target.value)}
-                placeholder="e.g. Career coaching, leadership, startups"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="p-rate">Rate (USD / min)</Label>
-              <Input
-                id="p-rate"
-                type="number"
-                min="0"
-                step="0.01"
-                value={pricePerMinute}
-                onChange={(e) => setPricePerMinute(e.target.value)}
-              />
-            </div>
-          </>
+          <div className="space-y-1.5">
+            <Label htmlFor="p-rate">Rate (USD / min)</Label>
+            <Input
+              id="p-rate"
+              type="number"
+              min="0"
+              step="0.01"
+              value={pricePerMinute}
+              onChange={(e) => setPricePerMinute(e.target.value)}
+            />
+          </div>
         )}
 
         <div className="space-y-1.5">
           <Label>Languages</Label>
           <LanguagePicker value={languages} onChange={setLanguages} disabled={saving} />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="p-phone">Phone</Label>
-          <Input id="p-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
 
         <Button type="submit" disabled={saving || profileLoading} className="h-11 w-full font-semibold">

@@ -40,19 +40,14 @@ export function normalizeLanguages(raw: string[]): string[] {
 
 export function validateProfileFields(opts: {
   fullName: string;
-  bio: string;
   introduction: string;
   languages: string[];
   headline?: string;
-  serviceRange?: string;
   pricePerMinute?: number;
   isListable: boolean;
 }) {
   if (!opts.fullName.trim()) {
     throw new Error("Full name is required.");
-  }
-  if (opts.bio.length > BIO_MAX) {
-    throw new Error(`Bio must be ${BIO_MAX} characters or less.`);
   }
   if (opts.introduction.length > INTRODUCTION_MAX) {
     throw new Error(`About must be ${INTRODUCTION_MAX} characters or less.`);
@@ -69,9 +64,6 @@ export function validateProfileFields(opts: {
   if (opts.isListable) {
     if ((opts.headline?.length ?? 0) > HEADLINE_MAX) {
       throw new Error(`Headline must be ${HEADLINE_MAX} characters or less.`);
-    }
-    if ((opts.serviceRange?.length ?? 0) > SERVICE_RANGE_MAX) {
-      throw new Error(`Range must be ${SERVICE_RANGE_MAX} characters or less.`);
     }
     if (opts.pricePerMinute !== undefined && opts.pricePerMinute < 0) {
       throw new Error("Rate cannot be negative.");

@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { sendWelcome } from "@/lib/welcome.functions";
 import { sendWelcomeOnce } from "@/lib/welcome-client";
 import { applySignupRole } from "@/lib/signup.functions";
-import { parseSignupRole } from "@/lib/signup-role";
+import { parseSignupRole, parseSignupCategorySlug } from "@/lib/signup-role";
 
 /** Handles Supabase email links (#access_token=...) after signup or magic link. */
 export const Route = createFileRoute("/auth/callback")({
@@ -24,10 +24,16 @@ function finishSignIn(
     email?.split("@")[0] ??
     "there";
   const signupRole = parseSignupRole(session.user.user_metadata?.role);
+  const categorySlug = parseSignupCategorySlug(session.user.user_metadata);
 
   void (async () => {
     try {
-      await applySignupRole({ data: { role: signupRole } });
+      await applySignupRole({
+        data: {
+          role: signupRole,
+          ...(signupRole === "pat_pal" && categorySlug ? { categorySlug } : {}),
+        },
+      });
     } catch (err) {
       console.error("[auth/callback] applySignupRole failed:", err);
     }

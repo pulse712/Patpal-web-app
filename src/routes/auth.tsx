@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { HandHeart, Loader2, MessageCircle, Users } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -20,6 +27,8 @@ import {
 } from "@/lib/auth-email";
 import { applySignupRole } from "@/lib/signup.functions";
 import type { SignupRole } from "@/lib/signup-role";
+
+type SignupCategory = { id: string; name: string; slug: string; emoji: string | null };
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -199,21 +208,46 @@ function RegisterForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [signupRole, setSignupRole] = useState<SignupRole>("client");
+  const [categorySlug, setCategorySlug] = useState("");
+  const [categories, setCategories] = useState<SignupCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, name, slug, emoji")
+        .order("sort_order");
+      if (!error && data) setCategories(data as SignupCategory[]);
+      setCategoriesLoading(false);
+    })();
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password !== confirm) return toast.error("Passwords don't match");
     if (password.length < 8) return toast.error("Password must be at least 8 characters");
+    if (signupRole === "pat_pal" && !categorySlug) {
+      return toast.error("Please choose your support category.");
+    }
     setBusy(true);
     setPendingVerificationEmail(null);
+    const signupMetadata: Record<string, string> = {
+      full_name: fullName,
+      phone,
+      role: signupRole,
+    };
+    if (signupRole === "pat_pal") {
+      signupMetadata.category_slug = categorySlug;
+    }
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: getAuthRedirectUrl("/auth/callback"),
-        data: { full_name: fullName, phone, role: signupRole },
+        data: signupMetadata,
       },
     });
     setBusy(false);
@@ -224,7 +258,12 @@ function RegisterForm() {
 
     if (data.session) {
       try {
-        await applySignupRole({ data: { role: signupRole } });
+        await applySignupRole({
+          data: {
+            role: signupRole,
+            ...(signupRole === "pat_pal" ? { categorySlug } : {}),
+          },
+        });
       } catch (err) {
         console.error("[signup] applySignupRole failed:", err);
         toast.error("Account created, but role setup failed. Try signing in or contact support.");
@@ -295,7 +334,10 @@ function RegisterForm() {
         <legend className="text-sm font-medium leading-none">I am signing up as</legend>
         <RadioGroup
           value={signupRole}
-          onValueChange={(value) => setSignupRole(value as SignupRole)}
+          onValueChange={(value) => {
+            setSignupRole(value as SignupRole);
+            if (value === "client") setCategorySlug("");
+          }}
           className="grid gap-2"
         >
           <label
@@ -340,6 +382,39 @@ function RegisterForm() {
           </label>
         </RadioGroup>
       </fieldset>
+      {signupRole === "pat_pal" && (
+        <div className="space-y-1.5">
+          <Label htmlFor="reg-category">Support category</Label>
+          <Select
+            value={categorySlug}
+            onValueChange={setCategorySlug}
+            disabled={categoriesLoading || categories.length === 0}
+          >
+            <SelectTrigger id="reg-category" className="h-11">
+              <SelectValue
+                placeholder={
+                  categoriesLoading
+                    ? "Loading categories…"
+                    : categories.length === 0
+                      ? "No categories available"
+                      : "Choose your category"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={c.slug}>
+                  {c.emoji ? `${c.emoji} ` : ""}
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Customers will find you when browsing this category.
+          </p>
+        </div>
+      )}
       <div className="space-y-1.5">
         <Label htmlFor="reg-password">Password</Label>
         <Input

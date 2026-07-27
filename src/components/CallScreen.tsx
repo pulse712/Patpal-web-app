@@ -166,9 +166,6 @@ export function CallScreen({
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
       AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
 
-      const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName } });
-      if (!appId) throw new Error("Agora App ID not configured.");
-
       if (isCallee) {
         sessionIdRef.current = sessionId ?? null;
       } else {
@@ -180,6 +177,10 @@ export function CallScreen({
         setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
         setIsUnlimited(sessionData.isUnlimited);
       }
+
+      const agoraChannel = conversationId ?? sessionIdRef.current ?? channelName;
+      const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName: agoraChannel } });
+      if (!appId) throw new Error("Agora App ID not configured.");
 
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
       clientRef.current = client;
@@ -202,7 +203,7 @@ export function CallScreen({
         toast.info(`${remoteName} left the call.`);
       });
 
-      await client.join(appId, channelName, token ?? null, agoraUid);
+      await client.join(appId, agoraChannel, token ?? null, agoraUid);
 
       if (kind === "video") {
         const [aud, vid] = await AgoraRTC.createMicrophoneAndCameraTracks();

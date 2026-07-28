@@ -11,6 +11,7 @@ export type MyProfileData = {
   headline: string;
   pricePerMinute: string;
   categorySlugs: string[];
+  avatarUrl: string | null;
   isListable: boolean;
   email: string;
 };
@@ -33,7 +34,7 @@ async function loadProfileRow(
 ) {
   const extended = await supabaseAdmin
     .from("profiles")
-    .select("full_name, introduction, languages")
+    .select("full_name, introduction, languages, avatar_url")
     .eq("id", userId)
     .maybeSingle();
 
@@ -42,7 +43,7 @@ async function loadProfileRow(
   if (/introduction|languages|column/i.test(extended.error.message)) {
     const basic = await supabaseAdmin
       .from("profiles")
-      .select("full_name")
+      .select("full_name, avatar_url")
       .eq("id", userId)
       .maybeSingle();
     if (basic.error) throw new Error(basic.error.message);
@@ -93,6 +94,7 @@ async function buildMyProfileData(
     headline: palRes?.headline ?? "",
     pricePerMinute: String((palRes?.price_cents_per_minute ?? 100) / 100),
     categorySlugs: Array.isArray(palRes?.category_slugs) ? palRes.category_slugs : [],
+    avatarUrl: profile?.avatar_url ?? null,
     isListable: !!palRes,
   };
 }
@@ -177,6 +179,38 @@ export const saveMyProfile = createServerFn({ method: "POST" })
       if (palRes.error) throw new Error(palRes.error.message);
       if (!palRes.data) throw new Error("Pat Pal listing not found.");
     }
+
+    return buildMyProfileData(supabaseAdmin, userId);
+  });
+
+const updateMyAvatarSchema = z.object({
+  avatarUrl: z.string().url().nullable(),
+});
+
+function assertOwnedAvatarUrl(userId: string, avatarUrl: string) {
+  const marker = `/profile-avatars/${userId}/`;
+  if (!avatarUrl.includes(marker)) {
+    throw new Error("Invalid profile photo URL.");
+  }
+}
+
+export const updateMyAvatar = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) => updateMyAvatarSchema.parse(data))
+  .handler(async ({ data, context }): Promise<MyProfileData> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+
+    if (data.avatarUrl) {
+      assertOwnedAvatarUrl(userId, data.avatarUrl);
+    }
+
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ avatar_url: data.avatarUrl })
+      .eq("id", userId);
+
+    if (error) throw new Error(error.message);
 
     return buildMyProfileData(supabaseAdmin, userId);
   });

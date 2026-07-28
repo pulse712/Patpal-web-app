@@ -5,6 +5,9 @@ export const BANNER_ASPECT = 2.4;
 export const BANNER_OUTPUT_WIDTH = 1200;
 export const BANNER_OUTPUT_HEIGHT = 500;
 
+/** Square profile photo output size. */
+export const AVATAR_OUTPUT_SIZE = 400;
+
 export type CropArea = {
   x: number;
   y: number;
@@ -45,6 +48,43 @@ export async function getCroppedBannerBlob(
     0,
     BANNER_OUTPUT_WIDTH,
     BANNER_OUTPUT_HEIGHT,
+  );
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Could not export cropped image."));
+      },
+      mimeType,
+      0.88,
+    );
+  });
+}
+
+/** Render cropped region to a square JPEG blob for profile photos. */
+export async function getCroppedAvatarBlob(
+  imageSrc: string,
+  crop: CropArea,
+  mimeType: "image/jpeg" | "image/webp" = "image/jpeg",
+): Promise<Blob> {
+  const image = await loadImage(imageSrc);
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_OUTPUT_SIZE;
+  canvas.height = AVATAR_OUTPUT_SIZE;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not prepare image canvas.");
+
+  ctx.drawImage(
+    image,
+    crop.x,
+    crop.y,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    AVATAR_OUTPUT_SIZE,
+    AVATAR_OUTPUT_SIZE,
   );
 
   return new Promise((resolve, reject) => {

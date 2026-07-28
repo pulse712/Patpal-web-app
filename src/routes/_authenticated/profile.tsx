@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import {
   Bell,
   BellOff,
+  Camera,
   ChevronRight,
   LogOut,
   Moon,
@@ -37,13 +38,15 @@ import {
   Shield,
   Sun,
   Trash2,
-  User,
   Video,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { deleteMyAccount } from "@/lib/account.functions";
-import { getMyProfile, saveMyProfile } from "@/lib/profile.functions";
+import { getMyProfile, saveMyProfile, updateMyAvatar } from "@/lib/profile.functions";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import { AvatarImageCropDialog } from "@/components/AvatarImageCropDialog";
+import { uploadProfileAvatar } from "@/lib/avatar-upload";
+import { readFileAsDataUrl } from "@/lib/image-crop";
 import type { CategoryOption } from "@/lib/categories";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { AdminStaffProfileSection } from "@/components/AdminStaffLinks";
@@ -83,6 +86,11 @@ function Profile() {
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [isListable, setIsListable] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -107,6 +115,7 @@ function Profile() {
   const deleteAccountFn = useServerFn(deleteMyAccount);
   const loadProfileFn = useServerFn(getMyProfile);
   const saveProfileFn = useServerFn(saveMyProfile);
+  const updateAvatarFn = useServerFn(updateMyAvatar);
 
   useEffect(() => {
     setNotifs(loadNotifs());
@@ -129,6 +138,7 @@ function Profile() {
         setPricePerMinute(data.pricePerMinute);
         setCategorySlugs(data.categorySlugs);
         setIsListable(data.isListable);
+        setAvatarUrl(data.avatarUrl);
       } catch (err) {
         if (!cancelled) {
           toast.error(err instanceof Error ? err.message : "Could not load profile");
@@ -214,21 +224,136 @@ function Profile() {
     }
   }
 
+  async function handlePhotoSelected(file: File) {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be 5 MB or smaller.");
+      return;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setCropImageSrc(dataUrl);
+      setCropOpen(true);
+    } catch {
+      toast.error("Could not read that image.");
+    }
+  }
+
+  async function handleAvatarCropConfirm(blob: Blob) {
+    setAvatarUploading(true);
+    try {
+      const url = await uploadProfileAvatar(blob);
+      const data = await updateAvatarFn({ data: { avatarUrl: url } });
+      setAvatarUrl(data.avatarUrl);
+      toast.success("Profile photo updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload photo");
+      throw err;
+    } finally {
+      setAvatarUploading(false);
+      setCropImageSrc(null);
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarUploading(true);
+    try {
+      const data = await updateAvatarFn({ data: { avatarUrl: null } });
+      setAvatarUrl(data.avatarUrl);
+      toast.success("Profile photo removed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove photo");
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  const avatarInitial = (fullName || email || "U").trim().charAt(0).toUpperCase();
+
   return (
     <AppShell>
       <header className="bg-hero-gradient px-5 pt-10 pb-8 text-white">
         <div className="flex items-center gap-4">
-          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-white/25 backdrop-blur">
-            <User className="h-8 w-8" />
+          <div className="relative shrink-0">
+            <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-white/25 backdrop-blur">
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-2xl font-bold">{avatarInitial}</span>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={profileLoading || avatarUploading}
+              onClick={() => photoInputRef.current?.click()}
+              className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-sm disabled:opacity-60"
+              aria-label="Change profile photo"
+            >
+              <Camera className="h-3.5 w-3.5" />
+            </button>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handlePhotoSelected(file);
+              }}
+            />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-extrabold leading-tight tracking-tight break-words">
               {fullName || "Your profile"}
             </h1>
             <p className="truncate text-sm opacity-90">{email}</p>
+            {!profileLoading && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 bg-white/20 text-white hover:bg-white/30"
+                  disabled={avatarUploading}
+                  onClick={() => photoInputRef.current?.click()}
+                >
+                  {avatarUploading ? "Uploading…" : avatarUrl ? "Change photo" : "Upload photo"}
+                </Button>
+                {avatarUrl ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-white/90 hover:bg-white/10 hover:text-white"
+                    disabled={avatarUploading}
+                    onClick={() => void removeAvatar()}
+                  >
+                    Remove
+                  </Button>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </header>
+
+      <AvatarImageCropDialog
+        open={cropOpen}
+        imageSrc={cropImageSrc}
+        onOpenChange={(open) => {
+          setCropOpen(open);
+          if (!open) setCropImageSrc(null);
+        }}
+        onConfirm={handleAvatarCropConfirm}
+      />
 
       <form onSubmit={save} className="space-y-5 px-5 pt-6 pb-2">
         {profileLoading ? (

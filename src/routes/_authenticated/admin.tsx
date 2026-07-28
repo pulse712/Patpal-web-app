@@ -28,6 +28,7 @@ import {
   listAdminUsers,
   setUserActive,
   setUserRole,
+  confirmUserEmail,
   listTrialCodes,
   createTrialCode,
   setTrialCodeActive,
@@ -109,6 +110,7 @@ function AdminPanel() {
   const [userTotal, setUserTotal] = useState(0);
   const [userHasMore, setUserHasMore] = useState(false);
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
+  const [emailConfirmBusy, setEmailConfirmBusy] = useState<string | null>(null);
 
   const [newCode, setNewCode] = useState({ label: "", unlimited: false });
   const [newBanner, setNewBanner] = useState({ title: "", body: "", image_url: "" });
@@ -186,6 +188,19 @@ function AdminPanel() {
       toast.error(err instanceof Error ? err.message : "Role update failed");
     } finally {
       setRoleBusy(null);
+    }
+  }
+
+  async function confirmEmail(userId: string) {
+    setEmailConfirmBusy(userId);
+    try {
+      await confirmUserEmail({ data: { userId } });
+      toast.success("Email confirmed — user can sign in now");
+      await loadUsers(userPage);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to confirm email");
+    } finally {
+      setEmailConfirmBusy(null);
     }
   }
 
@@ -569,6 +584,11 @@ function AdminPanel() {
                       <Badge variant="secondary" className="text-[10px]">
                         {ROLE_LABELS[u.role]}
                       </Badge>
+                      {!u.emailConfirmed && (
+                        <Badge variant="outline" className="text-[10px] text-amber-700">
+                          Email unverified
+                        </Badge>
+                      )}
                       {!u.isActive && (
                         <Badge variant="destructive" className="text-[10px]">
                           Inactive
@@ -615,6 +635,29 @@ function AdminPanel() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {!u.emailConfirmed && (
+                  <div className="border-t border-border pt-2">
+                    <p className="mb-2 text-[10px] text-muted-foreground">
+                      User cannot sign in until email is verified. Use this if Supabase mail is
+                      rate-limited.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      disabled={emailConfirmBusy === u.id}
+                      onClick={() => confirmEmail(u.id)}
+                    >
+                      {emailConfirmBusy === u.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Confirm email (allow sign-in)"
+                      )}
+                    </Button>
+                  </div>
+                )}
               </Card>
             ))}
           </TabsContent>

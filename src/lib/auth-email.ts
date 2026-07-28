@@ -20,5 +20,10 @@ export function isEmailRateLimitError(message: string): boolean {
 }
 
 export function emailRateLimitMessage(): string {
-  return "Too many verification emails were sent. Wait about an hour, or ask an admin to confirm your account in Supabase. For production, configure custom SMTP in Supabase (see setup guide).";
+  return "Email sending is temporarily limited. Wait about an hour before requesting another verification email, or contact support to activate your account.";
+}
+
+export function formatAuthEmailError(message: string): string {
+  if (isEmailRateLimitError(message)) return emailRateLimitMessage();
+  return message;
 }

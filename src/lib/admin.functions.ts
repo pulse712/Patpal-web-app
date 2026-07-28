@@ -60,6 +60,7 @@ export const listAdminUsers = createServerFn({ method: "POST" })
         email: u.email ?? "",
         fullName: profile?.full_name ?? "",
         isActive: profile?.is_active ?? true,
+        emailConfirmed: !!u.email_confirmed_at,
         role: roleMap.get(u.id) ?? "client",
         createdAt: profile?.created_at ?? u.created_at,
       };
@@ -109,6 +110,22 @@ export const setUserActive = createServerFn({ method: "POST" })
       ban_duration: data.isActive ? "none" : "876600h",
     });
     if (authError) throw new Error(authError.message);
+
+    return { ok: true };
+  });
+
+/** Manually confirm a user's email when Supabase mail is rate-limited or undelivered. */
+export const confirmUserEmail = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) => z.object({ userId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
+      email_confirm: true,
+    });
+    if (error) throw new Error(error.message);
 
     return { ok: true };
   });

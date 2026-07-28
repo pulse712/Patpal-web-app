@@ -18,6 +18,7 @@ import {
   isEmailNotConfirmedError,
   isEmailRateLimitError,
   emailRateLimitMessage,
+  formatAuthEmailError,
   resendSignupVerification,
 } from "@/lib/auth-email";
 import { applySignupRole } from "@/lib/signup.functions";
@@ -76,13 +77,22 @@ function AuthPage() {
 
 function VerificationPendingPanel({ email, onResent }: { email: string; onResent?: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [cooldownSec, setCooldownSec] = useState(0);
+
+  useEffect(() => {
+    if (cooldownSec <= 0) return;
+    const timer = window.setTimeout(() => setCooldownSec((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldownSec]);
 
   async function onResend() {
+    if (cooldownSec > 0) return;
     setBusy(true);
     const { error } = await resendSignupVerification(email);
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) return toast.error(formatAuthEmailError(error.message));
     toast.success("Verification email sent — check inbox and spam.");
+    setCooldownSec(60);
     onResent?.();
   }
 
@@ -94,16 +104,23 @@ function VerificationPendingPanel({ email, onResent }: { email: string; onResent
         Open it to activate your account, then sign in.
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        Check spam/junk. Gmail may filter mail from Supabase.
+        Check spam/junk. If nothing arrives after a few minutes, contact support — we can activate
+        your account manually.
       </p>
       <Button
         type="button"
         variant="outline"
         className="mt-4 w-full"
-        disabled={busy}
+        disabled={busy || cooldownSec > 0}
         onClick={onResend}
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resend verification email"}
+        {busy ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : cooldownSec > 0 ? (
+          `Resend available in ${cooldownSec}s`
+        ) : (
+          "Resend verification email"
+        )}
       </Button>
     </div>
   );
@@ -180,7 +197,7 @@ function LoginForm() {
           type="button"
           onClick={async () => {
             const { error } = await resendSignupVerification(email);
-            if (error) return toast.error(error.message);
+            if (error) return toast.error(formatAuthEmailError(error.message));
             toast.success("Verification email sent — check inbox and spam.");
           }}
           className="block w-full text-center text-sm text-muted-foreground hover:text-primary"

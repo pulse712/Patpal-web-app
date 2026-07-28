@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
 import { fetchPublicProfile } from "@/lib/public-profiles";
 import { getWalletBalance } from "@/lib/session.functions";
+import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
 import { CallScreen } from "@/components/CallScreen";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -242,6 +243,9 @@ function PalProfile() {
         navigate({ to: "/wallet", search: { payment: undefined } });
         return;
       }
+
+      void preloadAgoraSdk();
+      void preloadCallMedia(kind);
 
       const convoId = await ensureConversation(sess.session.user.id);
       if (!convoId) return;

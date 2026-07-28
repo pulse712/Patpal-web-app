@@ -29,6 +29,11 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { getAgoraToken } from "@/lib/agora.functions";
 import {
+  awaitCallMediaPrewarm,
+  preloadAgoraSdk,
+  resetCallPrewarm,
+} from "@/lib/agora-prewarm";
+import {
   startSession,
   endSession,
   cancelSession,
@@ -110,12 +115,25 @@ async function primeMediaPermission(constraints: MediaStreamConstraints): Promis
   }
 }
 
-async function createMicrophoneTrack(AgoraRTC: AgoraSdk): Promise<ILocalAudio | null> {
+async function createMicrophoneTrack(
+  AgoraRTC: AgoraSdk,
+  opts?: { skipPrime?: boolean },
+): Promise<ILocalAudio | null> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("This browser does not support microphone access. Try Chrome, Edge, or Safari.");
   }
 
-  await primeMediaPermission({ audio: true });
+  if (!opts?.skipPrime) {
+    await primeMediaPermission({ audio: true });
+  }
+
+  try {
+    return await AgoraRTC.createMicrophoneAudioTrack();
+  } catch (err) {
+    if (!isMediaDeviceError(err)) {
+      throw new Error(mediaAccessError(err, "microphone"));
+    }
+  }
 
   const mics = await AgoraRTC.getMicrophones();
   for (const mic of mics) {
@@ -127,18 +145,24 @@ async function createMicrophoneTrack(AgoraRTC: AgoraSdk): Promise<ILocalAudio | 
     }
   }
 
-  try {
-    return await AgoraRTC.createMicrophoneAudioTrack();
-  } catch (err) {
-    if (isMediaDeviceError(err)) return null;
-    throw new Error(mediaAccessError(err, "microphone"));
-  }
+  return null;
 }
 
-async function createCameraTrack(AgoraRTC: AgoraSdk): Promise<ILocalVideo | null> {
+async function createCameraTrack(
+  AgoraRTC: AgoraSdk,
+  opts?: { skipPrime?: boolean },
+): Promise<ILocalVideo | null> {
   if (!navigator.mediaDevices?.getUserMedia) return null;
 
-  await primeMediaPermission({ video: true });
+  if (!opts?.skipPrime) {
+    await primeMediaPermission({ video: true });
+  }
+
+  try {
+    return await AgoraRTC.createCameraVideoTrack();
+  } catch (err) {
+    if (!isMediaDeviceError(err)) return null;
+  }
 
   const cameras = await AgoraRTC.getCameras();
   for (const camera of cameras) {
@@ -150,12 +174,7 @@ async function createCameraTrack(AgoraRTC: AgoraSdk): Promise<ILocalVideo | null
     }
   }
 
-  try {
-    return await AgoraRTC.createCameraVideoTrack();
-  } catch (err) {
-    if (isMediaDeviceError(err)) return null;
-    throw new Error(mediaAccessError(err, "camera"));
-  }
+  return null;
 }
 
 function isAgoraLeaveAbort(err: unknown): boolean {
@@ -177,19 +196,23 @@ async function disposeAgoraClient(client: AgoraClient | null | undefined) {
 async function createLocalMediaTracks(
   AgoraRTC: AgoraSdk,
   kind: CallKind,
+  opts?: { skipPrime?: boolean },
 ): Promise<{
   audio: ILocalAudio | null;
   video: ILocalVideo | null;
   videoUnavailable: boolean;
   listenOnly: boolean;
 }> {
-  const audio = await createMicrophoneTrack(AgoraRTC);
-
   if (kind === "audio") {
+    const audio = await createMicrophoneTrack(AgoraRTC, opts);
     return { audio, video: null, videoUnavailable: false, listenOnly: !audio };
   }
 
-  const video = await createCameraTrack(AgoraRTC);
+  const [audio, video] = await Promise.all([
+    createMicrophoneTrack(AgoraRTC, opts),
+    createCameraTrack(AgoraRTC, opts),
+  ]);
+
   return {
     audio,
     video,
@@ -308,9 +331,8 @@ export function CallScreen({
     let sessionCreated = false;
     let client: AgoraClient | null = null;
     try {
-      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      if (isJoinStale(generation)) return;
-      AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
+      await awaitCallMediaPrewarm();
+      const agoraPromise = preloadAgoraSdk();
 
       async function playRemoteMedia(
         client: AgoraClient,
@@ -356,18 +378,42 @@ export function CallScreen({
         setIsUnlimited(sessionData.isUnlimited);
       }
 
+      const AgoraRTC = await agoraPromise;
+      if (isJoinStale(generation)) return;
+      AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
+
       if (!sessionIdRef.current) {
         throw new Error("No active call session.");
       }
 
       const agoraChannel = sessionIdRef.current;
-      const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName: agoraChannel } });
+      const mediaOpts = { skipPrime: true as const };
+
+      const [{ token, appId, uid: agoraUid }, localTracks] = await Promise.all([
+        getAgoraToken({ data: { channelName: agoraChannel } }),
+        createLocalMediaTracks(AgoraRTC, kind, mediaOpts),
+      ]);
+
       if (isJoinStale(generation)) return;
       if (!appId) throw new Error("Agora App ID not configured.");
       if (!token) {
         throw new Error(
           "Agora token missing. Check AGORA_APP_ID and AGORA_APP_CERTIFICATE on the server, then redeploy.",
         );
+      }
+
+      const { audio, video, videoUnavailable, listenOnly: noMic } = localTracks;
+      localAudioRef.current = audio;
+      if (noMic) {
+        setListenOnly(true);
+        setMuted(true);
+        toast.warning("No microphone detected — you can listen but not speak.");
+      }
+      if (videoUnavailable) {
+        setCamOff(true);
+        if (kind === "video") {
+          toast.warning("Camera not available — joined as audio only.");
+        }
       }
 
       client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
@@ -397,23 +443,7 @@ export function CallScreen({
       }
 
       clientRef.current = client;
-
-      await syncExistingRemoteUsers(client);
-
-      const { audio, video, videoUnavailable, listenOnly: noMic } =
-        await createLocalMediaTracks(AgoraRTC, kind);
-      localAudioRef.current = audio;
-      if (noMic) {
-        setListenOnly(true);
-        setMuted(true);
-        toast.warning("No microphone detected — you can listen but not speak.");
-      }
-      if (videoUnavailable) {
-        setCamOff(true);
-        if (kind === "video") {
-          toast.warning("Camera not available — joined as audio only.");
-        }
-      }
+      setStatus("connected");
 
       const tracksToPublish = [audio, video].filter(Boolean) as Array<ILocalAudio | ILocalVideo>;
       if (tracksToPublish.length > 0) {
@@ -424,8 +454,8 @@ export function CallScreen({
         if (localVideoElRef.current) video.play(localVideoElRef.current);
       }
 
-      setStatus("connected");
       await syncExistingRemoteUsers(client);
+      resetCallPrewarm();
     } catch (err: unknown) {
       if (client && clientRef.current !== client) {
         await disposeAgoraClient(client);

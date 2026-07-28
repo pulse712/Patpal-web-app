@@ -1,7 +1,8 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { CallScreen } from "@/components/CallScreen";
 import { IncomingCallOverlay } from "@/components/IncomingCallOverlay";
 import { useIncomingCalls } from "@/hooks/use-incoming-calls";
+import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
 
 type IncomingCallContextValue = ReturnType<typeof useIncomingCalls>;
 
@@ -15,6 +16,12 @@ export function IncomingCallProvider({
   children: ReactNode;
 }) {
   const value = useIncomingCalls(userId);
+
+  useEffect(() => {
+    if (!value.incoming) return;
+    void preloadAgoraSdk();
+    void preloadCallMedia(value.incoming.kind);
+  }, [value.incoming]);
 
   return (
     <IncomingCallContext.Provider value={value}>

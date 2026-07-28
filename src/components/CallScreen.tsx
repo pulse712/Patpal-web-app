@@ -324,9 +324,22 @@ export function CallScreen({
         if (mediaType === "video" && remoteVideoElRef.current) {
           (user.videoTrack as IRemoteVideo)?.play(remoteVideoElRef.current);
         }
+        markRemotePresent();
+      }
+
+      function markRemotePresent() {
         setRemoteJoined(true);
         setStatus("connected");
         void ensureSessionConnected();
+      }
+
+      async function syncExistingRemoteUsers(activeClient: AgoraClient) {
+        if (activeClient.remoteUsers.length === 0) return;
+        markRemotePresent();
+        for (const user of activeClient.remoteUsers) {
+          if (user.hasAudio) await playRemoteMedia(activeClient, user, "audio");
+          if (user.hasVideo) await playRemoteMedia(activeClient, user, "video");
+        }
       }
 
       if (isCallee) {
@@ -364,6 +377,11 @@ export function CallScreen({
         await playRemoteMedia(client!, user, mediaType);
       });
 
+      client.on("user-joined", () => {
+        // Other party may be listen-only (no mic) and never publish audio/video.
+        markRemotePresent();
+      });
+
       client.on("user-unpublished", (_u, mt) => {
         if (mt === "video") setRemoteJoined(false);
       });
@@ -380,10 +398,7 @@ export function CallScreen({
 
       clientRef.current = client;
 
-      for (const user of client.remoteUsers) {
-        if (user.hasAudio) await playRemoteMedia(client, user, "audio");
-        if (user.hasVideo) await playRemoteMedia(client, user, "video");
-      }
+      await syncExistingRemoteUsers(client);
 
       const { audio, video, videoUnavailable, listenOnly: noMic } =
         await createLocalMediaTracks(AgoraRTC, kind);
@@ -410,9 +425,7 @@ export function CallScreen({
       }
 
       setStatus("connected");
-      if (client.remoteUsers.length > 0) {
-        void ensureSessionConnected();
-      }
+      await syncExistingRemoteUsers(client);
     } catch (err: unknown) {
       if (client && clientRef.current !== client) {
         await disposeAgoraClient(client);

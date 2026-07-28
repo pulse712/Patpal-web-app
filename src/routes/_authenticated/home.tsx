@@ -250,7 +250,7 @@ function Home() {
               className="overflow-hidden rounded-2xl border border-primary/20 bg-primary-soft"
             >
               {b.image_url && (
-                <img src={b.image_url} alt="" className="aspect-[2.4/1] w-full object-cover" />
+                <img src={b.image_url} alt="" className="h-36 w-full object-cover md:h-40" />
               )}
               <div className="px-4 py-3">
                 <p className="text-sm font-bold text-primary">{b.title}</p>

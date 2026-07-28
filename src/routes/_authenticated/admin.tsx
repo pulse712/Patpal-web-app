@@ -40,6 +40,8 @@ import {
 import { requireAdminBeforeLoad } from "@/lib/admin-guard";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { uploadPromoBannerImage } from "@/lib/banner-upload";
+import { readFileAsDataUrl } from "@/lib/image-crop";
+import { BannerImageCropDialog } from "@/components/BannerImageCropDialog";
 import {
   Select,
   SelectContent,
@@ -110,6 +112,9 @@ function AdminPanel() {
   const [newCode, setNewCode] = useState({ code: "", label: "", unlimited: false });
   const [newBanner, setNewBanner] = useState({ title: "", body: "", image_url: "" });
   const [bannerImageUploading, setBannerImageUploading] = useState(false);
+  const [cropDialogOpen, setCropDialogOpen] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [lastCropSource, setLastCropSource] = useState<string | null>(null);
 
   useEffect(() => {
     if (loading || !user) return;
@@ -260,15 +265,37 @@ function AdminPanel() {
     }
   }
 
-  async function handleBannerImage(file: File | null) {
+  async function openBannerCropper(file: File | null) {
     if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file.");
+      return;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setLastCropSource(dataUrl);
+      setCropImageSrc(dataUrl);
+      setCropDialogOpen(true);
+    } catch {
+      toast.error("Could not read image file.");
+    }
+  }
+
+  function openBannerRecrop() {
+    if (!newBanner.image_url && !lastCropSource) return;
+    setCropImageSrc(lastCropSource ?? newBanner.image_url);
+    setCropDialogOpen(true);
+  }
+
+  async function uploadCroppedBanner(blob: Blob) {
     setBannerImageUploading(true);
     try {
-      const url = await uploadPromoBannerImage(file);
+      const url = await uploadPromoBannerImage(blob);
       setNewBanner((prev) => ({ ...prev, image_url: url }));
-      toast.success("Image uploaded");
+      toast.success("Banner image saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not upload image");
+      throw err;
     } finally {
       setBannerImageUploading(false);
     }
@@ -286,6 +313,7 @@ function AdminPanel() {
         },
       });
       setNewBanner({ title: "", body: "", image_url: "" });
+      setLastCropSource(null);
       toast.success("Banner created");
       refresh();
     } catch (err) {
@@ -749,9 +777,18 @@ function AdminPanel() {
                     <img
                       src={newBanner.image_url}
                       alt="Banner preview"
-                      className="max-h-48 w-full object-cover"
+                      className="h-36 w-full object-cover md:h-40"
                     />
                     <div className="absolute bottom-2 right-2 flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={bannerImageUploading}
+                        onClick={openBannerRecrop}
+                      >
+                        Edit crop
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -766,7 +803,10 @@ function AdminPanel() {
                         size="sm"
                         variant="secondary"
                         disabled={bannerImageUploading}
-                        onClick={() => setNewBanner({ ...newBanner, image_url: "" })}
+                        onClick={() => {
+                          setNewBanner({ ...newBanner, image_url: "" });
+                          setLastCropSource(null);
+                        }}
                       >
                         Remove
                       </Button>
@@ -795,7 +835,7 @@ function AdminPanel() {
                   className="sr-only"
                   disabled={bannerImageUploading}
                   onChange={(e) => {
-                    void handleBannerImage(e.target.files?.[0] ?? null);
+                    void openBannerCropper(e.target.files?.[0] ?? null);
                     e.target.value = "";
                   }}
                 />
@@ -834,6 +874,13 @@ function AdminPanel() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <BannerImageCropDialog
+        open={cropDialogOpen}
+        imageSrc={cropImageSrc}
+        onOpenChange={setCropDialogOpen}
+        onConfirm={uploadCroppedBanner}
+      />
     </AppShell>
   );
 }

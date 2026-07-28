@@ -773,13 +773,15 @@ function AdminPanel() {
               <div className="space-y-2">
                 <Label htmlFor="banner-image">Banner image</Label>
                 {newBanner.image_url ? (
-                  <div className="relative overflow-hidden rounded-xl border border-border">
-                    <img
-                      src={newBanner.image_url}
-                      alt="Banner preview"
-                      className="h-36 w-full object-cover md:h-40"
-                    />
-                    <div className="absolute bottom-2 right-2 flex gap-2">
+                  <div className="overflow-hidden rounded-xl border border-border">
+                    <div className="aspect-[12/5] w-full overflow-hidden">
+                      <img
+                        src={newBanner.image_url}
+                        alt="Banner preview"
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2 p-2">
                       <Button
                         type="button"
                         size="sm"

@@ -243,14 +243,20 @@ function Home() {
 
       {/* Promo banners */}
       {banners.length > 0 && (
-        <section className="space-y-2 px-5 pt-4">
+        <section className="space-y-2 px-5 pt-4 lg:px-8">
           {banners.map((b) => (
             <div
               key={b.id}
               className="overflow-hidden rounded-2xl border border-primary/20 bg-primary-soft"
             >
               {b.image_url && (
-                <img src={b.image_url} alt="" className="h-36 w-full object-cover md:h-40" />
+                <div className="aspect-[12/5] w-full overflow-hidden">
+                  <img
+                    src={b.image_url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                </div>
               )}
               <div className="px-4 py-3">
                 <p className="text-sm font-bold text-primary">{b.title}</p>

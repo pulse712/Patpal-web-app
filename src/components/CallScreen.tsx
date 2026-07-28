@@ -158,6 +158,11 @@ async function createCameraTrack(AgoraRTC: AgoraSdk): Promise<ILocalVideo | null
   }
 }
 
+function isAgoraLeaveAbort(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("WS_ABORT") || msg.includes("LEAVE");
+}
+
 async function createLocalMediaTracks(
   AgoraRTC: AgoraSdk,
   kind: CallKind,
@@ -230,6 +235,14 @@ export function CallScreen({
   const endCallRemotelyRef = useRef<() => void>(() => {});
   const joinGenerationRef = useRef(0);
   const [watchSessionId, setWatchSessionId] = useState<string | null>(sessionId ?? null);
+  const joinParamsRef = useRef({
+    palId,
+    conversationId,
+    kind,
+    isCallee,
+    sessionId,
+  });
+  joinParamsRef.current = { palId, conversationId, kind, isCallee, sessionId };
 
   function isJoinStale(generation: number) {
     return generation !== joinGenerationRef.current;
@@ -280,6 +293,7 @@ export function CallScreen({
   // Join Agora + start session
   // ─────────────────────────────────────────────────────────────────────────
   const joinChannel = useCallback(async (generation: number) => {
+    const { palId, conversationId, kind, isCallee, sessionId } = joinParamsRef.current;
     let sessionCreated = false;
     try {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
@@ -348,10 +362,7 @@ export function CallScreen({
       });
 
       await client.join(appId, agoraChannel, token, agoraUid);
-      if (isJoinStale(generation)) {
-        await client.leave();
-        return;
-      }
+      if (isJoinStale(generation)) return;
 
       for (const user of client.remoteUsers) {
         if (user.hasAudio) await playRemoteMedia(client, user, "audio");
@@ -387,7 +398,7 @@ export function CallScreen({
         void ensureSessionConnected();
       }
     } catch (err: unknown) {
-      if (isJoinStale(generation)) return;
+      if (isJoinStale(generation) || isAgoraLeaveAbort(err)) return;
       console.error("[CallScreen] Join failed:", err);
       if (sessionCreated && sessionIdRef.current) {
         try {
@@ -414,7 +425,7 @@ export function CallScreen({
       await leaveChannel();
       onEnd();
     }
-  }, [channelName, kind, palId, conversationId, remoteName, isCallee, sessionId]); // eslint-disable-line
+  }, []);
 
   function startElapsedTimer() {
     if (elapsedTimerRef.current) return; // already running
@@ -499,12 +510,17 @@ export function CallScreen({
     if (graceTimerRef.current) clearInterval(graceTimerRef.current);
     localAudioRef.current?.close();
     localVideoRef.current?.close();
-    try {
-      await clientRef.current?.leave();
-    } catch {
-      /* ignore */
-    }
+    const client = clientRef.current;
     clientRef.current = null;
+    if (client) {
+      try {
+        await client.leave();
+      } catch (err) {
+        if (!isAgoraLeaveAbort(err)) {
+          console.warn("[CallScreen] leave failed:", err);
+        }
+      }
+    }
     localAudioRef.current = null;
     localVideoRef.current = null;
   }, []);
@@ -614,13 +630,14 @@ export function CallScreen({
     void joinChannel(generation);
     return () => {
       joinGenerationRef.current += 1;
+      void leaveChannel();
       if (!hasEndedRef.current) {
         hasEndedRef.current = true;
         void cleanupSession(wasConnectedRef.current);
       }
-      void leaveChannel();
     };
-  }, [joinChannel]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Join once on mount; stale joins are aborted via joinGenerationRef + leaveChannel.
+  }, [joinChannel, leaveChannel]);
 
   // Caller-side ring timeout — free the active-session slot if pal never answers
   useEffect(() => {

@@ -4,20 +4,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 import { computeTopUpSeconds } from "@/lib/billing-utils";
-import { hasPlatformStaffRole, walletHasUnlimitedAccess } from "@/lib/billing-guard";
+import { hasPlatformStaffRole, resolveWalletAccess } from "@/lib/billing-guard";
 
 async function fetchWalletBalance(userId: string): Promise<number> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const [{ data }, isPlatformStaff] = await Promise.all([
-    supabaseAdmin
-      .from("wallets")
-      .select("balance_seconds, unlimited_until")
-      .eq("user_id", userId)
-      .maybeSingle(),
-    hasPlatformStaffRole(userId),
-  ]);
-  const isUnlimited = walletHasUnlimitedAccess(data?.unlimited_until, isPlatformStaff);
-  return isUnlimited ? 999999 : (data?.balance_seconds ?? 0);
+  const { data } = await supabaseAdmin
+    .from("wallets")
+    .select("balance_seconds, unlimited_until, trial_code_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const access = await resolveWalletAccess(userId, data);
+  return access.balanceSeconds;
 }
 
 const RING_TIMEOUT_MS = 45_000;
@@ -82,7 +79,7 @@ export const startSession = createServerFn({ method: "POST" })
         .maybeSingle(),
       supabaseAdmin
         .from("wallets")
-        .select("balance_seconds, unlimited_until")
+        .select("balance_seconds, unlimited_until, trial_code_id")
         .eq("user_id", userId)
         .maybeSingle(),
       hasPlatformStaffRole(userId),
@@ -98,11 +95,10 @@ export const startSession = createServerFn({ method: "POST" })
       throw new Error("Pat Pal not found.");
     }
 
-    const balanceSeconds = wallet?.balance_seconds ?? 0;
-    const isUnlimited = walletHasUnlimitedAccess(wallet?.unlimited_until, isPlatformStaff);
+    const { balanceSeconds, isUnlimited, canStartCall } = await resolveWalletAccess(userId, wallet);
     const priceCentsPerMin = pal.price_cents_per_minute ?? 0;
 
-    if (!isUnlimited && balanceSeconds < 60) {
+    if (!canStartCall) {
       throw new Error(
         "Insufficient balance. Redeem your trial code on Wallet, or top up to start a call.",
       );
@@ -316,23 +312,13 @@ export const getWalletBalance = createServerFn({ method: "GET" })
   .middleware([...serverAuth])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const [isPlatformStaff, { data }] = await Promise.all([
-      hasPlatformStaffRole(context.userId),
-      supabaseAdmin
-        .from("wallets")
-        .select("balance_seconds, unlimited_until")
-        .eq("user_id", context.userId)
-        .maybeSingle(),
-    ]);
+    const { data } = await supabaseAdmin
+      .from("wallets")
+      .select("balance_seconds, unlimited_until, trial_code_id")
+      .eq("user_id", context.userId)
+      .maybeSingle();
 
-    const isUnlimited = walletHasUnlimitedAccess(data?.unlimited_until, isPlatformStaff);
-    const balanceSeconds = isUnlimited ? 999999 : (data?.balance_seconds ?? 0);
-
-    return {
-      balanceSeconds,
-      isUnlimited,
-      canStartCall: isUnlimited || balanceSeconds >= 60,
-    };
+    return resolveWalletAccess(context.userId, data);
   });
 
 // ─── Decline incoming call (Pat Pal — before connecting) ─────────────────────
@@ -381,13 +367,11 @@ export const getActiveSessionBilling = createServerFn({ method: "GET" })
 
     const { data: wallet } = await supabaseAdmin
       .from("wallets")
-      .select("balance_seconds, unlimited_until")
+      .select("balance_seconds, unlimited_until, trial_code_id")
       .eq("user_id", session.client_id)
       .maybeSingle();
 
-    const isPlatformStaff = await hasPlatformStaffRole(session.client_id);
-    const isUnlimited = walletHasUnlimitedAccess(wallet?.unlimited_until, isPlatformStaff);
-    const balanceSeconds = isUnlimited ? 999999 : (wallet?.balance_seconds ?? 0);
+    const { balanceSeconds, isUnlimited } = await resolveWalletAccess(session.client_id, wallet);
 
     let billableSecondsRemaining = session.remaining_seconds_at_start ?? 0;
     if (session.connected_at) {

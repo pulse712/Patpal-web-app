@@ -60,6 +60,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
         p_seconds: 0,
         p_unlimited_until: until,
         p_note: note,
+        p_trial_code_id: tc.id,
       });
 
       if (error) throw new Error(error.message || "Could not apply trial code");
@@ -72,6 +73,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
       p_seconds: TRIAL_GRANT_SECONDS,
       p_unlimited_until: null,
       p_note: note,
+      p_trial_code_id: tc.id,
     });
 
     if (error) throw new Error(error.message || "Could not apply trial code");

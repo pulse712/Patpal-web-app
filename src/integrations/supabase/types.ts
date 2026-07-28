@@ -69,6 +69,7 @@ export type Database = {
           seconds_delta: number;
           session_id: string | null;
           stripe_reference: string | null;
+          trial_code_id: string | null;
           user_id: string;
         };
         Insert: {
@@ -80,6 +81,7 @@ export type Database = {
           seconds_delta: number;
           session_id?: string | null;
           stripe_reference?: string | null;
+          trial_code_id?: string | null;
           user_id: string;
         };
         Update: {
@@ -91,6 +93,7 @@ export type Database = {
           seconds_delta?: number;
           session_id?: string | null;
           stripe_reference?: string | null;
+          trial_code_id?: string | null;
           user_id?: string;
         };
         Relationships: [
@@ -99,6 +102,13 @@ export type Database = {
             columns: ["session_id"];
             isOneToOne: false;
             referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_transactions_trial_code_id_fkey";
+            columns: ["trial_code_id"];
+            isOneToOne: false;
+            referencedRelation: "trial_codes";
             referencedColumns: ["id"];
           },
         ];
@@ -445,23 +455,34 @@ export type Database = {
       wallets: {
         Row: {
           balance_seconds: number;
+          trial_code_id: string | null;
           unlimited_until: string | null;
           updated_at: string;
           user_id: string;
         };
         Insert: {
           balance_seconds?: number;
+          trial_code_id?: string | null;
           unlimited_until?: string | null;
           updated_at?: string;
           user_id: string;
         };
         Update: {
           balance_seconds?: number;
+          trial_code_id?: string | null;
           unlimited_until?: string | null;
           updated_at?: string;
           user_id?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "wallets_trial_code_id_fkey";
+            columns: ["trial_code_id"];
+            isOneToOne: false;
+            referencedRelation: "trial_codes";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: {
@@ -484,6 +505,13 @@ export type Database = {
           p_seconds: number;
           p_unlimited_until: string | null;
           p_note: string;
+          p_trial_code_id?: string | null;
+        };
+        Returns: undefined;
+      };
+      revoke_trial_code_benefits: {
+        Args: {
+          p_trial_code_id: string;
         };
         Returns: undefined;
       };

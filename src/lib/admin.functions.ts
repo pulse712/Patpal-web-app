@@ -157,6 +157,14 @@ export const setTrialCodeActive = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    if (!data.isActive) {
+      const { error: revokeError } = await supabaseAdmin.rpc("revoke_trial_code_benefits", {
+        p_trial_code_id: data.id,
+      });
+      if (revokeError) throw new Error(revokeError.message);
+    }
+
     const { error } = await supabaseAdmin
       .from("trial_codes")
       .update({ is_active: data.isActive })
@@ -171,6 +179,12 @@ export const deleteTrialCode = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { error: revokeError } = await supabaseAdmin.rpc("revoke_trial_code_benefits", {
+      p_trial_code_id: data.id,
+    });
+    if (revokeError) throw new Error(revokeError.message);
+
     const { error } = await supabaseAdmin.from("trial_codes").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };

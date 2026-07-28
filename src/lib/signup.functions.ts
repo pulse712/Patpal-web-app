@@ -4,20 +4,29 @@ import { createServerFn } from "@tanstack/react-start";
 import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 import type { SignupRole } from "@/lib/signup-role";
+import { normalizeCategorySlugs, resolveValidCategorySlugs } from "@/lib/categories";
 
 const applySignupRoleSchema = z
   .object({
     role: z.enum(["client", "pat_pal"]),
     categorySlug: z.string().min(1).max(64).optional(),
+    categorySlugs: z.array(z.string().min(1).max(64)).optional(),
     service: z.string().min(3).max(200).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.role === "pat_pal") {
-      if (!data.categorySlug?.trim()) {
+      const slugs = normalizeCategorySlugs(
+        data.categorySlugs?.length
+          ? data.categorySlugs
+          : data.categorySlug?.trim()
+            ? [data.categorySlug.trim()]
+            : [],
+      );
+      if (slugs.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Please choose a support category.",
-          path: ["categorySlug"],
+          message: "Please choose at least one support category.",
+          path: ["categorySlugs"],
         });
       }
       if (!data.service?.trim()) {
@@ -37,8 +46,14 @@ export const applySignupRole = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const userId = context.userId;
     const role: SignupRole = data.role;
-    const categorySlug = data.categorySlug?.trim();
     const service = data.service?.trim();
+    const categorySlugs = normalizeCategorySlugs(
+      data.categorySlugs?.length
+        ? data.categorySlugs
+        : data.categorySlug?.trim()
+          ? [data.categorySlug.trim()]
+          : [],
+    );
 
     const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
       supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "admin" }),
@@ -61,13 +76,7 @@ export const applySignupRole = createServerFn({ method: "POST" })
     if (roleErr) throw new Error(roleErr.message);
 
     if (role === "pat_pal") {
-      const { data: category, error: catErr } = await supabaseAdmin
-        .from("categories")
-        .select("slug")
-        .eq("slug", categorySlug!)
-        .maybeSingle();
-      if (catErr) throw new Error(catErr.message);
-      if (!category) throw new Error("Invalid support category.");
+      const validSlugs = await resolveValidCategorySlugs(supabaseAdmin, categorySlugs);
 
       const { error: palErr } = await supabaseAdmin.from("pat_pals").upsert(
         {
@@ -76,7 +85,7 @@ export const applySignupRole = createServerFn({ method: "POST" })
           availability: "available",
           price_cents_per_minute: 100,
           tier: "trusted",
-          category_slugs: [category.slug],
+          category_slugs: validSlugs,
         },
         { onConflict: "user_id" },
       );

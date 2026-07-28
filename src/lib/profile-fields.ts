@@ -2,6 +2,7 @@ export const INTRODUCTION_MAX = 1000;
 export const BIO_MAX = 280;
 export const LANGUAGES_MIN = 1;
 export const LANGUAGES_MAX = 10;
+export const CATEGORIES_MAX = 8;
 export const HEADLINE_MAX = 120;
 export const SERVICE_RANGE_MAX = 120;
 
@@ -43,6 +44,7 @@ export function validateProfileFields(opts: {
   introduction: string;
   languages: string[];
   headline?: string;
+  categorySlugs?: string[];
   pricePerMinute?: number;
   isListable: boolean;
 }) {
@@ -67,6 +69,13 @@ export function validateProfileFields(opts: {
     }
     if (opts.pricePerMinute !== undefined && opts.pricePerMinute < 0) {
       throw new Error("Rate cannot be negative.");
+    }
+    const categoryCount = opts.categorySlugs?.length ?? 0;
+    if (categoryCount === 0) {
+      throw new Error("Choose at least one support category.");
+    }
+    if (categoryCount > CATEGORIES_MAX) {
+      throw new Error(`You can select up to ${CATEGORIES_MAX} categories.`);
     }
   }
 

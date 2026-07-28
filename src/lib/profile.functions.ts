@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { serverAuth } from "@/lib/server-auth";
 import { validateProfileFields } from "@/lib/profile-fields";
+import { normalizeCategorySlugs, resolveValidCategorySlugs } from "@/lib/categories";
 
 export type MyProfileData = {
   fullName: string;
@@ -9,6 +10,7 @@ export type MyProfileData = {
   languages: string[];
   headline: string;
   pricePerMinute: string;
+  categorySlugs: string[];
   isListable: boolean;
   email: string;
 };
@@ -19,6 +21,7 @@ const saveMyProfileSchema = z.object({
   languages: z.array(z.string()),
   headline: z.string(),
   pricePerMinute: z.string(),
+  categorySlugs: z.array(z.string()),
   isListable: z.boolean(),
 });
 
@@ -59,7 +62,7 @@ async function loadPalRow(
 ) {
   return supabaseAdmin
     .from("pat_pals")
-    .select("headline, price_cents_per_minute")
+    .select("headline, price_cents_per_minute, category_slugs")
     .eq("user_id", userId)
     .maybeSingle()
     .then(({ data, error }) => {
@@ -89,6 +92,7 @@ async function buildMyProfileData(
     languages: loadedLanguages.length > 0 ? loadedLanguages : ["English"],
     headline: palRes?.headline ?? "",
     pricePerMinute: String((palRes?.price_cents_per_minute ?? 100) / 100),
+    categorySlugs: Array.isArray(palRes?.category_slugs) ? palRes.category_slugs : [],
     isListable: !!palRes,
   };
 }
@@ -113,9 +117,15 @@ export const saveMyProfile = createServerFn({ method: "POST" })
       introduction: data.introduction,
       languages: data.languages,
       headline: data.headline,
+      categorySlugs: data.categorySlugs,
       pricePerMinute: data.isListable ? (Number.isFinite(price) ? price : undefined) : undefined,
       isListable: data.isListable,
     });
+
+    let categorySlugs: string[] = [];
+    if (data.isListable) {
+      categorySlugs = await resolveValidCategorySlugs(supabaseAdmin, data.categorySlugs);
+    }
 
     const profilePayload = {
       full_name: data.fullName.trim(),
@@ -158,6 +168,7 @@ export const saveMyProfile = createServerFn({ method: "POST" })
         .update({
           headline: data.headline.trim() || null,
           price_cents_per_minute: cents,
+          category_slugs: categorySlugs,
         })
         .eq("user_id", userId)
         .select("user_id")

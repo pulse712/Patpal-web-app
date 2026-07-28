@@ -7,15 +7,31 @@ export function parseSignupRole(value: unknown): SignupRole {
 
 /** Category slug stored on signup metadata (Pat Pal only). */
 export function parseSignupCategorySlug(metadata: unknown): string | undefined {
-  if (!metadata || typeof metadata !== "object") return undefined;
+  const slugs = parseSignupCategorySlugs(metadata);
+  return slugs[0];
+}
+
+/** All category slugs stored on signup metadata (Pat Pal only). */
+export function parseSignupCategorySlugs(metadata: unknown): string[] {
+  if (!metadata || typeof metadata !== "object") return [];
   const record = metadata as Record<string, unknown>;
-  const slug = record.category_slug;
-  if (typeof slug === "string" && slug.trim()) return slug.trim();
-  const slugs = record.category_slugs;
-  if (Array.isArray(slugs) && typeof slugs[0] === "string" && slugs[0].trim()) {
-    return slugs[0].trim();
+
+  const rawSlugs = record.category_slugs;
+  if (Array.isArray(rawSlugs)) {
+    return rawSlugs
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.trim().toLowerCase());
   }
-  return undefined;
+  if (typeof rawSlugs === "string" && rawSlugs.trim()) {
+    return rawSlugs
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  const slug = record.category_slug;
+  if (typeof slug === "string" && slug.trim()) return [slug.trim().toLowerCase()];
+  return [];
 }
 
 /** Service description / headline (Pat Pal only). */

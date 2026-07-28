@@ -43,6 +43,8 @@ import {
 import { useTheme } from "@/hooks/use-theme";
 import { deleteMyAccount } from "@/lib/account.functions";
 import { getMyProfile, saveMyProfile } from "@/lib/profile.functions";
+import { CategoryPicker } from "@/components/CategoryPicker";
+import type { CategoryOption } from "@/lib/categories";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { AdminStaffProfileSection } from "@/components/AdminStaffLinks";
 import { LanguagePicker } from "@/components/LanguagePicker";
@@ -77,6 +79,9 @@ function Profile() {
   const [languages, setLanguages] = useState<string[]>([]);
   const [headline, setHeadline] = useState("");
   const [pricePerMinute, setPricePerMinute] = useState("");
+  const [categorySlugs, setCategorySlugs] = useState<string[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [isListable, setIsListable] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -108,22 +113,31 @@ function Profile() {
     let cancelled = false;
     (async () => {
       setProfileLoading(true);
+      setCategoriesLoading(true);
       try {
-        const data = await loadProfileFn();
+        const [{ data: categoryRows }, data] = await Promise.all([
+          supabase.from("categories").select("id, name, slug, emoji").order("sort_order"),
+          loadProfileFn(),
+        ]);
         if (cancelled) return;
+        if (categoryRows) setCategories(categoryRows as CategoryOption[]);
         setEmail(data.email);
         setFullName(data.fullName);
         setIntroduction(data.introduction);
         setLanguages(data.languages);
         setHeadline(data.headline);
         setPricePerMinute(data.pricePerMinute);
+        setCategorySlugs(data.categorySlugs);
         setIsListable(data.isListable);
       } catch (err) {
         if (!cancelled) {
           toast.error(err instanceof Error ? err.message : "Could not load profile");
         }
       } finally {
-        if (!cancelled) setProfileLoading(false);
+        if (!cancelled) {
+          setProfileLoading(false);
+          setCategoriesLoading(false);
+        }
       }
     })();
     return () => {
@@ -143,6 +157,7 @@ function Profile() {
           languages,
           headline,
           pricePerMinute,
+          categorySlugs,
           isListable,
         },
       });
@@ -151,6 +166,7 @@ function Profile() {
       setLanguages(data.languages);
       setHeadline(data.headline);
       setPricePerMinute(data.pricePerMinute);
+      setCategorySlugs(data.categorySlugs);
       setIsListable(data.isListable);
       toast.success("Profile saved");
     } catch (err) {
@@ -251,6 +267,19 @@ function Profile() {
             {introduction.length}/{INTRODUCTION_MAX} characters
           </p>
         </div>
+
+        {isListable && (
+          <div className="space-y-1.5">
+            <Label>Support categories</Label>
+            <CategoryPicker
+              categories={categories}
+              value={categorySlugs}
+              onChange={setCategorySlugs}
+              disabled={saving}
+              loading={categoriesLoading}
+            />
+          </div>
+        )}
 
         {isListable && (
           <div className="space-y-1.5">

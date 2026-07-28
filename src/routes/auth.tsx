@@ -5,13 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { CategoryPicker } from "@/components/CategoryPicker";
 import { toast } from "sonner";
 import { Loader2, MessageCircle, Users } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -206,7 +200,7 @@ function RegisterForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [signupRole, setSignupRole] = useState<SignupRole>("client");
-  const [categorySlug, setCategorySlug] = useState("");
+  const [categorySlugs, setCategorySlugs] = useState<string[]>([]);
   const [service, setService] = useState("");
   const [categories, setCategories] = useState<SignupCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -228,8 +222,8 @@ function RegisterForm() {
     e.preventDefault();
     if (password !== confirm) return toast.error("Passwords don't match");
     if (password.length < 8) return toast.error("Password must be at least 8 characters");
-    if (signupRole === "pat_pal" && !categorySlug) {
-      return toast.error("Please choose your support category.");
+    if (signupRole === "pat_pal" && categorySlugs.length === 0) {
+      return toast.error("Please choose at least one support category.");
     }
     if (signupRole === "pat_pal" && service.trim().length < 3) {
       return toast.error("Please describe your service (at least 3 characters).");
@@ -242,7 +236,8 @@ function RegisterForm() {
       role: signupRole,
     };
     if (signupRole === "pat_pal") {
-      signupMetadata.category_slug = categorySlug;
+      signupMetadata.category_slugs = categorySlugs.join(",");
+      signupMetadata.category_slug = categorySlugs[0] ?? "";
       signupMetadata.service = service.trim();
     }
     const { data, error } = await supabase.auth.signUp({
@@ -265,7 +260,7 @@ function RegisterForm() {
           data: {
             role: signupRole,
             ...(signupRole === "pat_pal"
-              ? { categorySlug, service: service.trim() }
+              ? { categorySlugs, service: service.trim() }
               : {}),
           },
         });
@@ -342,7 +337,7 @@ function RegisterForm() {
           onValueChange={(value) => {
             setSignupRole(value as SignupRole);
             if (value === "client") {
-              setCategorySlug("");
+              setCategorySlugs([]);
               setService("");
             }
           }}
@@ -392,38 +387,20 @@ function RegisterForm() {
       </fieldset>
       {signupRole === "pat_pal" && (
         <div className="space-y-1.5">
-          <Label htmlFor="reg-category">Support category</Label>
-          <Select
-            value={categorySlug}
-            onValueChange={setCategorySlug}
-            disabled={categoriesLoading || categories.length === 0}
-          >
-            <SelectTrigger id="reg-category" className="h-11">
-              <SelectValue
-                placeholder={
-                  categoriesLoading
-                    ? "Loading categories…"
-                    : categories.length === 0
-                      ? "No categories available"
-                      : "Choose your category"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((c) => (
-                <SelectItem key={c.id} value={c.slug}>
-                  {c.emoji ? `${c.emoji} ` : ""}
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label>Support categories</Label>
+          <CategoryPicker
+            categories={categories}
+            value={categorySlugs}
+            onChange={setCategorySlugs}
+            disabled={busy}
+            loading={categoriesLoading}
+          />
           <p className="text-xs text-muted-foreground">
-            Customers will find you when browsing this category.
+            Customers will find you when browsing these categories.
           </p>
         </div>
       )}
-      {signupRole === "pat_pal" && categorySlug && (
+      {signupRole === "pat_pal" && categorySlugs.length > 0 && (
         <div className="space-y-1.5">
           <Label htmlFor="reg-service">Your service</Label>
           <Input

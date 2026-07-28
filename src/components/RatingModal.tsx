@@ -3,10 +3,12 @@
  * Post-session rating sheet — appears after a call ends.
  * Shows star selector + optional comment. Submits via server fn.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Star, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { submitRating } from "@/lib/rating.functions";
 
@@ -32,6 +34,11 @@ export function RatingModal({
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
 
   const active = hovered || stars;
 
@@ -51,10 +58,12 @@ export function RatingModal({
     }
   }
 
-  return (
-    /* Backdrop */
+  if (!portalTarget) return null;
+
+  return createPortal(
+    /* Backdrop — portaled to body so CallScreen text-white cannot leak in */
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 px-4 pb-8">
-      <div className="w-full max-w-md rounded-2xl bg-background shadow-2xl overflow-hidden">
+      <div className="w-full max-w-md rounded-2xl bg-background text-foreground shadow-2xl overflow-hidden">
         {done ? (
           <div className="flex flex-col items-center gap-3 py-10">
             <div className="grid h-14 w-14 place-items-center rounded-full bg-primary/10">
@@ -76,7 +85,7 @@ export function RatingModal({
               <button
                 onClick={onDone}
                 aria-label="Skip rating"
-                className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted"
+                className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -123,13 +132,13 @@ export function RatingModal({
 
               {/* Optional comment */}
               <div>
-                <textarea
+                <Textarea
                   placeholder="Leave a comment (optional)"
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   maxLength={500}
                   rows={3}
-                  className="w-full resize-none rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-sm outline-none focus:border-primary placeholder:text-muted-foreground"
+                  className="min-h-0 resize-none rounded-xl bg-background text-foreground caret-foreground placeholder:text-muted-foreground"
                 />
                 <p className="mt-1 text-right text-xs text-muted-foreground">
                   {comment.length}/500
@@ -138,7 +147,12 @@ export function RatingModal({
 
               {/* Actions */}
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-11" onClick={onDone} disabled={busy}>
+                <Button
+                  variant="outline"
+                  className="flex-1 h-11 text-foreground"
+                  onClick={onDone}
+                  disabled={busy}
+                >
                   Skip
                 </Button>
                 <Button
@@ -153,6 +167,7 @@ export function RatingModal({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    portalTarget,
   );
 }

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -20,6 +21,7 @@ import {
   Loader2,
   Star,
   Search,
+  ImagePlus,
 } from "lucide-react";
 import { getAnalytics } from "@/lib/analytics.functions";
 import {
@@ -37,6 +39,7 @@ import {
 } from "@/lib/admin.functions";
 import { requireAdminBeforeLoad } from "@/lib/admin-guard";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
+import { uploadPromoBannerImage } from "@/lib/banner-upload";
 import {
   Select,
   SelectContent,
@@ -71,8 +74,7 @@ type Banner = {
   id: string;
   title: string;
   body: string | null;
-  cta_label: string | null;
-  cta_href: string | null;
+  image_url: string | null;
   is_visible: boolean;
   sort_order: number;
 };
@@ -106,7 +108,8 @@ function AdminPanel() {
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
 
   const [newCode, setNewCode] = useState({ code: "", label: "", unlimited: false });
-  const [newBanner, setNewBanner] = useState({ title: "", body: "", cta_label: "", cta_href: "" });
+  const [newBanner, setNewBanner] = useState({ title: "", body: "", image_url: "" });
+  const [bannerImageUploading, setBannerImageUploading] = useState(false);
 
   useEffect(() => {
     if (loading || !user) return;
@@ -257,6 +260,20 @@ function AdminPanel() {
     }
   }
 
+  async function handleBannerImage(file: File | null) {
+    if (!file) return;
+    setBannerImageUploading(true);
+    try {
+      const url = await uploadPromoBannerImage(file);
+      setNewBanner((prev) => ({ ...prev, image_url: url }));
+      toast.success("Image uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload image");
+    } finally {
+      setBannerImageUploading(false);
+    }
+  }
+
   async function createBanner() {
     if (!newBanner.title) return toast.error("Title required");
     try {
@@ -264,12 +281,11 @@ function AdminPanel() {
         data: {
           title: newBanner.title,
           body: newBanner.body || undefined,
-          cta_label: newBanner.cta_label || undefined,
-          cta_href: newBanner.cta_href || undefined,
+          image_url: newBanner.image_url || undefined,
           sort_order: banners.length,
         },
       });
-      setNewBanner({ title: "", body: "", cta_label: "", cta_href: "" });
+      setNewBanner({ title: "", body: "", image_url: "" });
       toast.success("Banner created");
       refresh();
     } catch (err) {
@@ -705,39 +721,109 @@ function AdminPanel() {
           </TabsContent>
 
           <TabsContent value="banners" className="space-y-3">
-            <Card className="space-y-2 p-3">
+            <Card className="space-y-3 p-3">
               <h3 className="font-semibold">New banner</h3>
               <Input
                 placeholder="Title"
                 value={newBanner.title}
                 onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })}
               />
-              <Input
-                placeholder="Body"
-                value={newBanner.body}
-                onChange={(e) => setNewBanner({ ...newBanner, body: e.target.value })}
-              />
-              <Input
-                placeholder="CTA label"
-                value={newBanner.cta_label}
-                onChange={(e) => setNewBanner({ ...newBanner, cta_label: e.target.value })}
-              />
-              <Input
-                placeholder="CTA link"
-                value={newBanner.cta_href}
-                onChange={(e) => setNewBanner({ ...newBanner, cta_href: e.target.value })}
-              />
-              <Button onClick={createBanner} className="w-full">
+              <div className="space-y-1.5">
+                <Label htmlFor="banner-body">Body</Label>
+                <Textarea
+                  id="banner-body"
+                  placeholder="Banner message"
+                  value={newBanner.body}
+                  onChange={(e) => setNewBanner({ ...newBanner, body: e.target.value })}
+                  maxLength={1000}
+                  rows={4}
+                />
+                <p className="text-right text-xs text-muted-foreground">
+                  {newBanner.body.length}/1000
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="banner-image">Banner image</Label>
+                {newBanner.image_url ? (
+                  <div className="relative overflow-hidden rounded-xl border border-border">
+                    <img
+                      src={newBanner.image_url}
+                      alt="Banner preview"
+                      className="max-h-48 w-full object-cover"
+                    />
+                    <div className="absolute bottom-2 right-2 flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={bannerImageUploading}
+                        onClick={() => document.getElementById("banner-image")?.click()}
+                      >
+                        Change
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={bannerImageUploading}
+                        onClick={() => setNewBanner({ ...newBanner, image_url: "" })}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <label
+                    htmlFor="banner-image"
+                    className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-4 py-8 text-center hover:bg-muted/40"
+                  >
+                    {bannerImageUploading ? (
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    ) : (
+                      <ImagePlus className="h-8 w-8 text-muted-foreground" />
+                    )}
+                    <span className="text-sm font-medium">
+                      {bannerImageUploading ? "Uploading…" : "Upload picture"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">PNG, JPG, or WebP up to 5 MB</span>
+                  </label>
+                )}
+                <input
+                  id="banner-image"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="sr-only"
+                  disabled={bannerImageUploading}
+                  onChange={(e) => {
+                    void handleBannerImage(e.target.files?.[0] ?? null);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              <Button onClick={createBanner} className="w-full" disabled={bannerImageUploading}>
                 Create banner
               </Button>
             </Card>
             {banners.map((b) => (
-              <Card key={b.id} className="flex items-center justify-between p-3">
-                <div>
-                  <p className="font-semibold">{b.title}</p>
-                  <p className="text-xs text-muted-foreground">{b.body || "—"}</p>
+              <Card key={b.id} className="flex items-center justify-between gap-3 p-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  {b.image_url ? (
+                    <img
+                      src={b.image_url}
+                      alt=""
+                      className="h-14 w-20 shrink-0 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="grid h-14 w-20 shrink-0 place-items-center rounded-lg bg-muted text-xs text-muted-foreground">
+                      No image
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-semibold">{b.title}</p>
+                    <p className="line-clamp-2 text-xs text-muted-foreground">{b.body || "—"}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <Switch checked={b.is_visible} onCheckedChange={(v) => toggleBanner(b.id, v)} />
                   <Button size="icon" variant="ghost" onClick={() => deleteBanner(b.id)}>
                     <Trash2 className="h-4 w-4" />

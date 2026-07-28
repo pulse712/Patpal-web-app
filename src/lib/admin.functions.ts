@@ -209,9 +209,8 @@ export const createPromoBanner = createServerFn({ method: "POST" })
     z
       .object({
         title: z.string().min(1).max(200),
-        body: z.string().max(500).optional(),
-        cta_label: z.string().max(100).optional(),
-        cta_href: z.string().max(500).optional(),
+        body: z.string().max(1000).optional(),
+        image_url: z.string().url().max(2000).optional(),
         sort_order: z.number().int().min(0).optional(),
       })
       .parse(data),
@@ -222,8 +221,7 @@ export const createPromoBanner = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin.from("promo_banners").insert({
       title: data.title,
       body: data.body || null,
-      cta_label: data.cta_label || null,
-      cta_href: data.cta_href || null,
+      image_url: data.image_url || null,
       is_visible: true,
       sort_order: data.sort_order ?? 0,
     });

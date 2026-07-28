@@ -278,6 +278,7 @@ export type Database = {
           cta_href: string | null;
           cta_label: string | null;
           id: string;
+          image_url: string | null;
           is_visible: boolean;
           sort_order: number;
           title: string;
@@ -289,6 +290,7 @@ export type Database = {
           cta_href?: string | null;
           cta_label?: string | null;
           id?: string;
+          image_url?: string | null;
           is_visible?: boolean;
           sort_order?: number;
           title: string;
@@ -300,6 +302,7 @@ export type Database = {
           cta_href?: string | null;
           cta_label?: string | null;
           id?: string;
+          image_url?: string | null;
           is_visible?: boolean;
           sort_order?: number;
           title?: string;

@@ -68,8 +68,7 @@ function Home() {
       id: string;
       title: string;
       body: string | null;
-      cta_label: string | null;
-      cta_href: string | null;
+      image_url: string | null;
     }[]
   >([]);
   const onlineIds = useOnlineUsers();
@@ -90,7 +89,7 @@ function Home() {
           ),
         supabase
           .from("promo_banners")
-          .select("id, title, body, cta_label, cta_href")
+          .select("id, title, body, image_url")
           .eq("is_visible", true)
           .order("sort_order")
           .limit(3),
@@ -248,18 +247,15 @@ function Home() {
           {banners.map((b) => (
             <div
               key={b.id}
-              className="rounded-2xl border border-primary/20 bg-primary-soft px-4 py-3"
+              className="overflow-hidden rounded-2xl border border-primary/20 bg-primary-soft"
             >
-              <p className="text-sm font-bold text-primary">{b.title}</p>
-              {b.body && <p className="mt-0.5 text-xs text-muted-foreground">{b.body}</p>}
-              {b.cta_label && b.cta_href && (
-                <a
-                  href={b.cta_href}
-                  className="mt-2 inline-block text-xs font-semibold text-primary underline underline-offset-2"
-                >
-                  {b.cta_label} →
-                </a>
+              {b.image_url && (
+                <img src={b.image_url} alt="" className="aspect-[2.4/1] w-full object-cover" />
               )}
+              <div className="px-4 py-3">
+                <p className="text-sm font-bold text-primary">{b.title}</p>
+                {b.body && <p className="mt-0.5 text-xs text-muted-foreground">{b.body}</p>}
+              </div>
             </div>
           ))}
         </section>

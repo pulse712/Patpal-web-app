@@ -107,8 +107,7 @@ BEGIN
     SET unlimited_until = NULL,
         trial_code_id   = NULL,
         updated_at      = now()
-    WHERE user_id = r.user_id
-      AND trial_code_id IS NULL;
+    WHERE user_id = r.user_id;
   END LOOP;
 END;
 $$;

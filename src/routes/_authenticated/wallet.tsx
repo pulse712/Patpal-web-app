@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { createCheckoutSession } from "@/lib/stripe.functions";
 import { redeemTrialCode } from "@/lib/wallet.functions";
+import { getWalletBalance } from "@/lib/session.functions";
 
 export const Route = createFileRoute("/_authenticated/wallet")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -48,6 +50,7 @@ const PACKAGES = [
 function Wallet() {
   const navigate = useNavigate();
   const search = useSearch({ from: "/_authenticated/wallet" });
+  const getWalletBalanceFn = useServerFn(getWalletBalance);
 
   const [uid, setUid] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -60,12 +63,8 @@ function Wallet() {
   const balanceBeforePaymentRef = useRef<number | null>(null);
 
   const load = useCallback(async (id: string) => {
-    const [{ data: w }, { data: t }] = await Promise.all([
-      supabase
-        .from("wallets")
-        .select("balance_seconds, unlimited_until")
-        .eq("user_id", id)
-        .maybeSingle(),
+    const [wallet, { data: t }] = await Promise.all([
+      getWalletBalanceFn(),
       supabase
         .from("credit_transactions")
         .select("*")
@@ -73,10 +72,10 @@ function Wallet() {
         .order("created_at", { ascending: false })
         .limit(30),
     ]);
-    setSeconds(w?.balance_seconds ?? 0);
-    setUnlimitedUntil(w?.unlimited_until ?? null);
+    setSeconds(wallet.displayBalanceSeconds);
+    setUnlimitedUntil(wallet.unlimitedUntil);
     setTx((t ?? []) as Tx[]);
-  }, []);
+  }, [getWalletBalanceFn]);
 
   // Handle return from Stripe checkout — poll until webhook credits wallet
   useEffect(() => {
@@ -217,7 +216,7 @@ function Wallet() {
 
   const minutes = Math.floor(seconds / 60);
   const secs = seconds % 60;
-  const unlimitedActive = unlimitedUntil && new Date(unlimitedUntil) > new Date();
+  const unlimitedActive = !!unlimitedUntil;
   const lowBalance = !unlimitedActive && seconds < 10 * 60;
 
   return (

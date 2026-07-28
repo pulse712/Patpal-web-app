@@ -22,37 +22,115 @@ export type WalletAccessRow = {
   trial_code_id?: string | null;
 };
 
+export function parseTrialCodeFromNote(note: string | null | undefined): string | null {
+  if (!note?.startsWith("Trial code ")) return null;
+  const rest = note.slice("Trial code ".length);
+  const colon = rest.indexOf(":");
+  if (colon <= 0) return null;
+  return rest.slice(0, colon).trim();
+}
+
+async function unlimitedGrantedByActiveCode(
+  userId: string,
+  wallet: WalletAccessRow,
+): Promise<boolean> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  if (wallet.trial_code_id) {
+    const { data: code } = await supabaseAdmin
+      .from("trial_codes")
+      .select("is_active")
+      .eq("id", wallet.trial_code_id)
+      .maybeSingle();
+    return !!code?.is_active;
+  }
+
+  const { data: txs } = await supabaseAdmin
+    .from("credit_transactions")
+    .select("note, trial_code_id")
+    .eq("user_id", userId)
+    .eq("kind", "trial")
+    .eq("seconds_delta", 0);
+
+  for (const tx of txs ?? []) {
+    if (tx.trial_code_id) {
+      const { data: code } = await supabaseAdmin
+        .from("trial_codes")
+        .select("is_active")
+        .eq("id", tx.trial_code_id)
+        .maybeSingle();
+      if (code?.is_active) return true;
+      continue;
+    }
+
+    const codeName = parseTrialCodeFromNote(tx.note);
+    if (!codeName) continue;
+
+    const { data: code } = await supabaseAdmin
+      .from("trial_codes")
+      .select("is_active")
+      .eq("code", codeName)
+      .maybeSingle();
+    if (code?.is_active) return true;
+  }
+
+  return false;
+}
+
+async function clearRevokedTrialUnlimited(userId: string) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  await supabaseAdmin
+    .from("wallets")
+    .update({
+      unlimited_until: null,
+      trial_code_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId);
+}
+
 /** Resolve whether a client can call, honoring revoked trial codes. */
 export async function resolveWalletAccess(
   userId: string,
   wallet: WalletAccessRow | null,
-): Promise<{ balanceSeconds: number; isUnlimited: boolean; canStartCall: boolean }> {
+): Promise<{
+  balanceSeconds: number;
+  displayBalanceSeconds: number;
+  isUnlimited: boolean;
+  canStartCall: boolean;
+  unlimitedUntil: string | null;
+}> {
   const isPlatformStaff = await hasPlatformStaffRole(userId);
+  const displayBalance = wallet?.balance_seconds ?? 0;
+
   if (isPlatformStaff) {
-    return { balanceSeconds: 999999, isUnlimited: true, canStartCall: true };
+    return {
+      balanceSeconds: 999999,
+      displayBalanceSeconds: displayBalance,
+      isUnlimited: true,
+      canStartCall: true,
+      unlimitedUntil: null,
+    };
   }
 
-  const balance = wallet?.balance_seconds ?? 0;
   let isUnlimited = false;
+  let unlimitedUntil: string | null = null;
 
   if (wallet?.unlimited_until && new Date(wallet.unlimited_until) > new Date()) {
-    if (wallet.trial_code_id) {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      const { data: code } = await supabaseAdmin
-        .from("trial_codes")
-        .select("is_active")
-        .eq("id", wallet.trial_code_id)
-        .maybeSingle();
-      isUnlimited = !!code?.is_active;
+    isUnlimited = await unlimitedGrantedByActiveCode(userId, wallet);
+    if (isUnlimited) {
+      unlimitedUntil = wallet.unlimited_until;
     } else {
-      isUnlimited = true;
+      await clearRevokedTrialUnlimited(userId);
     }
   }
 
-  const balanceSeconds = isUnlimited ? 999999 : balance;
+  const balanceSeconds = isUnlimited ? 999999 : displayBalance;
   return {
     balanceSeconds,
+    displayBalanceSeconds: displayBalance,
     isUnlimited,
-    canStartCall: isUnlimited || balance >= 60,
+    canStartCall: isUnlimited || displayBalance >= 60,
+    unlimitedUntil,
   };
 }

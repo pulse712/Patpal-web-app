@@ -1,4 +1,5 @@
 // Admin-only server functions for user and role management.
+import { randomBytes } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
@@ -125,13 +126,20 @@ export const listTrialCodes = createServerFn({ method: "GET" })
     return { codes: data ?? [] };
   });
 
+const TRIAL_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const TRIAL_CODE_LENGTH = 10;
+
+function generateTrialCodeValue(): string {
+  const bytes = randomBytes(TRIAL_CODE_LENGTH);
+  return Array.from(bytes, (b) => TRIAL_CODE_CHARS[b % TRIAL_CODE_CHARS.length]).join("");
+}
+
 export const createTrialCode = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
   .validator((data: unknown) =>
     z
       .object({
-        code: z.string().min(1).max(64),
-        label: z.string().max(100).optional(),
+        label: z.string().min(1).max(100),
         unlimited: z.boolean().optional().default(false),
       })
       .parse(data),
@@ -139,14 +147,23 @@ export const createTrialCode = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.from("trial_codes").insert({
-      code: data.code.trim().toUpperCase(),
-      label: data.label || null,
-      unlimited: data.unlimited,
-      is_active: true,
-    });
-    if (error) throw new Error(error.message);
-    return { ok: true };
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const code = generateTrialCodeValue();
+      const { error } = await supabaseAdmin.from("trial_codes").insert({
+        code,
+        label: data.label.trim(),
+        unlimited: data.unlimited,
+        is_active: true,
+      });
+
+      if (!error) return { ok: true, code };
+
+      if (error.code === "23505") continue;
+      throw new Error(error.message);
+    }
+
+    throw new Error("Could not generate a unique code. Please try again.");
   });
 
 export const setTrialCodeActive = createServerFn({ method: "POST" })

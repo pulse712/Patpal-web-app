@@ -211,13 +211,12 @@ export const listPalReviews = createServerFn({ method: "GET" })
       const reviewerId =
         ("rater_id" in row && row.rater_id) || row.client_id || "";
       const fullName = nameById.get(reviewerId) ?? "User";
-      const firstName = fullName.split(/\s+/)[0] || "User";
       return {
         id: row.id,
         stars: row.stars,
         comment: row.comment,
         createdAt: row.created_at,
-        reviewerName: firstName,
+        reviewerName: fullName,
       };
     });
 

@@ -48,7 +48,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
       .from("wallets")
       .select("balance_seconds, unlimited_until")
       .eq("user_id", userId)
-      .single();
+      .maybeSingle();
 
     const note = buildTrialNote(tc.code, tc.label, tc.unlimited);
 
@@ -62,7 +62,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
         p_note: note,
       });
 
-      if (error) throw new Error("Could not apply trial code");
+      if (error) throw new Error(error.message || "Could not apply trial code");
 
       return { ok: true, unlimitedUntil: until };
     }
@@ -74,7 +74,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
       p_note: note,
     });
 
-    if (error) throw new Error("Could not apply trial code");
+    if (error) throw new Error(error.message || "Could not apply trial code");
 
     const currentBalance = wallet?.balance_seconds ?? 0;
     const newBalance = computeTrialBalance(currentBalance);

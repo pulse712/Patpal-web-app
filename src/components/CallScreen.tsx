@@ -56,6 +56,7 @@ interface CallScreenProps {
 
 // Agora dynamic import types
 type AgoraClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
+type AgoraRemoteUser = import("agora-rtc-sdk-ng").IAgoraRTCRemoteUser;
 type ILocalAudio = import("agora-rtc-sdk-ng").ILocalAudioTrack;
 type ILocalVideo = import("agora-rtc-sdk-ng").ILocalVideoTrack;
 type IRemoteAudio = import("agora-rtc-sdk-ng").IRemoteAudioTrack;
@@ -227,7 +228,12 @@ export function CallScreen({
   const wasConnectedRef = useRef(false);
   const hasMarkedConnectedRef = useRef(false);
   const endCallRemotelyRef = useRef<() => void>(() => {});
+  const joinGenerationRef = useRef(0);
   const [watchSessionId, setWatchSessionId] = useState<string | null>(sessionId ?? null);
+
+  function isJoinStale(generation: number) {
+    return generation !== joinGenerationRef.current;
+  }
 
   async function ensureSessionConnected() {
     if (hasMarkedConnectedRef.current || !sessionIdRef.current) return;
@@ -273,11 +279,29 @@ export function CallScreen({
   // ─────────────────────────────────────────────────────────────────────────
   // Join Agora + start session
   // ─────────────────────────────────────────────────────────────────────────
-  const joinChannel = useCallback(async () => {
+  const joinChannel = useCallback(async (generation: number) => {
     let sessionCreated = false;
     try {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      if (isJoinStale(generation)) return;
       AgoraRTC.setLogLevel(import.meta.env.DEV ? 1 : 4);
+
+      async function playRemoteMedia(
+        client: AgoraClient,
+        user: AgoraRemoteUser,
+        mediaType: "audio" | "video",
+      ) {
+        await client.subscribe(user, mediaType);
+        if (mediaType === "audio") {
+          (user.audioTrack as IRemoteAudio)?.play();
+        }
+        if (mediaType === "video" && remoteVideoElRef.current) {
+          (user.videoTrack as IRemoteVideo)?.play(remoteVideoElRef.current);
+        }
+        setRemoteJoined(true);
+        setStatus("connected");
+        void ensureSessionConnected();
+      }
 
       if (isCallee) {
         sessionIdRef.current = sessionId ?? null;
@@ -299,19 +323,20 @@ export function CallScreen({
 
       const agoraChannel = sessionIdRef.current;
       const { token, appId, uid: agoraUid } = await getAgoraToken({ data: { channelName: agoraChannel } });
+      if (isJoinStale(generation)) return;
       if (!appId) throw new Error("Agora App ID not configured.");
+      if (!token) {
+        throw new Error(
+          "Agora token missing. Check AGORA_APP_ID and AGORA_APP_CERTIFICATE on the server, then redeploy.",
+        );
+      }
 
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
       clientRef.current = client;
 
       client.on("user-published", async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
-        if (mediaType === "audio") (user.audioTrack as IRemoteAudio)?.play();
-        if (mediaType === "video" && remoteVideoElRef.current)
-          (user.videoTrack as IRemoteVideo)?.play(remoteVideoElRef.current);
-        setRemoteJoined(true);
-        setStatus("connected");
-        void ensureSessionConnected();
+        if (mediaType !== "audio" && mediaType !== "video") return;
+        await playRemoteMedia(client, user, mediaType);
       });
 
       client.on("user-unpublished", (_u, mt) => {
@@ -322,7 +347,16 @@ export function CallScreen({
         endCallRemotelyRef.current();
       });
 
-      await client.join(appId, agoraChannel, token ?? null, agoraUid);
+      await client.join(appId, agoraChannel, token, agoraUid);
+      if (isJoinStale(generation)) {
+        await client.leave();
+        return;
+      }
+
+      for (const user of client.remoteUsers) {
+        if (user.hasAudio) await playRemoteMedia(client, user, "audio");
+        if (user.hasVideo) await playRemoteMedia(client, user, "video");
+      }
 
       const { audio, video, videoUnavailable, listenOnly: noMic } =
         await createLocalMediaTracks(AgoraRTC, kind);
@@ -353,6 +387,7 @@ export function CallScreen({
         void ensureSessionConnected();
       }
     } catch (err: unknown) {
+      if (isJoinStale(generation)) return;
       console.error("[CallScreen] Join failed:", err);
       if (sessionCreated && sessionIdRef.current) {
         try {
@@ -575,15 +610,17 @@ export function CallScreen({
   }
 
   useEffect(() => {
-    joinChannel();
+    const generation = ++joinGenerationRef.current;
+    void joinChannel(generation);
     return () => {
+      joinGenerationRef.current += 1;
       if (!hasEndedRef.current) {
         hasEndedRef.current = true;
         void cleanupSession(wasConnectedRef.current);
       }
       void leaveChannel();
     };
-  }, []); // eslint-disable-line
+  }, [joinChannel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Caller-side ring timeout — free the active-session slot if pal never answers
   useEffect(() => {

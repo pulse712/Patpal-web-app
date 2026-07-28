@@ -67,34 +67,35 @@ export const getAgoraToken = createServerFn({ method: "POST" })
     const appId = requireAgoraAppId();
     const appCertificate = getAgoraAppCertificate();
     const isProd = process.env["NODE_ENV"] === "production";
-    const allowUnsecure = process.env["AGORA_ALLOW_UNSECURE"] === "true";
+    const allowUnsecure =
+      process.env["AGORA_ALLOW_UNSECURE"] === "true" ||
+      appCertificate === "TESTING_NO_CERT";
+    const missingCert = !appCertificate || appCertificate === "TESTING_NO_CERT";
 
-    if (isProd && (!appCertificate || appCertificate === "TESTING_NO_CERT")) {
-      throw new Error("Agora certificate is required in production.");
+    if (isProd && missingCert && !allowUnsecure) {
+      throw new Error(
+        "Agora certificate is required in production. Add AGORA_APP_CERTIFICATE from console.agora.io, or set AGORA_APP_CERTIFICATE=TESTING_NO_CERT if your Agora project uses App ID only mode.",
+      );
     }
 
-    if (!appCertificate || appCertificate === "TESTING_NO_CERT") {
-      if (!allowUnsecure && isProd) {
-        throw new Error("Agora certificate is required in production.");
-      }
+    if (missingCert) {
       return { token: null, appId, channelName: data.channelName, uid };
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { RtcTokenBuilder, RtcRole } = (await import("agora-token")) as any;
 
-    const expiresInSeconds = 3600;
-    const currentTime = Math.floor(Date.now() / 1000);
-    const privilegeExpireTime = currentTime + expiresInSeconds;
-
-    const token = RtcTokenBuilder.buildTokenWithUid(
+    const tokenTtlSeconds = 3600;
+    const token = RtcTokenBuilder.buildTokenWithUidAndPrivilege(
       appId,
       appCertificate,
       data.channelName,
       uid,
-      RtcRole.PUBLISHER,
-      expiresInSeconds,
-      privilegeExpireTime,
+      tokenTtlSeconds,
+      tokenTtlSeconds,
+      tokenTtlSeconds,
+      tokenTtlSeconds,
+      tokenTtlSeconds,
     );
 
     return { token, appId, channelName: data.channelName, uid };

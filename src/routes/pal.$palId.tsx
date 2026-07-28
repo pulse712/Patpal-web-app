@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useIsOnline } from "@/lib/presence";
 import { fetchPublicProfile } from "@/lib/public-profiles";
+import { getWalletBalance } from "@/lib/session.functions";
 import { CallScreen } from "@/components/CallScreen";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -112,6 +114,7 @@ function PalProfile() {
   const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
   const [callConversationId, setCallConversationId] = useState("");
   const [callerName, setCallerName] = useState("Someone");
+  const getWalletBalanceFn = useServerFn(getWalletBalance);
 
   useEffect(() => {
     try {
@@ -226,24 +229,36 @@ function PalProfile() {
 
   async function startCall(kind: "audio" | "video") {
     setStarting(kind);
-    const { data: sess } = await supabase.auth.getSession();
-    if (!sess.session) {
-      setStarting(null);
-      navigate({ to: "/auth" });
-      return;
-    }
-    const convoId = await ensureConversation(sess.session.user.id);
-    setStarting(null);
-    if (!convoId) return;
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess.session) {
+        navigate({ to: "/auth" });
+        return;
+      }
 
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("full_name")
-      .eq("id", sess.session.user.id)
-      .maybeSingle();
-    setCallerName(prof?.full_name ?? "Someone");
-    setCallConversationId(convoId);
-    setActiveCall(kind);
+      const wallet = await getWalletBalanceFn();
+      if (!wallet.canStartCall) {
+        toast.error("Redeem your trial code on Wallet, or top up, before calling.");
+        navigate({ to: "/wallet", search: { payment: undefined } });
+        return;
+      }
+
+      const convoId = await ensureConversation(sess.session.user.id);
+      if (!convoId) return;
+
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", sess.session.user.id)
+        .maybeSingle();
+      setCallerName(prof?.full_name ?? "Someone");
+      setCallConversationId(convoId);
+      setActiveCall(kind);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not start call");
+    } finally {
+      setStarting(null);
+    }
   }
 
   if (loading) {

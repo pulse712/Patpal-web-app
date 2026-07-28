@@ -20,6 +20,38 @@ async function fetchWalletBalance(userId: string): Promise<number> {
   return isUnlimited ? 999999 : (data?.balance_seconds ?? 0);
 }
 
+const RING_TIMEOUT_MS = 45_000;
+
+/** Clear abandoned ringing sessions so a failed call attempt does not block the next one. */
+async function releaseStaleClientSessions(
+  supabaseAdmin: Awaited<
+    typeof import("@/integrations/supabase/client.server")
+  >["supabaseAdmin"],
+  clientId: string,
+) {
+  const { data: activeSessions } = await supabaseAdmin
+    .from("sessions")
+    .select("id, connected_at, started_at")
+    .eq("client_id", clientId)
+    .eq("status", "active");
+
+  for (const session of activeSessions ?? []) {
+    if (session.connected_at) {
+      throw new Error("You already have an active call. End it before starting another.");
+    }
+
+    const ageMs = Date.now() - new Date(session.started_at).getTime();
+    if (ageMs <= RING_TIMEOUT_MS) {
+      throw new Error("You already have a call ringing. Wait a moment and try again.");
+    }
+
+    await supabaseAdmin.rpc("cancel_session_before_connect", {
+      p_session_id: session.id,
+      p_actor_id: clientId,
+    });
+  }
+}
+
 // ─── Start session ────────────────────────────────────────────────────────────
 // Only clients may start paid sessions.
 export const startSession = createServerFn({ method: "POST" })
@@ -56,8 +88,10 @@ export const startSession = createServerFn({ method: "POST" })
       hasPlatformStaffRole(userId),
     ]);
 
-    if (isPatPal) {
-      throw new Error("Only clients can initiate paid sessions.");
+    if (isPatPal && !isPlatformStaff) {
+      throw new Error(
+        "Pat Pal accounts cannot start client calls. Use a client account, or redeem your code after signing up as a client.",
+      );
     }
 
     if (!pal) {
@@ -69,8 +103,12 @@ export const startSession = createServerFn({ method: "POST" })
     const priceCentsPerMin = pal.price_cents_per_minute ?? 0;
 
     if (!isUnlimited && balanceSeconds < 60) {
-      throw new Error("Insufficient balance. Please top up your wallet.");
+      throw new Error(
+        "Insufficient balance. Redeem your trial code on Wallet, or top up to start a call.",
+      );
     }
+
+    await releaseStaleClientSessions(supabaseAdmin, userId);
 
     const { data: session, error } = await supabaseAdmin
       .from("sessions")
@@ -88,7 +126,9 @@ export const startSession = createServerFn({ method: "POST" })
 
     if (error) {
       if (error.code === "23505") {
-        throw new Error("You already have an active session. End it before starting another.");
+        throw new Error(
+          "You already have an active session. Wait a minute and try again, or refresh the page.",
+        );
       }
       throw new Error("Could not create session record.");
     }
@@ -275,20 +315,24 @@ export const createTopUpIntent = createServerFn({ method: "POST" })
 export const getWalletBalance = createServerFn({ method: "GET" })
   .middleware([...serverAuth])
   .handler(async ({ context }) => {
-    const balanceSeconds = await fetchWalletBalance(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const [isPlatformStaff, { data }] = await Promise.all([
       hasPlatformStaffRole(context.userId),
       supabaseAdmin
         .from("wallets")
-        .select("unlimited_until")
+        .select("balance_seconds, unlimited_until")
         .eq("user_id", context.userId)
-        .single(),
+        .maybeSingle(),
     ]);
 
     const isUnlimited = walletHasUnlimitedAccess(data?.unlimited_until, isPlatformStaff);
+    const balanceSeconds = isUnlimited ? 999999 : (data?.balance_seconds ?? 0);
 
-    return { balanceSeconds, isUnlimited };
+    return {
+      balanceSeconds,
+      isUnlimited,
+      canStartCall: isUnlimited || balanceSeconds >= 60,
+    };
   });
 
 // ─── Decline incoming call (Pat Pal — before connecting) ─────────────────────
@@ -339,7 +383,7 @@ export const getActiveSessionBilling = createServerFn({ method: "GET" })
       .from("wallets")
       .select("balance_seconds, unlimited_until")
       .eq("user_id", session.client_id)
-      .single();
+      .maybeSingle();
 
     const isPlatformStaff = await hasPlatformStaffRole(session.client_id);
     const isUnlimited = walletHasUnlimitedAccess(wallet?.unlimited_until, isPlatformStaff);

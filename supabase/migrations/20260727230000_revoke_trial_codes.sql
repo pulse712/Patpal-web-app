@@ -109,6 +109,10 @@ BEGIN
         updated_at      = now()
     WHERE user_id = r.user_id;
   END LOOP;
+
+  DELETE FROM public.credit_transactions
+  WHERE kind = 'trial'
+    AND (trial_code_id = p_trial_code_id OR note LIKE v_note_prefix);
 END;
 $$;
 

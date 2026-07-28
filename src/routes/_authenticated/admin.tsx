@@ -220,18 +220,37 @@ function AdminPanel() {
     }
   }
 
-  async function toggleCode(id: string, is_active: boolean) {
+  async function revokeCode(id: string) {
     try {
-      await setTrialCodeActive({ data: { id, isActive: is_active } });
+      await setTrialCodeActive({ data: { id, isActive: false } });
+      toast.success("Code revoked — removed from user wallets");
       refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed");
+      toast.error(err instanceof Error ? err.message : "Could not revoke code");
+    }
+  }
+
+  async function reactivateCode(id: string) {
+    try {
+      await setTrialCodeActive({ data: { id, isActive: true } });
+      toast.success("Code reactivated");
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reactivate code");
     }
   }
 
   async function deleteCode(id: string) {
+    if (
+      !window.confirm(
+        "Delete this code permanently? Any users who redeemed it will lose access.",
+      )
+    ) {
+      return;
+    }
     try {
       await deleteTrialCode({ data: { id } });
+      toast.success("Code deleted");
       refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -617,6 +636,10 @@ function AdminPanel() {
           <TabsContent value="codes" className="space-y-3">
             <Card className="space-y-2 p-3">
               <h3 className="font-semibold">New trial code</h3>
+              <p className="text-xs text-muted-foreground">
+                Revoke removes access from users who redeemed a code. Delete removes the code
+                entirely.
+              </p>
               <Input
                 placeholder="CODE"
                 value={newCode.code}
@@ -639,22 +662,46 @@ function AdminPanel() {
                 Create code
               </Button>
             </Card>
-            {codes.map((c) => (
-              <Card key={c.id} className="flex items-center justify-between p-3">
-                <div>
-                  <p className="font-mono font-semibold">{c.code}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {c.label || "—"} {c.unlimited ? "· unlimited" : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={c.is_active} onCheckedChange={(v) => toggleCode(c.id, v)} />
-                  <Button size="icon" variant="ghost" onClick={() => deleteCode(c.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </Card>
-            ))}
+            {codes.length === 0 ? (
+              <Card className="p-6 text-center text-sm text-muted-foreground">No codes yet</Card>
+            ) : (
+              codes.map((c) => (
+                <Card key={c.id} className="p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-mono font-semibold">{c.code}</p>
+                        <Badge variant={c.is_active ? "default" : "secondary"}>
+                          {c.is_active ? "Active" : "Revoked"}
+                        </Badge>
+                        {c.unlimited && <Badge variant="outline">Unlimited</Badge>}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {c.label || "No label"}
+                        {c.expires_at
+                          ? ` · expires ${new Date(c.expires_at).toLocaleDateString()}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      {c.is_active ? (
+                        <Button size="sm" variant="outline" onClick={() => revokeCode(c.id)}>
+                          Revoke
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => reactivateCode(c.id)}>
+                          Reactivate
+                        </Button>
+                      )}
+                      <Button size="sm" variant="destructive" onClick={() => deleteCode(c.id)}>
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))
+            )}
           </TabsContent>
 
           <TabsContent value="banners" className="space-y-3">

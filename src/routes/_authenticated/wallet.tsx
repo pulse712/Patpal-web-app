@@ -149,6 +149,43 @@ function Wallet() {
     return () => window.removeEventListener("focus", handleFocus);
   }, [uid, load]);
 
+  // Refresh when trial redemptions are revoked or wallet credits change
+  useEffect(() => {
+    if (!uid) return;
+
+    const channel = supabase
+      .channel(`wallet-updates:${uid}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "credit_transactions",
+          filter: `user_id=eq.${uid}`,
+        },
+        () => {
+          void load(uid);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "wallets",
+          filter: `user_id=eq.${uid}`,
+        },
+        () => {
+          void load(uid);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [uid, load]);
+
   async function redeemCode(e: React.FormEvent) {
     e.preventDefault();
     if (!uid || !code.trim()) return;

@@ -1,4 +1,4 @@
--- Fix revoke: always clear unlimited for users who redeemed that code.
+-- When a trial code is revoked, remove its redemption rows from wallet history.
 
 CREATE OR REPLACE FUNCTION public.revoke_trial_code_benefits(p_trial_code_id UUID)
 RETURNS void

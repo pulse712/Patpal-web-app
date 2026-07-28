@@ -156,10 +156,10 @@ function PalDashboard() {
           <Card className="flex items-start gap-3 border-primary/30 bg-primary/5 p-4">
             <Bell className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">Get call alerts on this device</p>
+              <p className="font-semibold">Get chat and call alerts on this device</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Enable notifications to receive incoming calls even when this browser is in the
-                background or you&apos;re using another device.
+                Enable notifications to receive new messages and incoming audio or video calls
+                even when this browser is in the background.
               </p>
               <Button
                 size="sm"
@@ -167,7 +167,7 @@ function PalDashboard() {
                 disabled={push.loading}
                 onClick={() => void push.enable()}
               >
-                {push.loading ? "Enabling…" : "Enable call notifications"}
+                {push.loading ? "Enabling…" : "Enable notifications"}
               </Button>
             </div>
           </Card>

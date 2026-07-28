@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { declineIncomingCall } from "@/lib/session.functions";
 import { fetchPublicProfile } from "@/lib/public-profiles";
+import { showLocalNotification } from "@/lib/local-notifications";
 
 export type IncomingCall = {
   sessionId: string;
@@ -73,6 +74,20 @@ export function useIncomingCalls(userId: string | null) {
         declineIncomingCall({ data: { sessionId: row.id } }).catch(() => {});
         dismissIncoming(row.id);
       }, RING_TIMEOUT_MS);
+
+      if (document.hidden) {
+        const url = call.conversationId
+          ? `/chat/${call.conversationId}?call=${call.kind}`
+          : `/home?incomingSession=${call.sessionId}&call=${call.kind}`;
+
+        void showLocalNotification({
+          title: call.kind === "video" ? "Incoming video call" : "Incoming voice call",
+          body: `${call.callerName} is calling you — tap to answer`,
+          url,
+          tag: `call-${call.sessionId}`,
+          requireInteraction: true,
+        });
+      }
     },
     [clearRingTimer, dismissIncoming],
   );

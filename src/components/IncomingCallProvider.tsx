@@ -3,6 +3,7 @@ import { CallScreen } from "@/components/CallScreen";
 import { IncomingCallOverlay } from "@/components/IncomingCallOverlay";
 import { useIncomingCalls } from "@/hooks/use-incoming-calls";
 import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
+import { startCallRingtone, stopCallRingtone } from "@/lib/call-ringtone";
 
 type IncomingCallContextValue = ReturnType<typeof useIncomingCalls>;
 
@@ -18,9 +19,17 @@ export function IncomingCallProvider({
   const value = useIncomingCalls(userId);
 
   useEffect(() => {
-    if (!value.incoming) return;
+    if (!value.incoming) {
+      stopCallRingtone();
+      return;
+    }
     void preloadAgoraSdk();
     void preloadCallMedia(value.incoming.kind);
+    startCallRingtone();
+
+    return () => {
+      stopCallRingtone();
+    };
   }, [value.incoming]);
 
   return (

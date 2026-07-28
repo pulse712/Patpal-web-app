@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { IncomingCallProvider } from "@/components/IncomingCallProvider";
 import { PushRegistration } from "@/components/PushRegistration";
 import { IncomingCallDeepLink } from "@/components/IncomingCallDeepLink";
+import { NotificationProvider } from "@/components/NotificationProvider";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: requireAuthBeforeLoad,
@@ -53,9 +54,11 @@ function AuthenticatedLayout() {
 
   return (
     <IncomingCallProvider userId={user.id}>
-      <PushRegistration />
-      <IncomingCallDeepLink />
-      <Outlet />
+      <NotificationProvider userId={user.id}>
+        <PushRegistration />
+        <IncomingCallDeepLink />
+        <Outlet />
+      </NotificationProvider>
     </IncomingCallProvider>
   );
 }

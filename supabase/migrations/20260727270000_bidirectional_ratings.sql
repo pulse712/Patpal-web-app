@@ -15,12 +15,20 @@ ALTER TABLE public.ratings
   ALTER COLUMN ratee_id SET NOT NULL;
 
 ALTER TABLE public.ratings DROP CONSTRAINT IF EXISTS ratings_session_id_key;
-DROP INDEX IF EXISTS ratings_session_rater_unique;
+ALTER TABLE public.ratings DROP CONSTRAINT IF EXISTS ratings_session_rater_unique;
 
-ALTER TABLE public.ratings
-  ADD CONSTRAINT ratings_session_rater_unique UNIQUE (session_id, rater_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'ratings_session_rater_unique'
+  ) THEN
+    ALTER TABLE public.ratings
+      ADD CONSTRAINT ratings_session_rater_unique UNIQUE (session_id, rater_id);
+  END IF;
+END $$;
 
 DROP POLICY IF EXISTS "ratings_client_insert" ON public.ratings;
+DROP POLICY IF EXISTS "ratings_participant_insert" ON public.ratings;
 
 CREATE POLICY "ratings_participant_insert" ON public.ratings
   FOR INSERT TO authenticated

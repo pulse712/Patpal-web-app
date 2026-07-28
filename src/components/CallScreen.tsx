@@ -70,7 +70,7 @@ type IRemoteVideo = import("agora-rtc-sdk-ng").IRemoteVideoTrack;
 const GRACE_SECONDS = 30; // extra seconds after balance runs out before forced end
 const WARN_SECONDS = 120; // show top-up warning when this many seconds remain
 const RING_TIMEOUT_MS = 45_000; // auto-cancel if pal never answers
-/** Minimum connected time before prompting the client for a review. */
+/** Minimum connected time before prompting for a post-call review. */
 const MIN_RATING_SECONDS = 15;
 
 const TOP_UP_PRESETS = [
@@ -265,7 +265,6 @@ export function CallScreen({
   // ── Rating state ─────────────────────────────────────────────────────────
   const [showRating, setShowRating] = useState(false);
   const ratingSessionIdRef = useRef<string | null>(null);
-  const palIdForRating = useRef(palId);
   const hasEndedRef = useRef(false); // guard against double-end
   const wasConnectedRef = useRef(false);
   const hasMarkedConnectedRef = useRef(false);
@@ -286,7 +285,6 @@ export function CallScreen({
   }
 
   function offerRatingIfEligible(): boolean {
-    if (isCallee) return false;
     if (!wasConnectedRef.current || !sessionIdRef.current) return false;
     if (elapsedRef.current < MIN_RATING_SECONDS) return false;
     ratingSessionIdRef.current = sessionIdRef.current;
@@ -1060,8 +1058,7 @@ export function CallScreen({
       {showRating && ratingSessionIdRef.current && (
         <RatingModal
           sessionId={ratingSessionIdRef.current}
-          palId={palIdForRating.current}
-          palName={remoteName}
+          rateeName={remoteName}
           durationMinutes={Math.max(1, Math.round(elapsedRef.current / 60))}
           onDone={finishAfterCall}
         />

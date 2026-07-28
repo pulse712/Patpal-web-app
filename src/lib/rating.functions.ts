@@ -164,14 +164,16 @@ export const listPalReviews = createServerFn({ method: "GET" })
           stars: number;
           comment: string | null;
           created_at: string;
-          rater_id?: string;
-          client_id?: string;
+          rater_id?: string | null;
+          client_id?: string | null;
+          ratee_id?: string | null;
+          pal_id?: string | null;
         }[]
       | null = null;
 
     const modern = await supabaseAdmin
       .from("ratings")
-      .select("id, stars, comment, created_at, rater_id")
+      .select("id, stars, comment, created_at, rater_id, client_id, ratee_id, pal_id")
       .eq("ratee_id", data.palId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -179,12 +181,12 @@ export const listPalReviews = createServerFn({ method: "GET" })
     if (modern.error && isMissingColumnError(modern.error, "ratee_id")) {
       const legacy = await supabaseAdmin
         .from("ratings")
-        .select("id, stars, comment, created_at, client_id")
+        .select("id, stars, comment, created_at, client_id, pal_id")
         .eq("pal_id", data.palId)
         .order("created_at", { ascending: false })
         .limit(limit);
       if (legacy.error) throw new Error(legacy.error.message);
-      rows = legacy.data ?? [];
+      rows = (legacy.data ?? []).filter((row) => row.client_id && row.client_id !== data.palId);
     } else {
       if (modern.error) throw new Error(modern.error.message);
       rows = modern.data ?? [];
@@ -192,31 +194,44 @@ export const listPalReviews = createServerFn({ method: "GET" })
 
     const reviewerIds = [
       ...new Set(
-        (rows ?? []).map((row) => ("rater_id" in row && row.rater_id) || row.client_id || ""),
+        (rows ?? []).map((row) => row.rater_id ?? row.client_id ?? "").filter(Boolean),
       ),
-    ].filter(Boolean);
+    ];
 
-    let nameById = new Map<string, string>();
+    const nameById = new Map<string, string>();
     if (reviewerIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from("profiles")
         .select("id, full_name")
         .in("id", reviewerIds);
-      nameById = new Map(
-        (profiles ?? []).map((p) => [p.id, p.full_name?.trim() || "User"]),
-      );
+
+      for (const profile of profiles ?? []) {
+        const trimmed = profile.full_name?.trim();
+        if (trimmed) nameById.set(profile.id, trimmed);
+      }
+
+      for (const reviewerId of reviewerIds) {
+        if (nameById.has(reviewerId)) continue;
+        const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(reviewerId);
+        const metaName =
+          typeof authUser.user?.user_metadata?.full_name === "string"
+            ? authUser.user.user_metadata.full_name.trim()
+            : "";
+        const emailName = authUser.user?.email?.split("@")[0]?.trim() ?? "";
+        const fallback = metaName || emailName || "Pat My Back user";
+        nameById.set(reviewerId, fallback);
+      }
     }
 
     const reviews: PalReview[] = (rows ?? []).map((row) => {
-      const reviewerId =
-        ("rater_id" in row && row.rater_id) || row.client_id || "";
-      const fullName = nameById.get(reviewerId) ?? "User";
+      const reviewerId = row.rater_id ?? row.client_id ?? "";
+      const reviewerName = nameById.get(reviewerId) || "Pat My Back user";
       return {
         id: row.id,
         stars: row.stars,
         comment: row.comment,
         createdAt: row.created_at,
-        reviewerName: fullName,
+        reviewerName,
       };
     });
 

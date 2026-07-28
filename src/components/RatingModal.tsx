@@ -14,8 +14,7 @@ import { submitRating } from "@/lib/rating.functions";
 
 interface RatingModalProps {
   sessionId: string;
-  palId: string;
-  palName: string;
+  rateeName: string;
   durationMinutes: number;
   onDone: () => void;
 }
@@ -24,8 +23,7 @@ const LABELS = ["", "Poor", "Fair", "Good", "Great", "Excellent"];
 
 export function RatingModal({
   sessionId,
-  palId,
-  palName,
+  rateeName,
   durationMinutes,
   onDone,
 }: RatingModalProps) {
@@ -79,7 +77,7 @@ export function RatingModal({
               <div>
                 <p className="font-bold text-base leading-tight">Rate your session</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {durationMinutes} min with {palName}
+                  {durationMinutes} min with {rateeName}
                 </p>
               </div>
               <button

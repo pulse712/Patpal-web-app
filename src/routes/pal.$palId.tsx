@@ -511,8 +511,15 @@ function PalProfile() {
                   key={review.id}
                   className="rounded-xl border border-border bg-card p-3"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold">{review.clientName}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Review by
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {review.reviewerName || "Pat My Back user"}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-0.5" aria-label={`${review.stars} stars`}>
                       {Array.from({ length: 5 }, (_, i) => (
                         <Star

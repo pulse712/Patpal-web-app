@@ -317,6 +317,8 @@ export type Database = {
           created_at: string;
           id: string;
           pal_id: string;
+          rater_id: string;
+          ratee_id: string;
           session_id: string;
           stars: number;
         };
@@ -326,6 +328,8 @@ export type Database = {
           created_at?: string;
           id?: string;
           pal_id: string;
+          rater_id: string;
+          ratee_id: string;
           session_id: string;
           stars: number;
         };
@@ -335,6 +339,8 @@ export type Database = {
           created_at?: string;
           id?: string;
           pal_id?: string;
+          rater_id?: string;
+          ratee_id?: string;
           session_id?: string;
           stars?: number;
         };

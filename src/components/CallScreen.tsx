@@ -70,6 +70,8 @@ type IRemoteVideo = import("agora-rtc-sdk-ng").IRemoteVideoTrack;
 const GRACE_SECONDS = 30; // extra seconds after balance runs out before forced end
 const WARN_SECONDS = 120; // show top-up warning when this many seconds remain
 const RING_TIMEOUT_MS = 45_000; // auto-cancel if pal never answers
+/** Minimum connected time before prompting the client for a review. */
+const MIN_RATING_SECONDS = 15;
 
 const TOP_UP_PRESETS = [
   { label: "$5", cents: 500 },
@@ -262,6 +264,7 @@ export function CallScreen({
 
   // ── Rating state ─────────────────────────────────────────────────────────
   const [showRating, setShowRating] = useState(false);
+  const ratingSessionIdRef = useRef<string | null>(null);
   const palIdForRating = useRef(palId);
   const hasEndedRef = useRef(false); // guard against double-end
   const wasConnectedRef = useRef(false);
@@ -280,6 +283,21 @@ export function CallScreen({
 
   function isJoinStale(generation: number) {
     return generation !== joinGenerationRef.current;
+  }
+
+  function offerRatingIfEligible(): boolean {
+    if (isCallee) return false;
+    if (!wasConnectedRef.current || !sessionIdRef.current) return false;
+    if (elapsedRef.current < MIN_RATING_SECONDS) return false;
+    ratingSessionIdRef.current = sessionIdRef.current;
+    setShowRating(true);
+    return true;
+  }
+
+  function finishAfterCall() {
+    setShowRating(false);
+    ratingSessionIdRef.current = null;
+    onEnd();
   }
 
   async function ensureSessionConnected() {
@@ -612,12 +630,15 @@ export function CallScreen({
     hasEndedRef.current = true;
     setStatus("ended");
     toast.info(`${remoteName} ended the call.`);
-    void leaveChannel();
-    onEnd();
+
     if (wasConnectedRef.current && sessionIdRef.current) {
-      void cleanupSession(true);
+      await cleanupSession(true);
     }
-  }, [leaveChannel, onEnd, remoteName]); // eslint-disable-line react-hooks/exhaustive-deps
+    await leaveChannel();
+
+    if (offerRatingIfEligible()) return;
+    onEnd();
+  }, [leaveChannel, onEnd, remoteName, isCallee]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     endCallRemotelyRef.current = () => {
@@ -680,11 +701,8 @@ export function CallScreen({
     await cleanupSession(true);
     await leaveChannel();
 
-    if (!isCallee && elapsed >= 30 && sessionIdRef.current) {
-      setShowRating(true);
-    } else {
-      onEnd();
-    }
+    if (offerRatingIfEligible()) return;
+    onEnd();
   }
 
   useEffect(() => {
@@ -1039,13 +1057,13 @@ export function CallScreen({
       </div>
 
       {/* ── Post-call rating modal ────────────────────────────────────── */}
-      {showRating && sessionIdRef.current && (
+      {showRating && ratingSessionIdRef.current && (
         <RatingModal
-          sessionId={sessionIdRef.current}
+          sessionId={ratingSessionIdRef.current}
           palId={palIdForRating.current}
           palName={remoteName}
-          durationMinutes={Math.max(1, Math.round(elapsed / 60))}
-          onDone={onEnd}
+          durationMinutes={Math.max(1, Math.round(elapsedRef.current / 60))}
+          onDone={finishAfterCall}
         />
       )}
     </div>

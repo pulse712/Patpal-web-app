@@ -33,6 +33,7 @@ import { useIsOnline } from "@/lib/presence";
 import { fetchPublicProfile } from "@/lib/public-profiles";
 import { getWalletBalance } from "@/lib/session.functions";
 import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
+import { listPalReviews, type PalReview } from "@/lib/rating.functions";
 import { CallScreen } from "@/components/CallScreen";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -116,6 +117,8 @@ function PalProfile() {
   const [callConversationId, setCallConversationId] = useState("");
   const [callerName, setCallerName] = useState("Someone");
   const getWalletBalanceFn = useServerFn(getWalletBalance);
+  const listPalReviewsFn = useServerFn(listPalReviews);
+  const [reviews, setReviews] = useState<PalReview[]>([]);
 
   useEffect(() => {
     try {
@@ -169,8 +172,17 @@ function PalProfile() {
       }
       setPal(palData ? ({ ...(palData as object), profiles: profile } as unknown as Pal) : null);
       setLoading(false);
+
+      if (palData) {
+        try {
+          const { reviews: palReviews } = await listPalReviewsFn({ data: { palId } });
+          setReviews(palReviews);
+        } catch {
+          setReviews([]);
+        }
+      }
     })();
-  }, [palId]);
+  }, [palId, listPalReviewsFn]);
 
   async function startChat() {
     setStarting("chat");
@@ -488,12 +500,42 @@ function PalProfile() {
         {/* Reviews */}
         <section className="px-5 pt-5 pb-8">
           <h3 className="text-sm font-bold">Reviews ({ratingCount})</h3>
-          {ratingCount === 0 ? (
-            <p className="mt-1.5 text-sm text-muted-foreground">No reviews yet</p>
-          ) : (
+          {reviews.length === 0 ? (
             <p className="mt-1.5 text-sm text-muted-foreground">
-              {ratingAvg.toFixed(1)} average from {ratingCount} sessions.
+              {ratingCount === 0 ? "No reviews yet" : `${ratingAvg.toFixed(1)} average rating`}
             </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {reviews.map((review) => (
+                <article
+                  key={review.id}
+                  className="rounded-xl border border-border bg-card p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">{review.clientName}</p>
+                    <div className="flex items-center gap-0.5" aria-label={`${review.stars} stars`}>
+                      {Array.from({ length: 5 }, (_, i) => (
+                        <Star
+                          key={i}
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            i < review.stars
+                              ? "fill-amber-400 text-amber-400"
+                              : "fill-none text-muted-foreground/30",
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {review.comment ? (
+                    <p className="mt-2 text-sm text-muted-foreground">{review.comment}</p>
+                  ) : null}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {new Date(review.createdAt).toLocaleDateString()}
+                  </p>
+                </article>
+              ))}
+            </div>
           )}
         </section>
 

@@ -53,7 +53,7 @@ export function RatingModal({
 
   return (
     /* Backdrop */
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-4 pb-8">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 px-4 pb-8">
       <div className="w-full max-w-md rounded-2xl bg-background shadow-2xl overflow-hidden">
         {done ? (
           <div className="flex flex-col items-center gap-3 py-10">
@@ -83,21 +83,25 @@ export function RatingModal({
             </div>
 
             <div className="px-5 py-6 space-y-5">
-              {/* Stars */}
-              <div className="flex flex-col items-center gap-3">
-                <div className="flex gap-2" role="group" aria-label="Star rating">
+              {/* Stars — hover on container avoids gap flicker; fixed label height stops layout jump */}
+              <div
+                className="flex flex-col items-center gap-3"
+                onMouseLeave={() => setHovered(0)}
+              >
+                <div className="flex gap-1" role="group" aria-label="Star rating">
                   {[1, 2, 3, 4, 5].map((s) => (
                     <button
                       key={s}
+                      type="button"
                       aria-label={`${s} star${s > 1 ? "s" : ""}`}
                       onMouseEnter={() => setHovered(s)}
-                      onMouseLeave={() => setHovered(0)}
+                      onFocus={() => setHovered(s)}
                       onClick={() => setStars(s)}
-                      className="transition-transform active:scale-90"
+                      className="rounded-full p-1.5 outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     >
                       <Star
                         className={cn(
-                          "h-10 w-10 transition-colors",
+                          "h-10 w-10 transition-colors duration-150",
                           s <= active
                             ? "fill-amber-400 text-amber-400"
                             : "fill-none text-muted-foreground/30",
@@ -106,9 +110,15 @@ export function RatingModal({
                     </button>
                   ))}
                 </div>
-                {active > 0 && (
-                  <p className="text-sm font-semibold text-amber-500">{LABELS[active]}</p>
-                )}
+                <p
+                  className={cn(
+                    "h-5 text-sm font-semibold transition-opacity duration-150",
+                    active > 0 ? "text-amber-500 opacity-100" : "opacity-0",
+                  )}
+                  aria-live="polite"
+                >
+                  {active > 0 ? LABELS[active] : "Rating"}
+                </p>
               </div>
 
               {/* Optional comment */}

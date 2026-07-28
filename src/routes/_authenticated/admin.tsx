@@ -50,6 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { AdminSessionsChart } from "@/components/AdminSessionsChart";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   beforeLoad: requireAdminBeforeLoad,
@@ -420,30 +421,7 @@ function AdminPanel() {
                   />
                 </div>
 
-                {/* Sessions per day mini-chart */}
-                <Card className="p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                    Sessions — last 14 days
-                  </p>
-                  <div className="flex items-end gap-1 h-20">
-                    {analytics.sessionsByDay.map(({ date, count }) => {
-                      const max = Math.max(...analytics.sessionsByDay.map((d) => d.count), 1);
-                      const pct = (count / max) * 100;
-                      return (
-                        <div key={date} className="flex flex-1 flex-col items-center gap-1 group">
-                          <div
-                            className="w-full rounded-t bg-primary/70 group-hover:bg-primary transition-colors"
-                            style={{ height: `${Math.max(pct, 4)}%` }}
-                            title={`${date}: ${count} sessions`}
-                          />
-                          <span className="text-[9px] text-muted-foreground hidden sm:block">
-                            {date.slice(5)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
+                <AdminSessionsChart data={analytics.sessionsByDay} />
 
                 {/* Top Pals */}
                 {analytics.topPals.length > 0 && (

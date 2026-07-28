@@ -109,7 +109,7 @@ function AdminPanel() {
   const [userHasMore, setUserHasMore] = useState(false);
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
 
-  const [newCode, setNewCode] = useState({ code: "", label: "", unlimited: false });
+  const [newCode, setNewCode] = useState({ label: "", unlimited: false });
   const [newBanner, setNewBanner] = useState({ title: "", body: "", image_url: "" });
   const [bannerImageUploading, setBannerImageUploading] = useState(false);
   const [cropDialogOpen, setCropDialogOpen] = useState(false);
@@ -211,17 +211,17 @@ function AdminPanel() {
   }
 
   async function createCode() {
-    if (!newCode.code) return toast.error("Code is required");
+    const label = newCode.label.trim();
+    if (!label) return toast.error("Label is required");
     try {
-      await createTrialCode({
+      const result = await createTrialCode({
         data: {
-          code: newCode.code,
-          label: newCode.label || undefined,
+          label,
           unlimited: newCode.unlimited,
         },
       });
-      setNewCode({ code: "", label: "", unlimited: false });
-      toast.success("Code created");
+      setNewCode({ label: "", unlimited: false });
+      toast.success(`Created — Label: ${label} · Code: ${result.code}`);
       refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create code");
@@ -684,16 +684,18 @@ function AdminPanel() {
                 Revoke removes access from users who redeemed a code. Delete removes the code
                 entirely.
               </p>
-              <Input
-                placeholder="CODE"
-                value={newCode.code}
-                onChange={(e) => setNewCode({ ...newCode, code: e.target.value })}
-              />
-              <Input
-                placeholder="Label (optional)"
-                value={newCode.label}
-                onChange={(e) => setNewCode({ ...newCode, label: e.target.value })}
-              />
+              <div className="space-y-1.5">
+                <Label htmlFor="code-label">Label</Label>
+                <Input
+                  id="code-label"
+                  placeholder="e.g. Summer promo"
+                  value={newCode.label}
+                  onChange={(e) => setNewCode({ ...newCode, label: e.target.value })}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Click create to generate a random 10-character redeem code for users.
+              </p>
               <div className="flex items-center justify-between">
                 <Label htmlFor="unlimited">Unlimited access</Label>
                 <Switch
@@ -712,20 +714,30 @@ function AdminPanel() {
               codes.map((c) => (
                 <Card key={c.id} className="p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-mono font-semibold">{c.code}</p>
-                        <Badge variant={c.is_active ? "default" : "secondary"}>
-                          {c.is_active ? "Active" : "Revoked"}
-                        </Badge>
-                        {c.unlimited && <Badge variant="outline">Unlimited</Badge>}
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Label
+                        </p>
+                        <p className="font-medium">{c.label || "—"}</p>
                       </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {c.label || "No label"}
-                        {c.expires_at
-                          ? ` · expires ${new Date(c.expires_at).toLocaleDateString()}`
-                          : ""}
-                      </p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Redeem code
+                        </p>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                          <p className="font-mono text-sm font-semibold tracking-wide">{c.code}</p>
+                          <Badge variant={c.is_active ? "default" : "secondary"}>
+                            {c.is_active ? "Active" : "Revoked"}
+                          </Badge>
+                          {c.unlimited && <Badge variant="outline">Unlimited</Badge>}
+                        </div>
+                      </div>
+                      {c.expires_at && (
+                        <p className="text-xs text-muted-foreground">
+                          Expires {new Date(c.expires_at).toLocaleDateString()}
+                        </p>
+                      )}
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
                       {c.is_active ? (

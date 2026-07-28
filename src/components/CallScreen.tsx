@@ -163,6 +163,17 @@ function isAgoraLeaveAbort(err: unknown): boolean {
   return msg.includes("WS_ABORT") || msg.includes("LEAVE");
 }
 
+async function disposeAgoraClient(client: AgoraClient | null | undefined) {
+  if (!client) return;
+  try {
+    await client.leave();
+  } catch (err) {
+    if (!isAgoraLeaveAbort(err)) {
+      console.warn("[CallScreen] dispose client failed:", err);
+    }
+  }
+}
+
 async function createLocalMediaTracks(
   AgoraRTC: AgoraSdk,
   kind: CallKind,
@@ -295,6 +306,7 @@ export function CallScreen({
   const joinChannel = useCallback(async (generation: number) => {
     const { palId, conversationId, kind, isCallee, sessionId } = joinParamsRef.current;
     let sessionCreated = false;
+    let client: AgoraClient | null = null;
     try {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
       if (isJoinStale(generation)) return;
@@ -345,12 +357,11 @@ export function CallScreen({
         );
       }
 
-      const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-      clientRef.current = client;
+      client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
 
       client.on("user-published", async (user, mediaType) => {
         if (mediaType !== "audio" && mediaType !== "video") return;
-        await playRemoteMedia(client, user, mediaType);
+        await playRemoteMedia(client!, user, mediaType);
       });
 
       client.on("user-unpublished", (_u, mt) => {
@@ -362,7 +373,12 @@ export function CallScreen({
       });
 
       await client.join(appId, agoraChannel, token, agoraUid);
-      if (isJoinStale(generation)) return;
+      if (isJoinStale(generation)) {
+        await disposeAgoraClient(client);
+        return;
+      }
+
+      clientRef.current = client;
 
       for (const user of client.remoteUsers) {
         if (user.hasAudio) await playRemoteMedia(client, user, "audio");
@@ -398,6 +414,9 @@ export function CallScreen({
         void ensureSessionConnected();
       }
     } catch (err: unknown) {
+      if (client && clientRef.current !== client) {
+        await disposeAgoraClient(client);
+      }
       if (isJoinStale(generation) || isAgoraLeaveAbort(err)) return;
       console.error("[CallScreen] Join failed:", err);
       if (sessionCreated && sessionIdRef.current) {

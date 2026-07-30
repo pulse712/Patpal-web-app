@@ -1,7 +1,7 @@
 import { createFileRoute, redirect, isRedirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 
-/** Public entry — send guests to browse, signed-in users to home dashboard. */
+/** Public entry — send guests to sign in, signed-in users to home dashboard. */
 export const Route = createFileRoute("/")({
   beforeLoad: async () => {
     if (typeof window !== "undefined") {
@@ -14,6 +14,6 @@ export const Route = createFileRoute("/")({
         if (isRedirect(err)) throw err;
       }
     }
-    throw redirect({ to: "/browse", replace: true });
+    throw redirect({ to: "/auth", replace: true });
   },
 });

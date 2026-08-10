@@ -9,8 +9,12 @@ import { useIsOnline } from "@/lib/presence";
 import { CallScreen } from "@/components/CallScreen";
 import { AppShell } from "@/components/AppShell";
 import { useIncomingCallContext } from "@/components/IncomingCallProvider";
-import { notifyNewMessage } from "@/lib/notify.functions";
 import { fetchPublicProfile } from "@/lib/public-profiles";
+import {
+  useConversationMessages,
+  loadOlderMessages,
+  sendConversationMessage,
+} from "@/lib/conversation-messages";
 
 export const Route = createFileRoute("/_authenticated/chat/$conversationId")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -23,23 +27,14 @@ export const Route = createFileRoute("/_authenticated/chat/$conversationId")({
   component: Chat,
 });
 
-type Message = {
-  id: string;
-  conversation_id: string;
-  sender_id: string;
-  body: string;
-  created_at: string;
-};
 type ConvoParty = { pal_id: string; client_id: string };
-
-const PAGE_SIZE = 50;
 
 function Chat() {
   const { conversationId } = Route.useParams();
   const search = Route.useSearch();
   const incomingCtx = useIncomingCallContext();
   const [me, setMe] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { messages, hasMoreOlder, loadingOlder } = useConversationMessages(conversationId);
   const [text, setText] = useState("");
   const [otherName, setOtherName] = useState("Chat");
   const [otherId, setOtherId] = useState<string | null>(null);
@@ -47,11 +42,9 @@ function Chat() {
   const [isClient, setIsClient] = useState(false);
   const [myName, setMyName] = useState("Someone");
   const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [oldestCreatedAt, setOldestCreatedAt] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  const prevLastIdRef = useRef<string | null>(null);
   const isOnline = useIsOnline(otherId);
 
   useEffect(() => {
@@ -76,43 +69,14 @@ function Chat() {
 
       const myProf = await fetchPublicProfile(sess.session.user.id);
       setMyName(myProf?.full_name ?? "Someone");
-
-      // Load most recent PAGE_SIZE messages
-      const { data: msgs } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: false })
-        .limit(PAGE_SIZE);
-
-      const sorted = ((msgs ?? []) as Message[]).reverse();
-      setMessages(sorted);
-      setHasMore((msgs ?? []).length === PAGE_SIZE);
-      if (sorted.length > 0) setOldestCreatedAt(sorted[0].created_at);
     })();
   }, [conversationId]);
 
-  async function loadOlderMessages() {
-    if (!oldestCreatedAt || loadingMore) return;
-    setLoadingMore(true);
+  async function handleLoadOlder() {
     const scroller = scrollerRef.current;
     const prevHeight = scroller?.scrollHeight ?? 0;
-
-    const { data: older } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .lt("created_at", oldestCreatedAt)
-      .order("created_at", { ascending: false })
-      .limit(PAGE_SIZE);
-
-    const sorted = ((older ?? []) as Message[]).reverse();
     stickToBottomRef.current = false;
-    setMessages((prev) => [...sorted, ...prev]);
-    setHasMore(sorted.length === PAGE_SIZE);
-    if (sorted.length > 0) setOldestCreatedAt(sorted[0].created_at);
-    setLoadingMore(false);
-
+    await loadOlderMessages(conversationId);
     requestAnimationFrame(() => {
       if (scroller) scroller.scrollTop = scroller.scrollHeight - prevHeight;
     });
@@ -123,29 +87,15 @@ function Chat() {
     incomingCtx.checkConversationCall(conversationId);
   }, [search.call, me, conversationId, incomingCtx]);
 
+  // Distinguish a live message appended at the end (scroll down) from older
+  // history prepended at the front via handleLoadOlder (preserve position —
+  // that path already sets stickToBottomRef.current = false itself).
   useEffect(() => {
-    const channel = supabase
-      .channel(`messages:${conversationId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          stickToBottomRef.current = true;
-          setMessages((prev) => [...prev, payload.new as Message]);
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId]);
-
-  useEffect(() => {
+    const newLastId = messages.length > 0 ? messages[messages.length - 1].id : null;
+    if (prevLastIdRef.current !== null && newLastId !== prevLastIdRef.current) {
+      stickToBottomRef.current = true;
+    }
+    prevLastIdRef.current = newLastId;
     if (!stickToBottomRef.current) return;
     scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
@@ -156,22 +106,8 @@ function Chat() {
     const body = text.trim();
     setText("");
     stickToBottomRef.current = true;
-    const { error } = await supabase
-      .from("messages")
-      .insert({ conversation_id: conversationId, sender_id: me, body });
-    if (error) {
-      setText(body);
-      return;
-    }
-    // Fire push in background — don't await so UI stays fast
-    notifyNewMessage({
-      data: {
-        conversationId,
-        preview: body.length > 80 ? body.slice(0, 80) + "…" : body,
-      },
-    }).catch(() => {
-      /* best-effort */
-    });
+    const result = await sendConversationMessage(conversationId, me, body);
+    if (!result.ok) setText(body);
   }
 
   return (
@@ -190,114 +126,114 @@ function Chat() {
 
       <AppShell fullHeight>
         <div className="flex h-[calc(100dvh-4rem)] min-h-0 flex-1 flex-col bg-background md:h-[calc(100dvh-2rem)] md:rounded-2xl md:border md:border-border md:shadow-card">
-        <header className="flex items-center gap-3 border-b border-border bg-background px-4 py-3">
-          <Link
-            to="/chats"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-muted"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div className="relative shrink-0">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
-              {otherName.slice(0, 1).toUpperCase()}
-            </div>
-            <span
-              className={cn(
-                "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background",
-                isOnline ? "bg-success" : "bg-muted-foreground/50",
-              )}
-              aria-label={isOnline ? "Online" : "Offline"}
-            />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold leading-tight">{otherName}</p>
-            <p
-              className={cn(
-                "text-[11px] leading-tight",
-                isOnline ? "text-success" : "text-muted-foreground",
-              )}
+          <header className="flex items-center gap-3 border-b border-border bg-background px-4 py-3">
+            <Link
+              to="/chats"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-muted"
             >
-              {isOnline ? "Online" : "Offline"}
-            </p>
-          </div>
-          <button
-            onClick={() => setActiveCall("audio")}
-            aria-label="Audio call"
-            disabled={!isClient}
-            title={isClient ? "Audio call" : "Only clients can start calls"}
-            className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Phone className="h-5 w-5 text-primary" />
-          </button>
-          <button
-            onClick={() => setActiveCall("video")}
-            aria-label="Video call"
-            disabled={!isClient}
-            title={isClient ? "Video call" : "Only clients can start calls"}
-            className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Video className="h-5 w-5 text-primary" />
-          </button>
-        </header>
-
-        <div ref={scrollerRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
-          {hasMore && (
-            <div className="flex justify-center pb-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={loadOlderMessages}
-                disabled={loadingMore}
-              >
-                {loadingMore ? "Loading…" : "Load older messages"}
-              </Button>
-            </div>
-          )}
-          {messages.length === 0 && (
-            <p className="mt-10 text-center text-sm text-muted-foreground">
-              Say hi to break the ice 👋
-            </p>
-          )}
-          {messages.map((m) => {
-            const mine = m.sender_id === me;
-            return (
-              <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
-                <div
-                  className={cn(
-                    "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
-                    mine
-                      ? "bg-primary text-primary-foreground rounded-br-sm"
-                      : "bg-muted text-foreground rounded-bl-sm",
-                  )}
-                >
-                  {m.body}
-                </div>
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <div className="relative shrink-0">
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
+                {otherName.slice(0, 1).toUpperCase()}
               </div>
-            );
-          })}
-        </div>
+              <span
+                className={cn(
+                  "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background",
+                  isOnline ? "bg-success" : "bg-muted-foreground/50",
+                )}
+                aria-label={isOnline ? "Online" : "Offline"}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold leading-tight">{otherName}</p>
+              <p
+                className={cn(
+                  "text-[11px] leading-tight",
+                  isOnline ? "text-success" : "text-muted-foreground",
+                )}
+              >
+                {isOnline ? "Online" : "Offline"}
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveCall("audio")}
+              aria-label="Audio call"
+              disabled={!isClient}
+              title={isClient ? "Audio call" : "Only clients can start calls"}
+              className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Phone className="h-5 w-5 text-primary" />
+            </button>
+            <button
+              onClick={() => setActiveCall("video")}
+              aria-label="Video call"
+              disabled={!isClient}
+              title={isClient ? "Video call" : "Only clients can start calls"}
+              className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Video className="h-5 w-5 text-primary" />
+            </button>
+          </header>
 
-        <form
-          onSubmit={send}
-          className="flex items-center gap-2 border-t border-border bg-background px-3 py-2"
-          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.5rem)" }}
-        >
-          <Input
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Message…"
-            className="h-11 flex-1"
-          />
-          <Button
-            type="submit"
-            size="icon"
-            className="h-11 w-11 shrink-0 rounded-full"
-            disabled={!text.trim()}
+          <div ref={scrollerRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
+            {hasMoreOlder && (
+              <div className="flex justify-center pb-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleLoadOlder}
+                  disabled={loadingOlder}
+                >
+                  {loadingOlder ? "Loading…" : "Load older messages"}
+                </Button>
+              </div>
+            )}
+            {messages.length === 0 && (
+              <p className="mt-10 text-center text-sm text-muted-foreground">
+                Say hi to break the ice 👋
+              </p>
+            )}
+            {messages.map((m) => {
+              const mine = m.sender_id === me;
+              return (
+                <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+                  <div
+                    className={cn(
+                      "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
+                      mine
+                        ? "bg-primary text-primary-foreground rounded-br-sm"
+                        : "bg-muted text-foreground rounded-bl-sm",
+                    )}
+                  >
+                    {m.body}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <form
+            onSubmit={send}
+            className="flex items-center gap-2 border-t border-border bg-background px-3 py-2"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.5rem)" }}
           >
-            <Send className="h-4 w-4" />
-          </Button>
-        </form>
+            <Input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Message…"
+              className="h-11 flex-1"
+            />
+            <Button
+              type="submit"
+              size="icon"
+              className="h-11 w-11 shrink-0 rounded-full"
+              disabled={!text.trim()}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
         </div>
       </AppShell>
     </>

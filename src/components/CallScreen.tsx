@@ -19,20 +19,23 @@ import {
   PhoneOff,
   Loader2,
   Volume2,
+  VolumeX,
   AlertTriangle,
   Plus,
   CheckCircle2,
+  Minimize2,
+  Maximize2,
+  MessageSquare,
+  Send,
+  SwitchCamera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { getAgoraToken } from "@/lib/agora.functions";
-import {
-  awaitCallMediaPrewarm,
-  preloadAgoraSdk,
-  resetCallPrewarm,
-} from "@/lib/agora-prewarm";
+import { awaitCallMediaPrewarm, preloadAgoraSdk, resetCallPrewarm } from "@/lib/agora-prewarm";
 import {
   startSession,
   endSession,
@@ -44,6 +47,8 @@ import {
 } from "@/lib/session.functions";
 import { RatingModal } from "@/components/RatingModal";
 import { CallTopUpPayment } from "@/components/CallTopUpPayment";
+import { startCallRingtone, stopCallRingtone } from "@/lib/call-ringtone";
+import { useConversationMessages, sendConversationMessage } from "@/lib/conversation-messages";
 
 type CallKind = "audio" | "video";
 
@@ -66,10 +71,12 @@ type ILocalAudio = import("agora-rtc-sdk-ng").ILocalAudioTrack;
 type ILocalVideo = import("agora-rtc-sdk-ng").ILocalVideoTrack;
 type IRemoteAudio = import("agora-rtc-sdk-ng").IRemoteAudioTrack;
 type IRemoteVideo = import("agora-rtc-sdk-ng").IRemoteVideoTrack;
+type ICameraVideo = import("agora-rtc-sdk-ng").ICameraVideoTrack;
 
 const GRACE_SECONDS = 30; // extra seconds after balance runs out before forced end
 const WARN_SECONDS = 120; // show top-up warning when this many seconds remain
 const RING_TIMEOUT_MS = 45_000; // auto-cancel if pal never answers
+const REMOTE_RECONNECT_GRACE_MS = 20_000; // grace period after remote drops before ending the call
 /** Minimum connected time before prompting for a post-call review. */
 const MIN_RATING_SECONDS = 15;
 
@@ -122,7 +129,9 @@ async function createMicrophoneTrack(
   opts?: { skipPrime?: boolean },
 ): Promise<ILocalAudio | null> {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("This browser does not support microphone access. Try Chrome, Edge, or Safari.");
+    throw new Error(
+      "This browser does not support microphone access. Try Chrome, Edge, or Safari.",
+    );
   }
 
   if (!opts?.skipPrime) {
@@ -241,6 +250,54 @@ export function CallScreen({
   const [listenOnly, setListenOnly] = useState(false);
   const [camOff, setCamOff] = useState(false);
   const [remoteJoined, setRemoteJoined] = useState(false);
+  // Two independent sources of "not fully connected right now" — the remote
+  // peer dropping (user-left, transient) vs. our own Agora connection
+  // reconnecting — kept separate so one clearing doesn't mask the other
+  // still being true (e.g. our own connection blips back to CONNECTED while
+  // the remote party genuinely hasn't returned yet).
+  const [remoteDropping, setRemoteDropping] = useState(false);
+  const [localReconnecting, setLocalReconnecting] = useState(false);
+  const reconnecting = remoteDropping || localReconnecting;
+  const reconnectingRef = useRef(false);
+  const [volume, setVolume] = useState(100);
+  const [showVolume, setShowVolume] = useState(false);
+  const volumeRef = useRef(100);
+  const remoteAudioTrackRef = useRef<IRemoteAudio | null>(null);
+  const remoteVideoTrackRef = useRef<IRemoteVideo | null>(null);
+
+  // ── Audio output device (speaker/earpiece/headset) ─────────────────────
+  // Not supported on Safari/iOS — the browser simply won't report devices,
+  // so the picker stays hidden there rather than showing a dead control.
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
+  const selectedOutputIdRef = useRef<string | null>(null);
+
+  // ── In-call chat state ───────────────────────────────────────────────────
+  const [showChat, setShowChat] = useState(false);
+  const showChatRef = useRef(false);
+  const { messages: chatMessages, loaded: chatLoaded } = useConversationMessages(conversationId);
+  const [chatText, setChatText] = useState("");
+  const [chatUnread, setChatUnread] = useState(0);
+  const [meId, setMeId] = useState<string | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // ── Front/back camera switch ─────────────────────────────────────────────
+  const camerasRef = useRef<MediaDeviceInfo[]>([]);
+  const cameraIndexRef = useRef(0);
+  const [cameraCount, setCameraCount] = useState(0);
+  const [switchingCamera, setSwitchingCamera] = useState(false);
+
+  // ── Minimize / floating pill state ──────────────────────────────────────
+  const [minimized, setMinimized] = useState(false);
+  const [pillPos, setPillPos] = useState<{ x: number; y: number } | null>(null);
+  const dragStateRef = useRef<{
+    dragging: boolean;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
 
   // ── Billing state ────────────────────────────────────────────────────────
   const [balanceSec, setBalanceSec] = useState<number | null>(null); // null = loading
@@ -334,6 +391,7 @@ export function CallScreen({
   const localVideoRef = useRef<ILocalVideo | null>(null);
   const localVideoElRef = useRef<HTMLDivElement>(null);
   const remoteVideoElRef = useRef<HTMLDivElement>(null);
+  const remoteDropTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Timers ────────────────────────────────────────────────────────────────
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -357,15 +415,28 @@ export function CallScreen({
       ) {
         await client.subscribe(user, mediaType);
         if (mediaType === "audio") {
-          (user.audioTrack as IRemoteAudio)?.play();
+          const track = user.audioTrack as IRemoteAudio | undefined;
+          track?.play();
+          track?.setVolume(volumeRef.current);
+          if (selectedOutputIdRef.current) {
+            void track?.setPlaybackDevice(selectedOutputIdRef.current).catch(() => {});
+          }
+          remoteAudioTrackRef.current = track ?? null;
         }
-        if (mediaType === "video" && remoteVideoElRef.current) {
-          (user.videoTrack as IRemoteVideo)?.play(remoteVideoElRef.current);
+        if (mediaType === "video") {
+          const track = user.videoTrack as IRemoteVideo | undefined;
+          remoteVideoTrackRef.current = track ?? null;
+          if (track && remoteVideoElRef.current) track.play(remoteVideoElRef.current);
         }
         markRemotePresent();
       }
 
       function markRemotePresent() {
+        if (remoteDropTimerRef.current) {
+          clearTimeout(remoteDropTimerRef.current);
+          remoteDropTimerRef.current = null;
+        }
+        setRemoteDropping(false);
         setRemoteJoined(true);
         setStatus("connected");
         void ensureSessionConnected();
@@ -445,11 +516,47 @@ export function CallScreen({
       });
 
       client.on("user-unpublished", (_u, mt) => {
-        if (mt === "video") setRemoteJoined(false);
+        // Drop our ref to the now-dead track so a later un-minimize doesn't
+        // try to replay a stale/unpublished track into the video element.
+        if (mt === "video") {
+          setRemoteJoined(false);
+          remoteVideoTrackRef.current = null;
+        } else if (mt === "audio") {
+          remoteAudioTrackRef.current = null;
+        }
       });
-      client.on("user-left", () => {
+      client.on("user-left", (_user, reason) => {
         setRemoteJoined(false);
-        endCallRemotelyRef.current();
+        if (reason === "Quit") {
+          // Explicit hangup — end immediately.
+          endCallRemotelyRef.current();
+          return;
+        }
+        // Likely a transient network drop (e.g. server timeout) — give the
+        // other side a window to reconnect before treating this as a hangup.
+        // Drop our track refs too: a hard network-loss disconnect can fire
+        // user-left directly without a preceding user-unpublished, so a
+        // minimize/un-minimize during the grace window must not replay them.
+        remoteVideoTrackRef.current = null;
+        remoteAudioTrackRef.current = null;
+        setRemoteDropping(true);
+        if (remoteDropTimerRef.current) clearTimeout(remoteDropTimerRef.current);
+        remoteDropTimerRef.current = setTimeout(() => {
+          remoteDropTimerRef.current = null;
+          endCallRemotelyRef.current();
+        }, REMOTE_RECONNECT_GRACE_MS);
+      });
+      client.on("connection-state-change", (curState, _revState, reason) => {
+        if (curState === "RECONNECTING") {
+          setLocalReconnecting(true);
+        } else if (curState === "CONNECTED") {
+          setLocalReconnecting(false);
+        } else if (curState === "DISCONNECTED" && reason && reason !== "LEAVE") {
+          // SDK gave up reconnecting on our own connection.
+          setLocalReconnecting(false);
+          toast.error("Connection lost — call ended.");
+          void handleEnd();
+        }
       });
 
       await client.join(appId, agoraChannel, token, agoraUid);
@@ -472,12 +579,40 @@ export function CallScreen({
 
       await syncExistingRemoteUsers(client);
       resetCallPrewarm();
+
+      // Not supported on Safari/iOS — resolves to [] there, so the output
+      // picker in the UI simply won't render.
+      AgoraRTC.getPlaybackDevices()
+        .then((devices) => {
+          if (!isJoinStale(generation)) setOutputDevices(devices);
+        })
+        .catch(() => {});
+
+      if (kind === "video" && video) {
+        AgoraRTC.getCameras()
+          .then((cams) => {
+            if (isJoinStale(generation)) return;
+            camerasRef.current = cams;
+            setCameraCount(cams.length);
+            // Figure out which of the listed cameras we actually opened, so the
+            // first flip goes to a genuinely different one instead of index 0.
+            const activeId = video.getMediaStreamTrack().getSettings().deviceId;
+            const idx = cams.findIndex((c) => c.deviceId === activeId);
+            cameraIndexRef.current = idx >= 0 ? idx : 0;
+          })
+          .catch(() => {});
+      }
     } catch (err: unknown) {
       if (client && clientRef.current !== client) {
         await disposeAgoraClient(client);
       }
       if (isJoinStale(generation) || isAgoraLeaveAbort(err)) return;
       console.error("[CallScreen] Join failed:", err);
+      // A connection-state-change DISCONNECTED event can fire (and call
+      // handleEnd) while this join() promise is still in flight — if that
+      // already ran, don't repeat cleanup/leaveChannel/onEnd here too.
+      if (hasEndedRef.current) return;
+      hasEndedRef.current = true;
       if (sessionCreated && sessionIdRef.current) {
         try {
           await cancelSession({ data: { sessionId: sessionIdRef.current } });
@@ -508,6 +643,10 @@ export function CallScreen({
   function startElapsedTimer() {
     if (elapsedTimerRef.current) return; // already running
     elapsedTimerRef.current = setInterval(() => {
+      // Don't advance duration/billing while we're in the reconnect grace
+      // window — no media is actually flowing, so the caller shouldn't be
+      // charged (and call time shouldn't tick) for a silent dropout.
+      if (reconnectingRef.current) return;
       setElapsed((e) => {
         const next = e + 1;
         elapsedRef.current = next;
@@ -535,6 +674,10 @@ export function CallScreen({
     if (remaining <= 0 && graceRemaining === null && !graceTimerRef.current) {
       setGraceRemaining(GRACE_SECONDS);
       graceTimerRef.current = setInterval(() => {
+        // Don't burn down the depleted-balance grace period while we're
+        // separately waiting out a connection reconnect — the user should
+        // get the full grace window once they're actually back on the call.
+        if (reconnectingRef.current) return;
         setGraceRemaining((g) => {
           if (g === null || g <= 1) {
             if (graceTimerRef.current) {
@@ -586,6 +729,10 @@ export function CallScreen({
   const leaveChannel = useCallback(async () => {
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
     if (graceTimerRef.current) clearInterval(graceTimerRef.current);
+    if (remoteDropTimerRef.current) {
+      clearTimeout(remoteDropTimerRef.current);
+      remoteDropTimerRef.current = null;
+    }
     localAudioRef.current?.close();
     localVideoRef.current?.close();
     const client = clientRef.current;
@@ -606,6 +753,11 @@ export function CallScreen({
   async function cleanupSession(billSession: boolean) {
     if (!sessionIdRef.current) return;
     const sid = sessionIdRef.current;
+    // Clear synchronously (before the await below) so a second concurrent
+    // caller — e.g. the join-failure catch block racing the
+    // connection-state-change DISCONNECTED handler's handleEnd() — sees this
+    // already claimed instead of double-cancelling the same session.
+    sessionIdRef.current = null;
     try {
       if (isCallee) {
         if (billSession && wasConnectedRef.current) {
@@ -730,6 +882,16 @@ export function CallScreen({
     return () => window.clearTimeout(timer);
   }, [isCallee, status, remoteJoined]); // eslint-disable-line
 
+  // Caller-side ringback tone while waiting for the other party to answer.
+  // Guarded by wasConnectedRef so it doesn't restart mid-call — remoteJoined
+  // can flip back to false without a real hangup (e.g. the other side toggles
+  // their camera off, or we're in the reconnect grace window).
+  useEffect(() => {
+    if (isCallee || status !== "connected" || remoteJoined || wasConnectedRef.current) return;
+    startCallRingtone();
+    return () => stopCallRingtone();
+  }, [isCallee, status, remoteJoined]);
+
   // ─────────────────────────────────────────────────────────────────────────
   // Mid-call top-up via Stripe PaymentIntent + Payment Element
   // Shows a minimal card input UI overlay if no saved card exists.
@@ -804,6 +966,165 @@ export function CallScreen({
     setCamOff(next);
   }
 
+  function handleVolumeChange(values: number[]) {
+    const next = values[0] ?? 100;
+    setVolume(next);
+    volumeRef.current = next;
+    remoteAudioTrackRef.current?.setVolume(next);
+  }
+
+  function selectOutputDevice(deviceId: string) {
+    setSelectedOutputId(deviceId);
+    selectedOutputIdRef.current = deviceId;
+    void remoteAudioTrackRef.current?.setPlaybackDevice(deviceId).catch(() => {
+      toast.error("Could not switch audio output.");
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Front/back camera switch
+  // ─────────────────────────────────────────────────────────────────────────
+  async function switchCamera() {
+    const cams = camerasRef.current;
+    const track = localVideoRef.current as unknown as ICameraVideo | null;
+    if (cams.length < 2 || !track || switchingCamera) return;
+    setSwitchingCamera(true);
+    try {
+      const nextIndex = (cameraIndexRef.current + 1) % cams.length;
+      await track.setDevice(cams[nextIndex].deviceId);
+      // Re-derive from the actual resulting device rather than trusting
+      // nextIndex blindly — the initial index guess (at join time) can be
+      // wrong if the browser didn't report a deviceId before the stream
+      // settled, in which case this keeps future taps correct even if the
+      // very first one silently landed back on the same camera.
+      const activeId = track.getMediaStreamTrack().getSettings().deviceId;
+      const actualIndex = cams.findIndex((c) => c.deviceId === activeId);
+      cameraIndexRef.current = actualIndex >= 0 ? actualIndex : nextIndex;
+    } catch {
+      toast.error("Could not switch camera.");
+    } finally {
+      setSwitchingCamera(false);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // In-call chat — same `messages` table/RLS as the regular chat screen, just
+  // rendered inline so nobody has to leave the call to read or send a reply.
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    reconnectingRef.current = reconnecting;
+  }, [reconnecting]);
+
+  useEffect(() => {
+    showChatRef.current = showChat;
+    if (showChat) setChatUnread(0);
+  }, [showChat]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setMeId(data.session?.user.id ?? null));
+  }, []);
+
+  // Track unread arrivals against the shared conversation store by the last-
+  // seen message's id (not "any id not seen before", and not a created_at
+  // high-water mark — two independently-inserted rows could in principle
+  // share a timestamp). The underlying chat screen can still be visible
+  // (e.g. the call is minimized) and paginate older history into the FRONT
+  // of this same shared list via loadOlderMessages, which must never be
+  // mistaken for new arrivals — slicing after the last-seen id's position
+  // handles that regardless of timestamp ties. Also gated on meId being
+  // resolved, so a message arriving from this same user's other tab/session
+  // during the brief getSession() lookup can't be misattributed as unread.
+  const lastSeenChatIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!chatLoaded || meId === null) return;
+    if (lastSeenChatIdRef.current === null) {
+      lastSeenChatIdRef.current = chatMessages.length > 0 ? chatMessages.at(-1)!.id : "";
+      return;
+    }
+    const lastIdx = chatMessages.findIndex((m) => m.id === lastSeenChatIdRef.current);
+    const newOnes = lastIdx === -1 ? [] : chatMessages.slice(lastIdx + 1);
+    if (chatMessages.length > 0) lastSeenChatIdRef.current = chatMessages.at(-1)!.id;
+    if (newOnes.length === 0 || showChatRef.current) return;
+    const fromOther = newOnes.filter((m) => m.sender_id !== meId).length;
+    if (fromOther > 0) setChatUnread((n) => n + fromOther);
+  }, [chatMessages, chatLoaded, meId]);
+
+  useEffect(() => {
+    if (!showChat) return;
+    chatScrollRef.current?.scrollTo({
+      top: chatScrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [chatMessages, showChat]);
+
+  async function sendChatMessage(e: React.FormEvent) {
+    e.preventDefault();
+    const body = chatText.trim();
+    if (!body || !conversationId || !meId) return;
+    setChatText("");
+    const result = await sendConversationMessage(conversationId, meId, body);
+    if (!result.ok) {
+      setChatText(body);
+      toast.error("Message failed to send.");
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Minimize / floating pill (WhatsApp-style)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Re-attach video playback to the fresh DOM nodes whenever we return from
+  // the minimized pill — audio keeps playing regardless since Agora's audio
+  // element isn't tied to a container we render.
+  useEffect(() => {
+    if (minimized) return;
+    if (remoteVideoTrackRef.current && remoteVideoElRef.current) {
+      remoteVideoTrackRef.current.play(remoteVideoElRef.current);
+    }
+    if (localVideoRef.current && localVideoElRef.current) {
+      localVideoRef.current.play(localVideoElRef.current);
+    }
+  }, [minimized]);
+
+  // Surface the full call screen for anything the user must not miss.
+  useEffect(() => {
+    if (showTopUp || showRating) setMinimized(false);
+  }, [showTopUp, showRating]);
+
+  const PILL_WIDTH = 224; // w-56
+  const PILL_HEIGHT = 64; // h-16
+
+  function handlePillPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragStateRef.current = {
+      dragging: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: rect.left,
+      originY: rect.top,
+      moved: false,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handlePillPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const state = dragStateRef.current;
+    if (!state?.dragging) return;
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) state.moved = true;
+    setPillPos({
+      x: Math.min(Math.max(0, state.originX + dx), window.innerWidth - PILL_WIDTH),
+      y: Math.min(Math.max(0, state.originY + dy), window.innerHeight - PILL_HEIGHT),
+    });
+  }
+
+  function handlePillPointerUp() {
+    const state = dragStateRef.current;
+    dragStateRef.current = null;
+    if (state && !state.moved) setMinimized(false);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Helpers
   // ─────────────────────────────────────────────────────────────────────────
@@ -828,6 +1149,54 @@ export function CallScreen({
   // ─────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────
+  if (minimized) {
+    return (
+      <div
+        onPointerDown={handlePillPointerDown}
+        onPointerMove={handlePillPointerMove}
+        onPointerUp={handlePillPointerUp}
+        onPointerCancel={handlePillPointerUp}
+        style={
+          pillPos ? { left: pillPos.x, top: pillPos.y, right: "auto", bottom: "auto" } : undefined
+        }
+        className={cn(
+          "fixed z-50 flex h-16 w-56 touch-none select-none items-center gap-3 rounded-2xl border border-white/10 bg-gray-900/95 px-3 text-white shadow-2xl backdrop-blur cursor-grab active:cursor-grabbing",
+          !pillPos && "bottom-24 right-4",
+        )}
+      >
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/20 text-lg font-bold text-primary">
+          {remoteName.slice(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{remoteName}</p>
+          <p className="text-xs text-gray-400">
+            {reconnecting
+              ? "Reconnecting…"
+              : remoteJoined || wasConnectedRef.current
+                ? fmt(elapsed)
+                : "Ringing…"}
+          </p>
+        </div>
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setMinimized(false)}
+          aria-label="Expand call"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleEnd}
+          aria-label="End call"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-600 hover:bg-red-700"
+        >
+          <PhoneOff className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white">
       {/* ── Remote video / audio area ──────────────────────────────────── */}
@@ -839,9 +1208,18 @@ export function CallScreen({
                 {remoteName.slice(0, 1).toUpperCase()}
               </div>
               <p className="text-lg font-semibold">{remoteName}</p>
-              <div className="flex items-center gap-2 text-sm text-gray-400">
+              <div
+                className={cn(
+                  "flex items-center gap-2 text-sm",
+                  reconnecting ? "text-orange-400" : "text-gray-400",
+                )}
+              >
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {status === "connecting" ? "Connecting…" : "Waiting for other person…"}
+                {status === "connecting"
+                  ? "Connecting…"
+                  : reconnecting
+                    ? "Reconnecting…"
+                    : "Waiting for other person…"}
               </div>
             </div>
           )}
@@ -860,6 +1238,10 @@ export function CallScreen({
             <div className="flex items-center gap-2 text-sm text-green-400">
               <Volume2 className="h-4 w-4" /> On call · {fmt(elapsed)}
             </div>
+          ) : reconnecting ? (
+            <div className="flex items-center gap-2 text-sm text-orange-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Reconnecting…
+            </div>
           ) : (
             <p className="text-sm text-gray-400">Ringing…</p>
           )}
@@ -869,12 +1251,23 @@ export function CallScreen({
       {/* ── Local video PiP ───────────────────────────────────────────── */}
       {kind === "video" && (
         <div
-          ref={localVideoElRef}
           className={cn(
             "absolute right-4 top-4 h-32 w-24 overflow-hidden rounded-xl border-2 border-white/20 bg-gray-800",
             camOff && "opacity-30",
           )}
-        />
+        >
+          <div ref={localVideoElRef} className="h-full w-full" />
+          {cameraCount > 1 && (
+            <button
+              onClick={switchCamera}
+              disabled={switchingCamera}
+              aria-label="Switch camera"
+              className="absolute bottom-1 right-1 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white hover:bg-black/80 disabled:opacity-50"
+            >
+              <SwitchCamera className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       )}
 
       {/* ── Balance / duration overlay ────────────────────────────────── */}
@@ -1002,8 +1395,90 @@ export function CallScreen({
         </div>
       )}
 
+      {/* ── Volume popover ───────────────────────────────────────────── */}
+      {showVolume && (
+        <div className="absolute inset-x-4 bottom-28 z-10 rounded-2xl bg-gray-900 border border-white/10 p-4 shadow-2xl">
+          <div className="flex items-center gap-3">
+            <VolumeX className="h-4 w-4 shrink-0 text-gray-400" />
+            <Slider
+              value={[volume]}
+              min={0}
+              max={100}
+              step={5}
+              onValueChange={handleVolumeChange}
+            />
+            <Volume2 className="h-4 w-4 shrink-0 text-gray-400" />
+          </div>
+          {outputDevices.length > 1 && (
+            <div className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
+              <span className="shrink-0 text-xs text-gray-400">Output</span>
+              <select
+                value={selectedOutputId ?? ""}
+                onChange={(e) => selectOutputDevice(e.target.value)}
+                className="flex-1 rounded-lg border border-white/20 bg-white/5 px-2 py-1.5 text-xs text-white"
+              >
+                {outputDevices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId} className="text-black">
+                    {d.label || "Audio output"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── In-call chat panel ───────────────────────────────────────── */}
+      {showChat && conversationId && (
+        <div className="absolute inset-x-4 bottom-28 z-10 flex h-80 flex-col rounded-2xl bg-gray-900 border border-white/10 shadow-2xl overflow-hidden">
+          <div ref={chatScrollRef} className="flex-1 space-y-2 overflow-y-auto p-3">
+            {chatMessages.length === 0 && (
+              <p className="mt-6 text-center text-xs text-gray-500">
+                Messages sent here also show up in your regular chat.
+              </p>
+            )}
+            {chatMessages.map((m) => {
+              const mine = m.sender_id === meId;
+              return (
+                <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+                  <div
+                    className={cn(
+                      "max-w-[80%] rounded-2xl px-3 py-1.5 text-sm",
+                      mine
+                        ? "bg-primary text-white rounded-br-sm"
+                        : "bg-white/10 text-white rounded-bl-sm",
+                    )}
+                  >
+                    {m.body}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <form
+            onSubmit={sendChatMessage}
+            className="flex items-center gap-2 border-t border-white/10 p-2"
+          >
+            <Input
+              value={chatText}
+              onChange={(e) => setChatText(e.target.value)}
+              placeholder="Message…"
+              className="h-10 flex-1 border-white/20 bg-white/5 text-white placeholder:text-gray-500"
+            />
+            <Button
+              type="submit"
+              size="icon"
+              className="h-10 w-10 shrink-0 rounded-full"
+              disabled={!chatText.trim()}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
+        </div>
+      )}
+
       {/* ── Controls bar ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-center gap-5 pb-12 pt-6">
+      <div className="flex flex-wrap items-center justify-center gap-4 gap-y-3 px-4 pb-12 pt-6">
         {/* Mute */}
         <button
           onClick={toggleMute}
@@ -1052,6 +1527,52 @@ export function CallScreen({
         ) : (
           <div className="h-14 w-14" />
         )}
+
+        {/* Volume */}
+        <button
+          onClick={() => {
+            setShowVolume((v) => !v);
+            setShowChat(false);
+          }}
+          aria-label="Volume"
+          className={cn(
+            "grid h-14 w-14 place-items-center rounded-full transition-colors",
+            showVolume ? "bg-primary/30 text-white" : "bg-white/10 text-white hover:bg-white/20",
+          )}
+        >
+          {volume === 0 ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
+        </button>
+
+        {/* Chat */}
+        {conversationId && (
+          <button
+            onClick={() => {
+              setShowChat((v) => !v);
+              setShowVolume(false);
+            }}
+            aria-label="Chat"
+            className={cn(
+              "relative grid h-14 w-14 place-items-center rounded-full transition-colors",
+              showChat ? "bg-primary/30 text-white" : "bg-white/10 text-white hover:bg-white/20",
+            )}
+          >
+            <MessageSquare className="h-6 w-6" />
+            {chatUnread > 0 && (
+              <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none">
+                {chatUnread > 9 ? "9+" : chatUnread}
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* Minimize */}
+        <button
+          onClick={() => setMinimized(true)}
+          aria-label="Minimize call"
+          className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+        >
+          <Minimize2 className="h-6 w-6" />
+        </button>
       </div>
 
       {/* ── Post-call rating modal ────────────────────────────────────── */}

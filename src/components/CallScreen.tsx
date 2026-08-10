@@ -1430,7 +1430,7 @@ export function CallScreen({
 
       {/* ── In-call chat panel ───────────────────────────────────────── */}
       {showChat && conversationId && (
-        <div className="absolute inset-x-4 bottom-28 z-10 flex h-80 flex-col rounded-2xl bg-gray-900 border border-white/10 shadow-2xl overflow-hidden">
+        <div className="absolute inset-x-4 bottom-28 z-10 flex h-80 flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 shadow-2xl md:inset-x-auto md:left-auto md:right-4 md:top-20 md:h-auto md:w-96">
           <div ref={chatScrollRef} className="flex-1 space-y-2 overflow-y-auto p-3">
             {chatMessages.length === 0 && (
               <p className="mt-6 text-center text-xs text-gray-500">

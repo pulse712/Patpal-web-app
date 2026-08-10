@@ -73,6 +73,22 @@ function resyncFromChannel() {
   emit();
 }
 
+// Closing/navigating away from the tab is the common case, not a crash —
+// broadcast an immediate "leave" so peers don't have to wait out the
+// STALE_MS fallback below (which exists for the true ungraceful-disconnect
+// case: crash, force-quit, killed background tab, network loss). Browsers
+// give unload handlers very little time to do async work, but `untrack()`
+// just sends one message over the already-open Realtime socket, so this is
+// a reasonable best effort. `pagehide` fires more reliably than `unload`
+// across mobile browsers (notably iOS Safari); `beforeunload` is a backstop.
+if (typeof window !== "undefined") {
+  const untrackOnUnload = () => {
+    if (channel) void channel.untrack();
+  };
+  window.addEventListener("pagehide", untrackOnUnload);
+  window.addEventListener("beforeunload", untrackOnUnload);
+}
+
 export function setPresenceUser(userId: string | null) {
   if (userId === currentUserId) return;
   currentUserId = userId;

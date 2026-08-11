@@ -285,7 +285,6 @@ export function CallScreen({
   const reconnecting = remoteDropping || localReconnecting;
   const reconnectingRef = useRef(false);
   const [volumeMode, setVolumeMode] = useState<"normal" | "high">("normal");
-  const [showVolume, setShowVolume] = useState(false);
   const volumeRef = useRef(VOLUME_NORMAL);
   const remoteAudioTrackRef = useRef<IRemoteAudio | null>(null);
   const remoteVideoTrackRef = useRef<IRemoteVideo | null>(null);
@@ -1474,52 +1473,24 @@ export function CallScreen({
         </div>
       )}
 
-      {/* ── Volume popover ───────────────────────────────────────────── */}
-      {showVolume && (
-        <div className="absolute inset-x-4 bottom-28 z-10 rounded-2xl border border-white/10 bg-gray-900 p-4 shadow-2xl">
-          <p className="mb-3 text-center text-xs font-medium text-gray-400">Call volume</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => applyVolumeMode("normal")}
-              className={cn(
-                "rounded-xl px-3 py-3 text-sm font-semibold transition-colors",
-                volumeMode === "normal"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-white/10 text-white hover:bg-white/15",
-              )}
-            >
-              Normal
-            </button>
-            <button
-              type="button"
-              onClick={() => applyVolumeMode("high")}
-              className={cn(
-                "rounded-xl px-3 py-3 text-sm font-semibold transition-colors",
-                volumeMode === "high"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-white/10 text-white hover:bg-white/15",
-              )}
-            >
-              High
-            </button>
-          </div>
-          {outputDevices.length > 1 && (
-            <div className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
-              <span className="shrink-0 text-xs text-gray-400">Output</span>
-              <select
-                value={selectedOutputId ?? ""}
-                onChange={(e) => selectOutputDevice(e.target.value)}
-                className="flex-1 rounded-lg border border-white/20 bg-white/5 px-2 py-1.5 text-xs text-white"
-              >
-                {outputDevices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId} className="text-black">
-                    {d.label || "Audio output"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+      {/* ── Audio output device (only when the device actually exposes more
+          than one — e.g. Bluetooth connected on Android). Not tied to the
+          volume toggle above; shown whenever relevant, no tap needed to
+          reveal it. ─────────────────────────────────────────────────── */}
+      {outputDevices.length > 1 && (
+        <div className="absolute inset-x-4 bottom-28 z-10 flex items-center gap-2 rounded-xl border border-white/10 bg-gray-900 px-3 py-2 shadow-2xl">
+          <span className="shrink-0 text-xs text-gray-400">Output</span>
+          <select
+            value={selectedOutputId ?? ""}
+            onChange={(e) => selectOutputDevice(e.target.value)}
+            className="flex-1 rounded-lg border border-white/20 bg-white/5 px-2 py-1.5 text-xs text-white"
+          >
+            {outputDevices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId} className="text-black">
+                {d.label || "Audio output"}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -1640,16 +1611,17 @@ export function CallScreen({
           <div className="h-14 w-14" />
         )}
 
-        {/* Volume — Normal / High */}
+        {/* Volume — tap toggles Normal ↔ High directly, no picker */}
         <button
-          onClick={() => {
-            setShowVolume((v) => !v);
-            setShowChat(false);
-          }}
-          aria-label={volumeMode === "high" ? "Volume: High" : "Volume: Normal"}
+          onClick={() => applyVolumeMode(volumeMode === "high" ? "normal" : "high")}
+          aria-label={
+            volumeMode === "high"
+              ? "Volume: High (tap for Normal)"
+              : "Volume: Normal (tap for High)"
+          }
           className={cn(
             "grid h-14 w-14 place-items-center rounded-full transition-colors",
-            showVolume || volumeMode === "high"
+            volumeMode === "high"
               ? "bg-primary/30 text-white"
               : "bg-white/10 text-white hover:bg-white/20",
           )}
@@ -1660,10 +1632,7 @@ export function CallScreen({
         {/* Chat */}
         {conversationId && (
           <button
-            onClick={() => {
-              setShowChat((v) => !v);
-              setShowVolume(false);
-            }}
+            onClick={() => setShowChat((v) => !v)}
             aria-label="Chat"
             className={cn(
               "relative grid h-14 w-14 place-items-center rounded-full transition-colors",

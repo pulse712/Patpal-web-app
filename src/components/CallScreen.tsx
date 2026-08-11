@@ -1515,8 +1515,8 @@ export function CallScreen({
 
       {/* ── Controls bar ─────────────────────────────────────────────── */}
       <div className="flex flex-col items-center gap-6 px-4 pb-12 pt-6">
-        {/* Secondary controls */}
-        <div className="flex flex-wrap items-center justify-center gap-4 gap-y-3">
+        {/* Secondary controls — 2 columns */}
+        <div className="grid grid-cols-2 items-center justify-items-center gap-x-10 gap-y-3">
           {/* Mute */}
           <button
             onClick={toggleMute}

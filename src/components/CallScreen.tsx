@@ -216,6 +216,12 @@ function isAgoraLeaveAbort(err: unknown): boolean {
   return msg.includes("WS_ABORT") || msg.includes("LEAVE");
 }
 
+/** Matches cancel_session_before_connect's RPC exception text (see the migration). */
+function isAlreadyConnectedError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("already connected");
+}
+
 async function disposeAgoraClient(client: AgoraClient | null | undefined) {
   if (!client) return;
   try {
@@ -817,6 +823,21 @@ export function CallScreen({
         await cancelSession({ data: { sessionId: sid } });
       }
     } catch (err) {
+      // wasConnectedRef can lag the server's real state — e.g.
+      // markSessionConnected's response gets lost on a flaky connection
+      // after the server already applied it, so we retry/give up and never
+      // set wasConnectedRef, even though the call did connect. cancelSession/
+      // declineIncomingCall then correctly refuse ("already connected") —
+      // without this fallback that failure was silently swallowed, leaving
+      // the session stuck active forever and blocking every future call.
+      if (isAlreadyConnectedError(err)) {
+        try {
+          await endSession({ data: { sessionId: sid } });
+          return;
+        } catch (endErr) {
+          console.error("[CallScreen] fallback endSession also failed:", endErr);
+        }
+      }
       console.error("[CallScreen] session cleanup failed:", err);
     }
   }

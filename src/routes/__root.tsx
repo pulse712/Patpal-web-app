@@ -14,6 +14,11 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { getOgImageUrl } from "@/lib/app-url";
 import { supabase } from "@/integrations/supabase/client";
 import { setPresenceUser } from "@/lib/presence";
+import {
+  isChunkLoadError,
+  reloadForStaleChunkOnce,
+  clearStaleChunkGuardAfterDelay,
+} from "@/lib/chunk-reload";
 import { Toaster } from "@/components/ui/sonner";
 import { PublicEnvScript } from "@/components/PublicEnvScript";
 import { StaffRoleProvider } from "@/hooks/use-staff-role";
@@ -44,6 +49,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   useEffect(() => {
+    // A stale tab from a previous deploy: router.invalidate()/reset() re-run
+    // the SAME already-loaded (and now hash-mismatched) module graph, so
+    // they can't fix this — only a full reload fetches the current entry.
+    if (isChunkLoadError(error) && reloadForStaleChunkOnce()) return;
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
   return (
@@ -151,6 +160,19 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
   useEffect(() => {
+    // A new deploy shipped while this tab was open — its module graph
+    // references chunk hashes that no longer exist. Vite fires this event
+    // instead of letting the failure surface as an uncaught error; reload
+    // once to fetch the current entry. clearStaleChunkGuardAfterDelay resets
+    // the guard once we've been running fine for a bit, so a future deploy
+    // still gets its own fresh-reload attempt.
+    function handlePreloadError(event: Event) {
+      event.preventDefault();
+      reloadForStaleChunkOnce();
+    }
+    window.addEventListener("vite:preloadError", handlePreloadError);
+    const clearGuard = clearStaleChunkGuardAfterDelay();
+
     // Register service worker for PWA support
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
@@ -179,7 +201,11 @@ function RootComponent() {
       router.invalidate();
       if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      window.removeEventListener("vite:preloadError", handlePreloadError);
+      clearGuard();
+      sub.subscription.unsubscribe();
+    };
   }, [router, queryClient]);
   return (
     <QueryClientProvider client={queryClient}>

@@ -28,6 +28,8 @@ import {
   MessageSquare,
   Send,
   SwitchCamera,
+  X,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +40,7 @@ import { getAgoraToken } from "@/lib/agora.functions";
 import { awaitCallMediaPrewarm, preloadAgoraSdk, resetCallPrewarm } from "@/lib/agora-prewarm";
 import {
   startSession,
+  startCallbackSession,
   endSession,
   cancelSession,
   createTopUpIntent,
@@ -61,6 +64,15 @@ interface CallScreenProps {
   callerName?: string;
   role?: "caller" | "callee";
   sessionId?: string;
+  /** True when a Pat Pal is calling a client back within an existing conversation — still billed to the client. */
+  asCallback?: boolean;
+  /**
+   * True when the viewer is the paying client for this call. NOT the same as
+   * "am I the caller" — a Pat Pal calling a client back is the caller but
+   * not the payer. Billing UI (warnings, top-up, remaining-time) must be
+   * gated on this, not on caller/callee role.
+   */
+  isPayingClient: boolean;
   onEnd: () => void;
 }
 
@@ -241,6 +253,8 @@ export function CallScreen({
   callerName,
   role = "caller",
   sessionId,
+  asCallback = false,
+  isPayingClient,
   onEnd,
 }: CallScreenProps) {
   const isCallee = role === "callee";
@@ -334,8 +348,9 @@ export function CallScreen({
     kind,
     isCallee,
     sessionId,
+    asCallback,
   });
-  joinParamsRef.current = { palId, conversationId, kind, isCallee, sessionId };
+  joinParamsRef.current = { palId, conversationId, kind, isCallee, sessionId, asCallback };
 
   function isJoinStale(generation: number) {
     return generation !== joinGenerationRef.current;
@@ -368,7 +383,7 @@ export function CallScreen({
         setElapsed(0);
         elapsedRef.current = 0;
 
-        if (!isCallee && !isUnlimited) {
+        if (isPayingClient && !isUnlimited) {
           const billing = await getActiveSessionBilling({ data: { sessionId: sid } });
           billableCapRef.current = billing.billableSecondsRemaining;
           setBalanceSec(billing.balanceSeconds);
@@ -401,7 +416,7 @@ export function CallScreen({
   // Join Agora + start session
   // ─────────────────────────────────────────────────────────────────────────
   const joinChannel = useCallback(async (generation: number) => {
-    const { palId, conversationId, kind, isCallee, sessionId } = joinParamsRef.current;
+    const { palId, conversationId, kind, isCallee, sessionId, asCallback } = joinParamsRef.current;
     let sessionCreated = false;
     let client: AgoraClient | null = null;
     try {
@@ -454,6 +469,18 @@ export function CallScreen({
       if (isCallee) {
         sessionIdRef.current = sessionId ?? null;
         if (sessionIdRef.current) setWatchSessionId(sessionIdRef.current);
+      } else if (asCallback) {
+        if (!conversationId) {
+          throw new Error("Cannot call back without an existing conversation.");
+        }
+        const sessionData = await startCallbackSession({
+          data: { conversationId, kind },
+        });
+        sessionIdRef.current = sessionData.sessionId;
+        setWatchSessionId(sessionData.sessionId);
+        sessionCreated = true;
+        setBalanceSec(sessionData.isUnlimited ? Infinity : sessionData.balanceSeconds);
+        setIsUnlimited(sessionData.isUnlimited);
       } else {
         const sessionData = await startSession({
           data: { palId, conversationId, kind },
@@ -659,7 +686,7 @@ export function CallScreen({
   // Watch balance & elapsed to trigger warning / grace / forced end
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!billingActive || isUnlimited || balanceSec === null || isCallee) return;
+    if (!billingActive || isUnlimited || balanceSec === null || !isPayingClient) return;
 
     const cap = billableCapRef.current ?? balanceSec;
     const remaining = cap - elapsed;
@@ -691,7 +718,7 @@ export function CallScreen({
         });
       }, 1000);
     }
-  }, [elapsed, balanceSec, isUnlimited, graceRemaining, isCallee, billingActive]); // eslint-disable-line
+  }, [elapsed, balanceSec, isUnlimited, graceRemaining, isPayingClient, billingActive]); // eslint-disable-line
 
   async function waitForTopUpApplied(purchasedSeconds: number) {
     const sid = sessionIdRef.current;
@@ -1138,12 +1165,12 @@ export function CallScreen({
   }
 
   const billableRemaining =
-    isCallee || balanceSec === null || isUnlimited
+    !isPayingClient || balanceSec === null || isUnlimited
       ? null
       : Math.max(0, (billableCapRef.current ?? balanceSec) - elapsed);
   const remaining = billableRemaining;
   const remainingLow =
-    !isCallee && remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
+    isPayingClient && remaining !== null && isFinite(remaining) && remaining <= WARN_SECONDS;
   const inGrace = graceRemaining !== null;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1275,7 +1302,7 @@ export function CallScreen({
         {kind === "video" && (
           <div className="rounded-full bg-black/50 px-3 py-1 text-xs font-mono">{fmt(elapsed)}</div>
         )}
-        {!isCallee && !isUnlimited && remaining !== null && (
+        {isPayingClient && !isUnlimited && remaining !== null && (
           <div
             className={cn(
               "rounded-full px-3 py-1 text-xs font-mono font-semibold",
@@ -1292,7 +1319,7 @@ export function CallScreen({
       </div>
 
       {/* ── 2-minute warning / top-up modal ──────────────────────────── */}
-      {!isCallee && showTopUp && (
+      {isPayingClient && showTopUp && (
         <div className="absolute inset-x-4 top-20 z-10 rounded-2xl bg-gray-900 border border-white/10 p-5 shadow-2xl">
           {topUpDone ? (
             <div className="flex flex-col items-center gap-2 py-2 text-green-400">
@@ -1431,6 +1458,23 @@ export function CallScreen({
       {/* ── In-call chat panel ───────────────────────────────────────── */}
       {showChat && conversationId && (
         <div className="absolute inset-x-4 bottom-28 z-10 flex h-80 flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 shadow-2xl md:inset-x-auto md:left-auto md:right-4 md:top-20 md:h-auto md:w-96">
+          <div className="flex items-center justify-between border-b border-white/10 px-2 py-2">
+            <button
+              onClick={() => setShowChat(false)}
+              aria-label="Back to call"
+              className="grid h-8 w-8 place-items-center rounded-full text-white hover:bg-white/10"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <span className="text-sm font-semibold text-white">Chat</span>
+            <button
+              onClick={() => setShowChat(false)}
+              aria-label="Close chat"
+              className="grid h-8 w-8 place-items-center rounded-full text-white hover:bg-white/10"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           <div ref={chatScrollRef} className="flex-1 space-y-2 overflow-y-auto p-3">
             {chatMessages.length === 0 && (
               <p className="mt-6 text-center text-xs text-gray-500">
@@ -1516,7 +1560,7 @@ export function CallScreen({
           >
             {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
           </button>
-        ) : !isCallee ? (
+        ) : isPayingClient ? (
           <button
             onClick={() => setShowTopUp(true)}
             aria-label="Add time"

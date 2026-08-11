@@ -54,10 +54,10 @@ export async function sendPushToUser(targetUserId: string, payload: PushPayload)
   );
 }
 
-/** Notify a Pat Pal on all registered browsers/devices (Web Push). */
+/** Notify the call recipient (client or Pat Pal) on all registered browsers/devices (Web Push). */
 export async function sendIncomingCallPush(opts: {
   sessionId: string;
-  palId: string;
+  recipientId: string;
   callerId: string;
   kind: "audio" | "video";
   conversationId: string | null;
@@ -75,7 +75,7 @@ export async function sendIncomingCallPush(opts: {
     ? `/chat/${opts.conversationId}?call=${opts.kind}`
     : `/home?incomingSession=${opts.sessionId}&call=${opts.kind}`;
 
-  await sendPushToUser(opts.palId, {
+  await sendPushToUser(opts.recipientId, {
     title: opts.kind === "video" ? "Incoming video call" : "Incoming voice call",
     body: `${callerName} is calling you — tap to answer`,
     url,

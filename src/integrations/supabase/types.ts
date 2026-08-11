@@ -362,6 +362,7 @@ export type Database = {
           cost_cents: number;
           ended_at: string | null;
           id: string;
+          initiated_by: string;
           kind: Database["public"]["Enums"]["session_kind"];
           pal_id: string;
           price_cents_per_minute: number;
@@ -377,6 +378,7 @@ export type Database = {
           cost_cents?: number;
           ended_at?: string | null;
           id?: string;
+          initiated_by: string;
           kind: Database["public"]["Enums"]["session_kind"];
           pal_id: string;
           price_cents_per_minute: number;
@@ -392,6 +394,7 @@ export type Database = {
           cost_cents?: number;
           ended_at?: string | null;
           id?: string;
+          initiated_by?: string;
           kind?: Database["public"]["Enums"]["session_kind"];
           pal_id?: string;
           price_cents_per_minute?: number;

@@ -21,9 +21,7 @@ const RING_TIMEOUT_MS = 45_000;
 
 /** Clear abandoned ringing sessions so a failed call attempt does not block the next one. */
 async function releaseStaleClientSessions(
-  supabaseAdmin: Awaited<
-    typeof import("@/integrations/supabase/client.server")
-  >["supabaseAdmin"],
+  supabaseAdmin: Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"],
   clientId: string,
 ) {
   const { data: activeSessions } = await supabaseAdmin
@@ -70,20 +68,21 @@ export const startSession = createServerFn({ method: "POST" })
       throw new Error("You cannot start a session with yourself.");
     }
 
-    const [{ data: isPatPal }, { data: pal }, { data: wallet }, isPlatformStaff] = await Promise.all([
-      supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "pat_pal" }),
-      supabaseAdmin
-        .from("pat_pals")
-        .select("user_id, price_cents_per_minute")
-        .eq("user_id", data.palId)
-        .maybeSingle(),
-      supabaseAdmin
-        .from("wallets")
-        .select("balance_seconds, unlimited_until, trial_code_id")
-        .eq("user_id", userId)
-        .maybeSingle(),
-      hasPlatformStaffRole(userId),
-    ]);
+    const [{ data: isPatPal }, { data: pal }, { data: wallet }, isPlatformStaff] =
+      await Promise.all([
+        supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "pat_pal" }),
+        supabaseAdmin
+          .from("pat_pals")
+          .select("user_id, price_cents_per_minute")
+          .eq("user_id", data.palId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("wallets")
+          .select("balance_seconds, unlimited_until, trial_code_id")
+          .eq("user_id", userId)
+          .maybeSingle(),
+        hasPlatformStaffRole(userId),
+      ]);
 
     if (isPatPal && !isPlatformStaff) {
       throw new Error(
@@ -111,6 +110,7 @@ export const startSession = createServerFn({ method: "POST" })
       .insert({
         client_id: userId,
         pal_id: data.palId,
+        initiated_by: userId,
         conversation_id: data.conversationId ?? null,
         kind: data.kind,
         status: "active",
@@ -134,12 +134,119 @@ export const startSession = createServerFn({ method: "POST" })
       const { sendIncomingCallPush } = await import("@/lib/push.functions");
       void sendIncomingCallPush({
         sessionId: session.id,
-        palId: data.palId,
+        recipientId: data.palId,
         callerId: userId,
         kind: data.kind,
         conversationId: data.conversationId ?? null,
       }).catch((err) => {
         console.error("[startSession] incoming call push failed:", err);
+      });
+    }
+
+    return {
+      sessionId: session.id,
+      balanceSeconds: isUnlimited ? 999999 : balanceSeconds,
+      isUnlimited,
+      priceCentsPerMin,
+    };
+  });
+
+// ─── Start callback session (Pat Pal calling a client back) ──────────────────
+// Lets a Pat Pal re-initiate a call within an existing conversation — e.g. to
+// call the client back after a drop — while still billing the client's
+// wallet, same as if the client had called. Requires an existing
+// conversation between the two (a Pat Pal cannot cold-call an arbitrary
+// client this way).
+export const startCallbackSession = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) =>
+    z
+      .object({
+        conversationId: z.string().uuid(),
+        kind: z.enum(["audio", "video", "chat"]),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId } = context;
+
+    const { data: convo } = await supabaseAdmin
+      .from("conversations")
+      .select("client_id, pal_id")
+      .eq("id", data.conversationId)
+      .maybeSingle();
+
+    if (!convo) throw new Error("Conversation not found.");
+    if (convo.pal_id !== userId) {
+      throw new Error("You are not the Pat Pal on this conversation.");
+    }
+    if (convo.client_id === userId) {
+      throw new Error("You cannot start a session with yourself.");
+    }
+
+    const clientId = convo.client_id;
+
+    const [{ data: pal }, { data: wallet }] = await Promise.all([
+      supabaseAdmin
+        .from("pat_pals")
+        .select("user_id, price_cents_per_minute")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("wallets")
+        .select("balance_seconds, unlimited_until, trial_code_id")
+        .eq("user_id", clientId)
+        .maybeSingle(),
+    ]);
+
+    if (!pal) throw new Error("Pat Pal profile not found.");
+
+    const { balanceSeconds, isUnlimited, canStartCall } = await resolveWalletAccess(
+      clientId,
+      wallet,
+    );
+    const priceCentsPerMin = pal.price_cents_per_minute ?? 0;
+
+    if (!canStartCall) {
+      throw new Error("The client doesn't have enough balance right now for a call back.");
+    }
+
+    await releaseStaleClientSessions(supabaseAdmin, clientId);
+
+    const { data: session, error } = await supabaseAdmin
+      .from("sessions")
+      .insert({
+        client_id: clientId,
+        pal_id: userId,
+        initiated_by: userId,
+        conversation_id: data.conversationId,
+        kind: data.kind,
+        status: "active",
+        price_cents_per_minute: priceCentsPerMin,
+        remaining_seconds_at_start: isUnlimited ? 999999 : balanceSeconds,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        throw new Error("The client already has an active session. Wait a minute and try again.");
+      }
+      throw new Error("Could not create session record.");
+    }
+    if (!session) throw new Error("Could not create session record.");
+
+    if (data.kind === "audio" || data.kind === "video") {
+      const { sendIncomingCallPush } = await import("@/lib/push.functions");
+      void sendIncomingCallPush({
+        sessionId: session.id,
+        recipientId: clientId,
+        callerId: userId,
+        kind: data.kind,
+        conversationId: data.conversationId,
+      }).catch((err) => {
+        console.error("[startCallbackSession] incoming call push failed:", err);
       });
     }
 
@@ -330,11 +437,16 @@ export const declineIncomingCall = createServerFn({ method: "POST" })
 
     const { data: session } = await supabaseAdmin
       .from("sessions")
-      .select("pal_id")
+      .select("client_id, pal_id, initiated_by")
       .eq("id", data.sessionId)
       .single();
 
-    if (!session || session.pal_id !== context.userId) {
+    // Declining is a callee action — the callee is whichever participant
+    // did NOT initiate the session (either party can now be the initiator:
+    // a client calling a Pat Pal, or a Pat Pal calling a client back).
+    const isParticipant =
+      !!session && (session.client_id === context.userId || session.pal_id === context.userId);
+    if (!session || !isParticipant || session.initiated_by === context.userId) {
       throw new Error("Session not found or access denied.");
     }
 
@@ -397,11 +509,14 @@ export const cancelSession = createServerFn({ method: "POST" })
 
     const { data: session } = await supabaseAdmin
       .from("sessions")
-      .select("client_id")
+      .select("initiated_by")
       .eq("id", data.sessionId)
       .single();
 
-    if (!session || session.client_id !== context.userId) {
+    // Only the initiator can cancel their own not-yet-connected outgoing
+    // call — that's the client for a normal call, or the Pat Pal for a
+    // callback.
+    if (!session || session.initiated_by !== context.userId) {
       throw new Error("Session not found or access denied.");
     }
 

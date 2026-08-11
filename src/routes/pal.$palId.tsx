@@ -314,6 +314,7 @@ function PalProfile() {
           palId={palId}
           conversationId={callConversationId}
           callerName={callerName}
+          isPayingClient
           onEnd={() => {
             setActiveCall(null);
             setCallConversationId("");
@@ -507,10 +508,7 @@ function PalProfile() {
           ) : (
             <div className="mt-3 space-y-3">
               {reviews.map((review) => (
-                <article
-                  key={review.id}
-                  className="rounded-xl border border-border bg-card p-3"
-                >
+                <article key={review.id} className="rounded-xl border border-border bg-card p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

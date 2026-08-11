@@ -120,6 +120,8 @@ function Chat() {
           palId={palId}
           conversationId={conversationId}
           callerName={myName}
+          asCallback={!isClient}
+          isPayingClient={isClient}
           onEnd={() => setActiveCall(null)}
         />
       )}
@@ -159,8 +161,8 @@ function Chat() {
             <button
               onClick={() => setActiveCall("audio")}
               aria-label="Audio call"
-              disabled={!isClient}
-              title={isClient ? "Audio call" : "Only clients can start calls"}
+              disabled={!palId}
+              title="Audio call"
               className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Phone className="h-5 w-5 text-primary" />
@@ -168,8 +170,8 @@ function Chat() {
             <button
               onClick={() => setActiveCall("video")}
               aria-label="Video call"
-              disabled={!isClient}
-              title={isClient ? "Video call" : "Only clients can start calls"}
+              disabled={!palId}
+              title="Video call"
               className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Video className="h-5 w-5 text-primary" />

@@ -18,8 +18,14 @@ async function fetchWalletBalance(userId: string): Promise<number> {
 }
 
 const RING_TIMEOUT_MS = 45_000;
+// Safety net for a session that connected and then never got a proper
+// hang-up signal from either client (app killed by iOS, crash, force-quit,
+// both sides closing at once mid-test). Generous enough to never interrupt
+// a genuinely long real call, short enough to self-recover same-day instead
+// of blocking that client from calling at all until someone fixes it by hand.
+const ABANDONED_CONNECTED_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
-/** Clear abandoned ringing sessions so a failed call attempt does not block the next one. */
+/** Clear abandoned ringing/connected sessions so a stuck one does not block the next call. */
 async function releaseStaleClientSessions(
   supabaseAdmin: Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"],
   clientId: string,
@@ -32,7 +38,17 @@ async function releaseStaleClientSessions(
 
   for (const session of activeSessions ?? []) {
     if (session.connected_at) {
-      throw new Error("You already have an active call. End it before starting another.");
+      const connectedAgeMs = Date.now() - new Date(session.connected_at).getTime();
+      if (connectedAgeMs <= ABANDONED_CONNECTED_TIMEOUT_MS) {
+        throw new Error("You already have an active call. End it before starting another.");
+      }
+      // Abandoned rather than genuinely still ongoing — release it. Doesn't
+      // attempt to bill the unknown actual usage; see the RPC for why.
+      await supabaseAdmin.rpc("cancel_abandoned_connected_session", {
+        p_session_id: session.id,
+        p_actor_id: clientId,
+      });
+      continue;
     }
 
     const ageMs = Date.now() - new Date(session.started_at).getTime();

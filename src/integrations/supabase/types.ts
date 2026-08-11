@@ -534,6 +534,13 @@ export type Database = {
         };
         Returns: undefined;
       };
+      cancel_abandoned_connected_session: {
+        Args: {
+          p_session_id: string;
+          p_actor_id: string;
+        };
+        Returns: undefined;
+      };
       credit_wallet: {
         Args: {
           p_user_id: string;

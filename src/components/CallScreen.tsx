@@ -670,12 +670,14 @@ export function CallScreen({
         }
         sessionIdRef.current = null;
       }
-      const message =
-        err instanceof Error
+      // Check isMediaDeviceError first — Agora's own errors are Error
+      // instances too, so checking `err instanceof Error` first would always
+      // win and show the raw SDK message instead of a human-readable one.
+      const message = isMediaDeviceError(err)
+        ? "Could not access microphone or camera. Check your browser/device permissions and try again."
+        : err instanceof Error
           ? err.message
-          : isMediaDeviceError(err)
-            ? "Could not access microphone or camera."
-            : "Could not start call";
+          : "Could not start call";
       toast.error(message);
       await leaveChannel();
       onEnd();
@@ -1652,7 +1654,9 @@ function ControlButton({
           </span>
         ) : null}
       </button>
-      <span className="text-[11px] font-medium capitalize tracking-wide text-white/90">{label}</span>
+      <span className="text-[11px] font-medium capitalize tracking-wide text-white/90">
+        {label}
+      </span>
     </div>
   );
 }

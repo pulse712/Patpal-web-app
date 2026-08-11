@@ -661,20 +661,14 @@ export function CallScreen({
       // already ran, don't repeat cleanup/leaveChannel/onEnd here too.
       if (hasEndedRef.current) return;
       hasEndedRef.current = true;
-      if (sessionCreated && sessionIdRef.current) {
-        try {
-          await cancelSession({ data: { sessionId: sessionIdRef.current } });
-        } catch (cleanupErr) {
-          console.error("[CallScreen] Session cleanup failed:", cleanupErr);
-        }
-        sessionIdRef.current = null;
-      } else if (isCallee && sessionIdRef.current) {
-        try {
-          await declineIncomingCall({ data: { sessionId: sessionIdRef.current } });
-        } catch (cleanupErr) {
-          console.error("[CallScreen] Session cleanup failed:", cleanupErr);
-        }
-        sessionIdRef.current = null;
+      // Route through cleanupSession (not a separate inline cancel/decline)
+      // so this gets the same wasConnectedRef-aware branching and the
+      // already-connected fallback: user-joined/ensureSessionConnected can
+      // fire concurrently with the rest of this join sequence, so a later
+      // step (e.g. client.publish()) can still fail here even after the
+      // session genuinely connected server-side.
+      if (sessionCreated || isCallee) {
+        await cleanupSession(wasConnectedRef.current);
       }
       // Check isMediaDeviceError first — Agora's own errors are Error
       // instances too, so checking `err instanceof Error` first would always
@@ -848,9 +842,12 @@ export function CallScreen({
     setStatus("ended");
     toast.info(`${remoteName} ended the call.`);
 
-    if (wasConnectedRef.current && sessionIdRef.current) {
-      await cleanupSession(true);
-    }
+    // Always clean up (matches handleEnd) — cleanupSession itself decides
+    // cancel/decline vs. end based on wasConnectedRef. Gating the whole call
+    // on wasConnectedRef here meant a remote hangup before we'd confirmed
+    // our own connection skipped cleanup entirely, leaving the session
+    // dangling until the separate ringing-timeout auto-recovery kicked in.
+    await cleanupSession(wasConnectedRef.current);
     await leaveChannel();
 
     if (offerRatingIfEligible()) return;

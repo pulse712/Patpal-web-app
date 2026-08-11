@@ -1283,23 +1283,7 @@ export function CallScreen({
           ) : (
             <p className="text-sm text-gray-400">Ringing…</p>
           )}
-          {isIosSafariLike() && remoteJoined && (
-            <p className="mx-6 mt-2 max-w-xs text-center text-xs leading-relaxed text-amber-200/90">
-              iPhone tip: Safari often plays call audio through the earpiece (quiet). Hold the phone
-              to your ear, raise volume, or use headphones. Loud speakerphone requires the native
-              iOS app.
-            </p>
-          )}
         </div>
-      )}
-
-      {/* iOS Safari can't route call audio to loudspeaker — same limitation
-          on video calls as audio, so show the same tip here too. */}
-      {kind === "video" && isIosSafariLike() && remoteJoined && (
-        <p className="absolute inset-x-6 bottom-32 z-10 mx-auto max-w-xs rounded-lg bg-black/50 px-3 py-2 text-center text-xs leading-relaxed text-amber-200/90">
-          iPhone tip: Safari often plays call audio through the earpiece (quiet). Hold the phone to
-          your ear, raise volume, or use headphones. Loud speakerphone requires the native iOS app.
-        </p>
       )}
 
       {/* ── Local video PiP ───────────────────────────────────────────── */}

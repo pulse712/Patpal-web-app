@@ -9,7 +9,7 @@
  *  - Mid-call Stripe top-up (no page redirect, stays in call)
  *  - Grace period: 30 s after balance hits 0 before forced end
  */
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   Mic,
@@ -1513,105 +1513,87 @@ export function CallScreen({
         </div>
       )}
 
-      {/* ── Controls bar ─────────────────────────────────────────────── */}
-      <div className="flex flex-col items-center gap-6 px-4 pb-12 pt-6">
-        {/* Secondary controls — 2 columns */}
-        <div className="grid grid-cols-2 items-center justify-items-center gap-x-10 gap-y-3">
-          {/* Mute */}
-          <button
-            onClick={toggleMute}
-            disabled={listenOnly}
-            aria-label={listenOnly ? "No microphone" : muted ? "Unmute" : "Mute"}
-            className={cn(
-              "grid h-14 w-14 place-items-center rounded-full transition-colors",
-              listenOnly || muted
-                ? "bg-red-500/20 text-red-400"
-                : "bg-white/10 text-white hover:bg-white/20",
-              listenOnly && "cursor-not-allowed opacity-60",
-            )}
-          >
-            {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-          </button>
-
-          {/* Camera or top-up shortcut */}
-          {kind === "video" ? (
-            <button
-              onClick={toggleCam}
-              aria-label={camOff ? "Turn camera on" : "Turn camera off"}
-              className={cn(
-                "grid h-14 w-14 place-items-center rounded-full transition-colors",
-                camOff ? "bg-red-500/20 text-red-400" : "bg-white/10 text-white hover:bg-white/20",
-              )}
-            >
-              {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
-            </button>
-          ) : isPayingClient ? (
-            <button
-              onClick={() => setShowTopUp(true)}
-              aria-label="Add time"
-              className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
-            >
-              <Plus className="h-6 w-6" />
-            </button>
-          ) : (
-            <div className="h-14 w-14" />
-          )}
-
-          {/* Volume — tap toggles Normal ↔ High directly, no picker */}
-          <button
+      {/* ── Controls bar — iPhone-style 2×3 grid, End in bottom center ─ */}
+      <div className="px-8 pb-14 pt-4">
+        <div className="mx-auto grid max-w-sm grid-cols-3 items-start justify-items-center gap-x-6 gap-y-7">
+          {/* Top row: speaker · video/add · mute (matches native call UI) */}
+          <ControlButton
+            label={volumeMode === "high" ? "high" : "speaker"}
             onClick={() => applyVolumeMode(volumeMode === "high" ? "normal" : "high")}
-            aria-label={
+            ariaLabel={
               volumeMode === "high"
                 ? "Volume: High (tap for Normal)"
                 : "Volume: Normal (tap for High)"
             }
-            className={cn(
-              "grid h-14 w-14 place-items-center rounded-full transition-colors",
-              volumeMode === "high"
-                ? "bg-primary/30 text-white"
-                : "bg-white/10 text-white hover:bg-white/20",
-            )}
+            active={volumeMode === "high"}
           >
-            <Volume2 className="h-6 w-6" />
-          </button>
+            <Volume2 className="h-7 w-7" />
+          </ControlButton>
 
-          {/* Chat */}
-          {conversationId && (
-            <button
-              onClick={() => setShowChat((v) => !v)}
-              aria-label="Chat"
-              className={cn(
-                "relative grid h-14 w-14 place-items-center rounded-full transition-colors",
-                showChat ? "bg-primary/30 text-white" : "bg-white/10 text-white hover:bg-white/20",
-              )}
+          {kind === "video" ? (
+            <ControlButton
+              label="video"
+              onClick={toggleCam}
+              ariaLabel={camOff ? "Turn camera on" : "Turn camera off"}
+              danger={camOff}
             >
-              <MessageSquare className="h-6 w-6" />
-              {chatUnread > 0 && (
-                <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none">
-                  {chatUnread > 9 ? "9+" : chatUnread}
-                </span>
-              )}
-            </button>
+              {camOff ? <VideoOff className="h-7 w-7" /> : <Video className="h-7 w-7" />}
+            </ControlButton>
+          ) : isPayingClient ? (
+            <ControlButton label="add time" onClick={() => setShowTopUp(true)} ariaLabel="Add time">
+              <Plus className="h-7 w-7" />
+            </ControlButton>
+          ) : (
+            <div className="h-[4.75rem] w-16" aria-hidden />
           )}
 
-          {/* Minimize */}
-          <button
-            onClick={() => setMinimized(true)}
-            aria-label="Minimize call"
-            className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+          <ControlButton
+            label="mute"
+            onClick={toggleMute}
+            disabled={listenOnly}
+            ariaLabel={listenOnly ? "No microphone" : muted ? "Unmute" : "Mute"}
+            danger={listenOnly || muted}
           >
-            <Minimize2 className="h-6 w-6" />
-          </button>
-        </div>
+            {muted ? <MicOff className="h-7 w-7" /> : <Mic className="h-7 w-7" />}
+          </ControlButton>
 
-        {/* End call — centered on its own, below the other controls */}
-        <button
-          onClick={handleEnd}
-          aria-label="End call"
-          className="grid h-16 w-16 place-items-center rounded-full bg-red-600 text-white shadow-lg hover:bg-red-700 active:scale-95 transition-transform"
-        >
-          <PhoneOff className="h-7 w-7" />
-        </button>
+          {/* Bottom row: chat · end · minimize */}
+          {conversationId ? (
+            <ControlButton
+              label="chat"
+              onClick={() => setShowChat((v) => !v)}
+              ariaLabel="Chat"
+              active={showChat}
+              badge={chatUnread > 0 ? (chatUnread > 9 ? "9+" : String(chatUnread)) : undefined}
+            >
+              <MessageSquare className="h-7 w-7" />
+            </ControlButton>
+          ) : (
+            <div className="h-[4.75rem] w-16" aria-hidden />
+          )}
+
+          <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={handleEnd}
+              aria-label="End call"
+              className="grid h-16 w-16 place-items-center rounded-full bg-red-600 text-white shadow-lg transition-transform hover:bg-red-700 active:scale-95"
+            >
+              <PhoneOff className="h-7 w-7" />
+            </button>
+            <span className="text-[11px] font-medium capitalize tracking-wide text-white/90">
+              end
+            </span>
+          </div>
+
+          <ControlButton
+            label="minimize"
+            onClick={() => setMinimized(true)}
+            ariaLabel="Minimize call"
+          >
+            <Minimize2 className="h-7 w-7" />
+          </ControlButton>
+        </div>
       </div>
 
       {/* ── Post-call rating modal ────────────────────────────────────── */}
@@ -1623,6 +1605,54 @@ export function CallScreen({
           onDone={finishAfterCall}
         />
       )}
+    </div>
+  );
+}
+
+function ControlButton({
+  label,
+  onClick,
+  ariaLabel,
+  children,
+  active,
+  danger,
+  disabled,
+  badge,
+}: {
+  label: string;
+  onClick: () => void;
+  ariaLabel: string;
+  children: ReactNode;
+  active?: boolean;
+  danger?: boolean;
+  disabled?: boolean;
+  badge?: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={cn(
+          "relative grid h-16 w-16 place-items-center rounded-full transition-colors",
+          danger
+            ? "bg-white text-gray-900"
+            : active
+              ? "bg-white/90 text-gray-900"
+              : "bg-white/15 text-white hover:bg-white/25",
+          disabled && "cursor-not-allowed opacity-60",
+        )}
+      >
+        {children}
+        {badge ? (
+          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none text-white">
+            {badge}
+          </span>
+        ) : null}
+      </button>
+      <span className="text-[11px] font-medium capitalize tracking-wide text-white/90">{label}</span>
     </div>
   );
 }

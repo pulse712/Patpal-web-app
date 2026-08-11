@@ -289,13 +289,6 @@ export function CallScreen({
   const remoteAudioTrackRef = useRef<IRemoteAudio | null>(null);
   const remoteVideoTrackRef = useRef<IRemoteVideo | null>(null);
 
-  // ── Audio output device (speaker/earpiece/headset) ─────────────────────
-  // Not supported on Safari/iOS — the browser simply won't report devices,
-  // so the picker stays hidden there rather than showing a dead control.
-  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
-  const selectedOutputIdRef = useRef<string | null>(null);
-
   // ── In-call chat state ───────────────────────────────────────────────────
   const [showChat, setShowChat] = useState(false);
   const showChatRef = useRef(false);
@@ -465,9 +458,6 @@ export function CallScreen({
               }
             }, 250);
             playbackRetryTimersRef.current.add(retryTimer);
-            if (selectedOutputIdRef.current && !isIos) {
-              void track.setPlaybackDevice(selectedOutputIdRef.current).catch(() => {});
-            }
           }
           remoteAudioTrackRef.current = track ?? null;
         }
@@ -639,14 +629,6 @@ export function CallScreen({
 
       await syncExistingRemoteUsers(client);
       resetCallPrewarm();
-
-      // Not supported on Safari/iOS — resolves to [] there, so the output
-      // picker in the UI simply won't render.
-      AgoraRTC.getPlaybackDevices()
-        .then((devices) => {
-          if (!isJoinStale(generation)) setOutputDevices(devices);
-        })
-        .catch(() => {});
 
       if (kind === "video" && video) {
         AgoraRTC.getCameras()
@@ -1033,14 +1015,6 @@ export function CallScreen({
     setVolumeMode(mode);
     volumeRef.current = next;
     remoteAudioTrackRef.current?.setVolume(next);
-  }
-
-  function selectOutputDevice(deviceId: string) {
-    setSelectedOutputId(deviceId);
-    selectedOutputIdRef.current = deviceId;
-    void remoteAudioTrackRef.current?.setPlaybackDevice(deviceId).catch(() => {
-      toast.error("Could not switch audio output.");
-    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1470,27 +1444,6 @@ export function CallScreen({
               )}
             </>
           )}
-        </div>
-      )}
-
-      {/* ── Audio output device (only when the device actually exposes more
-          than one — e.g. Bluetooth connected on Android). Not tied to the
-          volume toggle above; shown whenever relevant, no tap needed to
-          reveal it. ─────────────────────────────────────────────────── */}
-      {outputDevices.length > 1 && (
-        <div className="absolute inset-x-4 bottom-28 z-10 flex items-center gap-2 rounded-xl border border-white/10 bg-gray-900 px-3 py-2 shadow-2xl">
-          <span className="shrink-0 text-xs text-gray-400">Output</span>
-          <select
-            value={selectedOutputId ?? ""}
-            onChange={(e) => selectOutputDevice(e.target.value)}
-            className="flex-1 rounded-lg border border-white/20 bg-white/5 px-2 py-1.5 text-xs text-white"
-          >
-            {outputDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId} className="text-black">
-                {d.label || "Audio output"}
-              </option>
-            ))}
-          </select>
         </div>
       )}
 

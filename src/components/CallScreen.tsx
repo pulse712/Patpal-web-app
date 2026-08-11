@@ -1234,7 +1234,7 @@ export function CallScreen({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gradient-to-br from-indigo-950 via-slate-900 to-black text-white">
       {/* ── Remote video / audio area ──────────────────────────────────── */}
       {kind === "video" ? (
         <div ref={remoteVideoElRef} className="flex-1 bg-gray-900">
@@ -1514,100 +1514,103 @@ export function CallScreen({
       )}
 
       {/* ── Controls bar ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-center gap-4 gap-y-3 px-4 pb-12 pt-6">
-        {/* Mute */}
-        <button
-          onClick={toggleMute}
-          disabled={listenOnly}
-          aria-label={listenOnly ? "No microphone" : muted ? "Unmute" : "Mute"}
-          className={cn(
-            "grid h-14 w-14 place-items-center rounded-full transition-colors",
-            listenOnly || muted
-              ? "bg-red-500/20 text-red-400"
-              : "bg-white/10 text-white hover:bg-white/20",
-            listenOnly && "cursor-not-allowed opacity-60",
-          )}
-        >
-          {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-        </button>
+      <div className="flex flex-col items-center gap-6 px-4 pb-12 pt-6">
+        {/* Secondary controls */}
+        <div className="flex flex-wrap items-center justify-center gap-4 gap-y-3">
+          {/* Mute */}
+          <button
+            onClick={toggleMute}
+            disabled={listenOnly}
+            aria-label={listenOnly ? "No microphone" : muted ? "Unmute" : "Mute"}
+            className={cn(
+              "grid h-14 w-14 place-items-center rounded-full transition-colors",
+              listenOnly || muted
+                ? "bg-red-500/20 text-red-400"
+                : "bg-white/10 text-white hover:bg-white/20",
+              listenOnly && "cursor-not-allowed opacity-60",
+            )}
+          >
+            {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+          </button>
 
-        {/* End call */}
+          {/* Camera or top-up shortcut */}
+          {kind === "video" ? (
+            <button
+              onClick={toggleCam}
+              aria-label={camOff ? "Turn camera on" : "Turn camera off"}
+              className={cn(
+                "grid h-14 w-14 place-items-center rounded-full transition-colors",
+                camOff ? "bg-red-500/20 text-red-400" : "bg-white/10 text-white hover:bg-white/20",
+              )}
+            >
+              {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+            </button>
+          ) : isPayingClient ? (
+            <button
+              onClick={() => setShowTopUp(true)}
+              aria-label="Add time"
+              className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+            >
+              <Plus className="h-6 w-6" />
+            </button>
+          ) : (
+            <div className="h-14 w-14" />
+          )}
+
+          {/* Volume — tap toggles Normal ↔ High directly, no picker */}
+          <button
+            onClick={() => applyVolumeMode(volumeMode === "high" ? "normal" : "high")}
+            aria-label={
+              volumeMode === "high"
+                ? "Volume: High (tap for Normal)"
+                : "Volume: Normal (tap for High)"
+            }
+            className={cn(
+              "grid h-14 w-14 place-items-center rounded-full transition-colors",
+              volumeMode === "high"
+                ? "bg-primary/30 text-white"
+                : "bg-white/10 text-white hover:bg-white/20",
+            )}
+          >
+            <Volume2 className="h-6 w-6" />
+          </button>
+
+          {/* Chat */}
+          {conversationId && (
+            <button
+              onClick={() => setShowChat((v) => !v)}
+              aria-label="Chat"
+              className={cn(
+                "relative grid h-14 w-14 place-items-center rounded-full transition-colors",
+                showChat ? "bg-primary/30 text-white" : "bg-white/10 text-white hover:bg-white/20",
+              )}
+            >
+              <MessageSquare className="h-6 w-6" />
+              {chatUnread > 0 && (
+                <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none">
+                  {chatUnread > 9 ? "9+" : chatUnread}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Minimize */}
+          <button
+            onClick={() => setMinimized(true)}
+            aria-label="Minimize call"
+            className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+          >
+            <Minimize2 className="h-6 w-6" />
+          </button>
+        </div>
+
+        {/* End call — centered on its own, below the other controls */}
         <button
           onClick={handleEnd}
           aria-label="End call"
           className="grid h-16 w-16 place-items-center rounded-full bg-red-600 text-white shadow-lg hover:bg-red-700 active:scale-95 transition-transform"
         >
           <PhoneOff className="h-7 w-7" />
-        </button>
-
-        {/* Camera or top-up shortcut */}
-        {kind === "video" ? (
-          <button
-            onClick={toggleCam}
-            aria-label={camOff ? "Turn camera on" : "Turn camera off"}
-            className={cn(
-              "grid h-14 w-14 place-items-center rounded-full transition-colors",
-              camOff ? "bg-red-500/20 text-red-400" : "bg-white/10 text-white hover:bg-white/20",
-            )}
-          >
-            {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
-          </button>
-        ) : isPayingClient ? (
-          <button
-            onClick={() => setShowTopUp(true)}
-            aria-label="Add time"
-            className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
-          >
-            <Plus className="h-6 w-6" />
-          </button>
-        ) : (
-          <div className="h-14 w-14" />
-        )}
-
-        {/* Volume — tap toggles Normal ↔ High directly, no picker */}
-        <button
-          onClick={() => applyVolumeMode(volumeMode === "high" ? "normal" : "high")}
-          aria-label={
-            volumeMode === "high"
-              ? "Volume: High (tap for Normal)"
-              : "Volume: Normal (tap for High)"
-          }
-          className={cn(
-            "grid h-14 w-14 place-items-center rounded-full transition-colors",
-            volumeMode === "high"
-              ? "bg-primary/30 text-white"
-              : "bg-white/10 text-white hover:bg-white/20",
-          )}
-        >
-          <Volume2 className="h-6 w-6" />
-        </button>
-
-        {/* Chat */}
-        {conversationId && (
-          <button
-            onClick={() => setShowChat((v) => !v)}
-            aria-label="Chat"
-            className={cn(
-              "relative grid h-14 w-14 place-items-center rounded-full transition-colors",
-              showChat ? "bg-primary/30 text-white" : "bg-white/10 text-white hover:bg-white/20",
-            )}
-          >
-            <MessageSquare className="h-6 w-6" />
-            {chatUnread > 0 && (
-              <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none">
-                {chatUnread > 9 ? "9+" : chatUnread}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* Minimize */}
-        <button
-          onClick={() => setMinimized(true)}
-          aria-label="Minimize call"
-          className="grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
-        >
-          <Minimize2 className="h-6 w-6" />
         </button>
       </div>
 

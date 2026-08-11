@@ -19,7 +19,6 @@ import {
   PhoneOff,
   Loader2,
   Volume2,
-  VolumeX,
   AlertTriangle,
   Plus,
   CheckCircle2,
@@ -33,7 +32,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { getAgoraToken } from "@/lib/agora.functions";
@@ -54,6 +52,16 @@ import { startCallRingtone, stopCallRingtone } from "@/lib/call-ringtone";
 import { useConversationMessages, sendConversationMessage } from "@/lib/conversation-messages";
 
 type CallKind = "audio" | "video";
+
+/** iOS Safari cannot switch earpiece ↔ speakerphone from a web/PWA call. */
+function isIosSafariLike(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return (
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
 
 interface CallScreenProps {
   channelName: string;
@@ -91,6 +99,9 @@ const RING_TIMEOUT_MS = 45_000; // auto-cancel if pal never answers
 const REMOTE_RECONNECT_GRACE_MS = 20_000; // grace period after remote drops before ending the call
 /** Minimum connected time before prompting for a post-call review. */
 const MIN_RATING_SECONDS = 15;
+/** Simple call volume presets (Agora remote playback 0–100). */
+const VOLUME_NORMAL = 70;
+const VOLUME_HIGH = 100;
 
 const TOP_UP_PRESETS = [
   { label: "$5", cents: 500 },
@@ -273,9 +284,9 @@ export function CallScreen({
   const [localReconnecting, setLocalReconnecting] = useState(false);
   const reconnecting = remoteDropping || localReconnecting;
   const reconnectingRef = useRef(false);
-  const [volume, setVolume] = useState(100);
+  const [volumeMode, setVolumeMode] = useState<"normal" | "high">("normal");
   const [showVolume, setShowVolume] = useState(false);
-  const volumeRef = useRef(100);
+  const volumeRef = useRef(VOLUME_NORMAL);
   const remoteAudioTrackRef = useRef<IRemoteAudio | null>(null);
   const remoteVideoTrackRef = useRef<IRemoteVideo | null>(null);
 
@@ -407,6 +418,7 @@ export function CallScreen({
   const localVideoElRef = useRef<HTMLDivElement>(null);
   const remoteVideoElRef = useRef<HTMLDivElement>(null);
   const remoteDropTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackRetryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   // ── Timers ────────────────────────────────────────────────────────────────
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -431,10 +443,32 @@ export function CallScreen({
         await client.subscribe(user, mediaType);
         if (mediaType === "audio") {
           const track = user.audioTrack as IRemoteAudio | undefined;
-          track?.play();
-          track?.setVolume(volumeRef.current);
-          if (selectedOutputIdRef.current) {
-            void track?.setPlaybackDevice(selectedOutputIdRef.current).catch(() => {});
+          // Don't early-return here — markRemotePresent() below must still
+          // run (it starts billing/elapsed state) even on the rare case
+          // where subscribe() resolves before the track reference exists.
+          if (track) {
+            const isIos = isIosSafariLike();
+            const targetVolume = isIos ? VOLUME_HIGH : volumeRef.current;
+            volumeRef.current = targetVolume;
+            if (isIos) setVolumeMode("high");
+            track.setVolume(targetVolume);
+            track.play();
+            // Retry play/volume after a tick — helps when autoplay was
+            // briefly blocked. Tracked so leaveChannel can cancel it if the
+            // call ends before this fires.
+            const retryTimer = setTimeout(() => {
+              playbackRetryTimersRef.current.delete(retryTimer);
+              try {
+                track.play();
+                track.setVolume(volumeRef.current);
+              } catch {
+                /* ignore */
+              }
+            }, 250);
+            playbackRetryTimersRef.current.add(retryTimer);
+            if (selectedOutputIdRef.current && !isIos) {
+              void track.setPlaybackDevice(selectedOutputIdRef.current).catch(() => {});
+            }
           }
           remoteAudioTrackRef.current = track ?? null;
         }
@@ -760,6 +794,8 @@ export function CallScreen({
       clearTimeout(remoteDropTimerRef.current);
       remoteDropTimerRef.current = null;
     }
+    for (const t of playbackRetryTimersRef.current) clearTimeout(t);
+    playbackRetryTimersRef.current.clear();
     localAudioRef.current?.close();
     localVideoRef.current?.close();
     const client = clientRef.current;
@@ -993,9 +1029,9 @@ export function CallScreen({
     setCamOff(next);
   }
 
-  function handleVolumeChange(values: number[]) {
-    const next = values[0] ?? 100;
-    setVolume(next);
+  function applyVolumeMode(mode: "normal" | "high") {
+    const next = mode === "high" ? VOLUME_HIGH : VOLUME_NORMAL;
+    setVolumeMode(mode);
     volumeRef.current = next;
     remoteAudioTrackRef.current?.setVolume(next);
   }
@@ -1272,7 +1308,23 @@ export function CallScreen({
           ) : (
             <p className="text-sm text-gray-400">Ringing…</p>
           )}
+          {isIosSafariLike() && remoteJoined && (
+            <p className="mx-6 mt-2 max-w-xs text-center text-xs leading-relaxed text-amber-200/90">
+              iPhone tip: Safari often plays call audio through the earpiece (quiet). Hold the phone
+              to your ear, raise volume, or use headphones. Loud speakerphone requires the native
+              iOS app.
+            </p>
+          )}
         </div>
+      )}
+
+      {/* iOS Safari can't route call audio to loudspeaker — same limitation
+          on video calls as audio, so show the same tip here too. */}
+      {kind === "video" && isIosSafariLike() && remoteJoined && (
+        <p className="absolute inset-x-6 bottom-32 z-10 mx-auto max-w-xs rounded-lg bg-black/50 px-3 py-2 text-center text-xs leading-relaxed text-amber-200/90">
+          iPhone tip: Safari often plays call audio through the earpiece (quiet). Hold the phone to
+          your ear, raise volume, or use headphones. Loud speakerphone requires the native iOS app.
+        </p>
       )}
 
       {/* ── Local video PiP ───────────────────────────────────────────── */}
@@ -1424,17 +1476,33 @@ export function CallScreen({
 
       {/* ── Volume popover ───────────────────────────────────────────── */}
       {showVolume && (
-        <div className="absolute inset-x-4 bottom-28 z-10 rounded-2xl bg-gray-900 border border-white/10 p-4 shadow-2xl">
-          <div className="flex items-center gap-3">
-            <VolumeX className="h-4 w-4 shrink-0 text-gray-400" />
-            <Slider
-              value={[volume]}
-              min={0}
-              max={100}
-              step={5}
-              onValueChange={handleVolumeChange}
-            />
-            <Volume2 className="h-4 w-4 shrink-0 text-gray-400" />
+        <div className="absolute inset-x-4 bottom-28 z-10 rounded-2xl border border-white/10 bg-gray-900 p-4 shadow-2xl">
+          <p className="mb-3 text-center text-xs font-medium text-gray-400">Call volume</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => applyVolumeMode("normal")}
+              className={cn(
+                "rounded-xl px-3 py-3 text-sm font-semibold transition-colors",
+                volumeMode === "normal"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-white/10 text-white hover:bg-white/15",
+              )}
+            >
+              Normal
+            </button>
+            <button
+              type="button"
+              onClick={() => applyVolumeMode("high")}
+              className={cn(
+                "rounded-xl px-3 py-3 text-sm font-semibold transition-colors",
+                volumeMode === "high"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-white/10 text-white hover:bg-white/15",
+              )}
+            >
+              High
+            </button>
           </div>
           {outputDevices.length > 1 && (
             <div className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
@@ -1572,19 +1640,21 @@ export function CallScreen({
           <div className="h-14 w-14" />
         )}
 
-        {/* Volume */}
+        {/* Volume — Normal / High */}
         <button
           onClick={() => {
             setShowVolume((v) => !v);
             setShowChat(false);
           }}
-          aria-label="Volume"
+          aria-label={volumeMode === "high" ? "Volume: High" : "Volume: Normal"}
           className={cn(
             "grid h-14 w-14 place-items-center rounded-full transition-colors",
-            showVolume ? "bg-primary/30 text-white" : "bg-white/10 text-white hover:bg-white/20",
+            showVolume || volumeMode === "high"
+              ? "bg-primary/30 text-white"
+              : "bg-white/10 text-white hover:bg-white/20",
           )}
         >
-          {volume === 0 ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
+          <Volume2 className="h-6 w-6" />
         </button>
 
         {/* Chat */}

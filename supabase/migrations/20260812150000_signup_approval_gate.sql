@@ -4,13 +4,24 @@
 -- using the product.
 
 ALTER TABLE public.profiles
-  ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (approval_status IN ('pending', 'approved', 'rejected'));
+  ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'pending';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'profiles_approval_status_check'
+  ) THEN
+    ALTER TABLE public.profiles
+      ADD CONSTRAINT profiles_approval_status_check
+        CHECK (approval_status IN ('pending', 'approved', 'rejected'));
+  END IF;
+END $$;
 
 -- Backfill: every row that existed before this migration ran is grandfathered
 -- in as approved. Only rows inserted after this point pick up the 'pending'
--- column default.
-UPDATE public.profiles SET approval_status = 'approved';
+-- column default. Scoped with a WHERE clause so this migration is safe to
+-- re-run without re-approving a row an admin has since rejected.
+UPDATE public.profiles SET approval_status = 'approved' WHERE approval_status = 'pending';
 
 -- Defense in depth: admins/super_admins are always approved, regardless of
 -- how their profile row was created.

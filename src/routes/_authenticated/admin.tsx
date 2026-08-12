@@ -42,6 +42,7 @@ import {
   getAppPricingSettings,
   saveAppPricingSettings,
   setUserApprovalStatus,
+  deleteUserAccount,
 } from "@/lib/admin.functions";
 import { requireAdminBeforeLoad } from "@/lib/admin-guard";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
@@ -58,6 +59,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AdminSessionsChart } from "@/components/AdminSessionsChart";
 import { isMissingColumnError } from "@/lib/postgrest-utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   beforeLoad: requireAdminBeforeLoad,
@@ -130,6 +141,8 @@ function AdminPanel() {
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
   const [emailConfirmBusy, setEmailConfirmBusy] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const [newCode, setNewCode] = useState({
     label: "",
@@ -240,6 +253,21 @@ function AdminPanel() {
       toast.error(err instanceof Error ? err.message : "Update failed");
     } finally {
       setApprovalBusy(null);
+    }
+  }
+
+  async function confirmDeleteUser() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      await deleteUserAccount({ data: { userId: deleteTarget.id } });
+      toast.success("Account deleted — that email can be used to sign up again");
+      setDeleteTarget(null);
+      await loadUsers(userPage);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -868,6 +896,21 @@ function AdminPanel() {
                     </Button>
                   </div>
                 )}
+
+                {u.id !== user?.id && (
+                  <div className="border-t border-border pt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTarget(u)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete account
+                    </Button>
+                  </div>
+                )}
               </Card>
             ))}
           </TabsContent>
@@ -1362,6 +1405,34 @@ function AdminPanel() {
         onOpenChange={setCropDialogOpen}
         onConfirm={uploadCroppedBanner}
       />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {deleteTarget?.fullName || deleteTarget?.email || "this account"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the account, profile, wallet, sessions, and messages tied to
+              it. Their email will be free to sign up again as a brand new account. This cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteBusy}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteUser();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete account"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

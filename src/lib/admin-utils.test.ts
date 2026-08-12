@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertCanDeactivateUser,
   assertCanAssignRole,
+  assertCanDeleteUser,
   filterAdminUsers,
   type AppRole,
 } from "./admin-utils";
@@ -39,6 +40,52 @@ describe("assertCanAssignRole", () => {
         isSuperAdmin: true,
       }),
     ).toThrow(/change your own admin role/);
+  });
+});
+
+describe("assertCanDeleteUser", () => {
+  it("blocks deleting your own account", () => {
+    expect(() =>
+      assertCanDeleteUser({
+        targetUserId: "u1",
+        actorUserId: "u1",
+        targetRole: "client",
+        isSuperAdmin: true,
+      }),
+    ).toThrow(/cannot delete your own/);
+  });
+
+  it("blocks a plain admin from deleting another admin", () => {
+    expect(() =>
+      assertCanDeleteUser({
+        targetUserId: "u2",
+        actorUserId: "u1",
+        targetRole: "admin",
+        isSuperAdmin: false,
+      }),
+    ).toThrow(/Only super admins/);
+  });
+
+  it("allows a super admin to delete an admin", () => {
+    expect(() =>
+      assertCanDeleteUser({
+        targetUserId: "u2",
+        actorUserId: "u1",
+        targetRole: "admin",
+        isSuperAdmin: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("allows an admin to delete a client", () => {
+    expect(() =>
+      assertCanDeleteUser({
+        targetUserId: "u2",
+        actorUserId: "u1",
+        targetRole: "client",
+        isSuperAdmin: false,
+      }),
+    ).not.toThrow();
   });
 });
 

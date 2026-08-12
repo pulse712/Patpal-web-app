@@ -10,6 +10,20 @@ export function assertCanDeactivateUser(
   }
 }
 
+export function assertCanDeleteUser(opts: {
+  targetUserId: string;
+  actorUserId: string;
+  targetRole: AppRole;
+  isSuperAdmin: boolean;
+}): void {
+  if (opts.targetUserId === opts.actorUserId) {
+    throw new Error("You cannot delete your own account here — use Profile settings instead");
+  }
+  if ((opts.targetRole === "admin" || opts.targetRole === "super_admin") && !opts.isSuperAdmin) {
+    throw new Error("Only super admins can delete an admin account");
+  }
+}
+
 export function assertCanAssignRole(opts: {
   role: AppRole;
   currentRole: AppRole;

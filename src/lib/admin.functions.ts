@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   assertCanAssignRole,
   assertCanDeactivateUser,
+  assertCanDeleteUser,
   filterAdminUsers,
   type AppRole,
 } from "@/lib/admin-utils";
@@ -116,6 +117,38 @@ export const setUserActive = createServerFn({ method: "POST" })
       ban_duration: data.isActive ? "none" : "876600h",
     });
     if (authError) throw new Error(authError.message);
+
+    return { ok: true };
+  });
+
+/**
+ * Permanently deletes a user's account (auth + all owned data via cascade),
+ * freeing their email for a fresh signup. Irreversible.
+ */
+export const deleteUserAccount = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) => z.object({ userId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { isSuperAdmin } = await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: roleRows, error: roleError } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.userId)
+      .limit(1);
+    if (roleError) throw new Error(roleError.message);
+    const targetRole = (roleRows?.[0]?.role as AppRole | undefined) ?? "client";
+
+    assertCanDeleteUser({
+      targetUserId: data.userId,
+      actorUserId: context.userId,
+      targetRole,
+      isSuperAdmin,
+    });
+
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(data.userId);
+    if (error) throw new Error(error.message);
 
     return { ok: true };
   });

@@ -62,25 +62,41 @@ export const checkDisplayNameAvailable = createServerFn({ method: "POST" })
     return { available: !taken };
   });
 
+type SupabaseAdminClient = Awaited<
+  typeof import("@/integrations/supabase/client.server")
+>["supabaseAdmin"];
+
+async function getStaffEmailsByRoles(
+  supabaseAdmin: SupabaseAdminClient,
+  roles: ("admin" | "super_admin")[],
+): Promise<string[]> {
+  const { data: roleRows } = await supabaseAdmin
+    .from("user_roles")
+    .select("user_id")
+    .in("role", roles);
+
+  const staffIds = [...new Set((roleRows ?? []).map((r) => r.user_id))];
+  if (staffIds.length === 0) return [];
+
+  const emails: string[] = [];
+  for (const id of staffIds) {
+    const { data } = await supabaseAdmin.auth.admin.getUserById(id);
+    if (data.user?.email) emails.push(data.user.email);
+  }
+  return emails;
+}
+
 async function notifySuperAdminsOfNewPatPal(opts: { palUserId: string; service?: string }) {
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { sendPatPalPendingReviewEmail } = await import("@/lib/email.server");
 
-    const [{ data: roleRows }, { data: profile }, { data: authUser }] = await Promise.all([
-      supabaseAdmin.from("user_roles").select("user_id").eq("role", "super_admin"),
+    const [emails, { data: profile }, { data: authUser }] = await Promise.all([
+      getStaffEmailsByRoles(supabaseAdmin, ["super_admin"]),
       supabaseAdmin.from("profiles").select("full_name").eq("id", opts.palUserId).maybeSingle(),
       supabaseAdmin.auth.admin.getUserById(opts.palUserId),
     ]);
-
-    const adminIds = (roleRows ?? []).map((r) => r.user_id);
-    if (adminIds.length === 0) return;
-
-    const emails: string[] = [];
-    for (const id of adminIds) {
-      const { data } = await supabaseAdmin.auth.admin.getUserById(id);
-      if (data.user?.email) emails.push(data.user.email);
-    }
+    if (emails.length === 0) return;
 
     const palName = profile?.full_name?.trim() || "New Pat Pal";
     const palEmail = authUser.user?.email ?? "unknown";
@@ -97,6 +113,32 @@ async function notifySuperAdminsOfNewPatPal(opts: { palUserId: string; service?:
     );
   } catch (err) {
     console.error("[signup] failed to notify super admins:", err);
+  }
+}
+
+/** Notifies admins + super_admins that a new signup needs approval before it can sign in. */
+async function notifyStaffOfNewSignup(opts: { userId: string; role: SignupRole }) {
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { sendNewSignupPendingReviewEmail } = await import("@/lib/email.server");
+
+    const [emails, { data: profile }, { data: authUser }] = await Promise.all([
+      getStaffEmailsByRoles(supabaseAdmin, ["admin", "super_admin"]),
+      supabaseAdmin.from("profiles").select("full_name").eq("id", opts.userId).maybeSingle(),
+      supabaseAdmin.auth.admin.getUserById(opts.userId),
+    ]);
+    if (emails.length === 0) return;
+
+    const userName = profile?.full_name?.trim() || "New user";
+    const userEmail = authUser.user?.email ?? "unknown";
+
+    await Promise.all(
+      emails.map((to) =>
+        sendNewSignupPendingReviewEmail({ to, userName, userEmail, role: opts.role }),
+      ),
+    );
+  } catch (err) {
+    console.error("[signup] failed to notify staff of new signup:", err);
   }
 }
 
@@ -185,6 +227,8 @@ export const applySignupRole = createServerFn({ method: "POST" })
 
       void notifySuperAdminsOfNewPatPal({ palUserId: userId, service });
     }
+
+    void notifyStaffOfNewSignup({ userId, role });
 
     return { ok: true, role };
   });

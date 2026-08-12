@@ -258,6 +258,7 @@ export type Database = {
       };
       profiles: {
         Row: {
+          approval_status: string;
           avatar_url: string | null;
           bio: string | null;
           created_at: string;
@@ -269,6 +270,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          approval_status?: string;
           avatar_url?: string | null;
           bio?: string | null;
           created_at?: string;
@@ -280,6 +282,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          approval_status?: string;
           avatar_url?: string | null;
           bio?: string | null;
           created_at?: string;

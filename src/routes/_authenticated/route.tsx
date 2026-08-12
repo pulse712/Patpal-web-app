@@ -8,6 +8,7 @@ import { IncomingCallProvider } from "@/components/IncomingCallProvider";
 import { PushRegistration } from "@/components/PushRegistration";
 import { IncomingCallDeepLink } from "@/components/IncomingCallDeepLink";
 import { NotificationProvider } from "@/components/NotificationProvider";
+import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: requireAuthBeforeLoad,
@@ -38,13 +39,15 @@ function AuthenticatedLayout() {
     if (!user) return;
     supabase
       .from("profiles")
-      .select("is_active")
+      .select("is_active, approval_status")
       .eq("id", user.id)
       .maybeSingle()
-      .then(({ data }) => {
-        if (data?.is_active === false) {
-          void supabase.auth.signOut();
-          navigate({ to: "/auth", replace: true });
+      .then(({ data, error }) => {
+        // If the approval_status column hasn't been migrated onto this
+        // database yet, fail open rather than locking out every user.
+        if (error && isMissingColumnError(error)) return;
+        if (data?.is_active === false || data?.approval_status !== "approved") {
+          navigate({ to: "/account-status", replace: true });
         }
       });
   }, [user, navigate]);

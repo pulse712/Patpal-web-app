@@ -14,6 +14,16 @@ function getResend(): Resend {
   return new Resend(key);
 }
 
+/** Escapes user-controlled text before interpolating it into an email's HTML body. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ─── Low-level send ──────────────────────────────────────────────────────────
 export async function sendEmail(opts: { to: string; subject: string; html: string }) {
   const key = process.env.RESEND_API_KEY;
@@ -208,17 +218,17 @@ export async function sendPatPalPendingReviewEmail(opts: {
     <table width="100%" style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
       <tr style="background:#f9fafb;">
         <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;">Name</td>
-        <td style="padding:12px 16px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${opts.palName}</td>
+        <td style="padding:12px 16px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${escapeHtml(opts.palName)}</td>
       </tr>
       <tr>
         <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;border-top:1px solid #e5e7eb;">Email</td>
-        <td style="padding:12px 16px;font-size:14px;font-weight:600;color:#111827;text-align:right;">${opts.palEmail}</td>
+        <td style="padding:12px 16px;font-size:14px;font-weight:600;color:#111827;text-align:right;">${escapeHtml(opts.palEmail)}</td>
       </tr>
       ${
         opts.service
           ? `<tr style="background:#f9fafb;">
         <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;border-top:1px solid #e5e7eb;">Service</td>
-        <td style="padding:12px 16px;font-size:14px;color:#374151;text-align:right;">${opts.service}</td>
+        <td style="padding:12px 16px;font-size:14px;color:#374151;text-align:right;">${escapeHtml(opts.service)}</td>
       </tr>`
           : ""
       }
@@ -229,6 +239,44 @@ export async function sendPatPalPendingReviewEmail(opts: {
   await sendEmail({
     to: opts.to,
     subject: `New Pat Pal pending: ${opts.palName}`,
+    html,
+  });
+}
+
+// ─── Template: New signup pending approval ────────────────────────────────────
+export async function sendNewSignupPendingReviewEmail(opts: {
+  to: string;
+  userName: string;
+  userEmail: string;
+  role: "client" | "pat_pal";
+}) {
+  const appUrl = getAppUrl();
+  const roleLabel = opts.role === "pat_pal" ? "Pat Pal" : "Client";
+  const html = layout(`
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:800;color:#111827;">New signup pending review</h2>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">
+      A new account verified their email and is waiting for admin approval before they can sign in.
+    </p>
+    <table width="100%" style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+      <tr style="background:#f9fafb;">
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;">Name</td>
+        <td style="padding:12px 16px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${escapeHtml(opts.userName)}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;border-top:1px solid #e5e7eb;">Email</td>
+        <td style="padding:12px 16px;font-size:14px;font-weight:600;color:#111827;text-align:right;">${escapeHtml(opts.userEmail)}</td>
+      </tr>
+      <tr style="background:#f9fafb;">
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;border-top:1px solid #e5e7eb;">Signed up as</td>
+        <td style="padding:12px 16px;font-size:14px;color:#374151;text-align:right;">${roleLabel}</td>
+      </tr>
+    </table>
+    ${btn("Open admin panel", `${appUrl}/admin`)}
+  `);
+
+  await sendEmail({
+    to: opts.to,
+    subject: `New signup pending approval: ${opts.userName}`,
     html,
   });
 }

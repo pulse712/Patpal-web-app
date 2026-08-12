@@ -41,6 +41,7 @@ import {
   setPatPalPrice,
   getAppPricingSettings,
   saveAppPricingSettings,
+  setUserApprovalStatus,
 } from "@/lib/admin.functions";
 import { requireAdminBeforeLoad } from "@/lib/admin-guard";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
@@ -122,11 +123,13 @@ function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState<AppRole | "all">("all");
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [userPage, setUserPage] = useState(1);
   const [userTotal, setUserTotal] = useState(0);
   const [userHasMore, setUserHasMore] = useState(false);
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
   const [emailConfirmBusy, setEmailConfirmBusy] = useState<string | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState<string | null>(null);
 
   const [newCode, setNewCode] = useState({
     label: "",
@@ -201,6 +204,7 @@ function AdminPanel() {
         data: {
           search: userSearch.trim() || undefined,
           role: userRoleFilter,
+          pendingOnly: pendingOnly || undefined,
           page,
           perPage: 50,
         },
@@ -223,6 +227,19 @@ function AdminPanel() {
       await loadUsers();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  async function reviewSignup(userId: string, status: "approved" | "rejected") {
+    setApprovalBusy(userId);
+    try {
+      await setUserApprovalStatus({ data: { userId, status } });
+      toast.success(status === "approved" ? "Signup approved" : "Signup request cancelled");
+      await loadUsers(userPage);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setApprovalBusy(null);
     }
   }
 
@@ -675,6 +692,16 @@ function AdminPanel() {
               </Select>
             </div>
 
+            <Button
+              type="button"
+              variant={pendingOnly ? "default" : "outline"}
+              size="sm"
+              className="w-full"
+              onClick={() => setPendingOnly((v) => !v)}
+            >
+              {pendingOnly ? "Showing pending approvals only" : "Show pending approvals only"}
+            </Button>
+
             <Button onClick={() => loadUsers(1)} disabled={usersLoading} className="w-full">
               {usersLoading ? (
                 <>
@@ -740,6 +767,16 @@ function AdminPanel() {
                           Inactive
                         </Badge>
                       )}
+                      {u.approvalStatus === "pending" && (
+                        <Badge variant="secondary" className="text-[10px] text-amber-700">
+                          Pending approval
+                        </Badge>
+                      )}
+                      {u.approvalStatus === "rejected" && (
+                        <Badge variant="destructive" className="text-[10px]">
+                          Cancelled
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
@@ -754,6 +791,34 @@ function AdminPanel() {
                     />
                   </div>
                 </div>
+
+                {u.approvalStatus !== "approved" && (
+                  <div className="flex flex-wrap gap-2 border-t border-border pt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={approvalBusy === u.id}
+                      onClick={() => reviewSignup(u.id, "approved")}
+                    >
+                      {approvalBusy === u.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Approve"
+                      )}
+                    </Button>
+                    {u.approvalStatus !== "rejected" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={approvalBusy === u.id}
+                        onClick={() => reviewSignup(u.id, "rejected")}
+                      >
+                        Cancel request
+                      </Button>
+                    )}
+                  </div>
+                )}
 
                 <div className="space-y-2 border-t border-border pt-2">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

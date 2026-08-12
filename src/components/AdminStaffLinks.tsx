@@ -3,11 +3,24 @@ import { ShieldCheck, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useStaffRole } from "@/hooks/use-staff-role";
+import { usePendingSignupCount } from "@/hooks/use-pending-signup-count";
 import { cn } from "@/lib/utils";
+
+/** Small red dot indicating there are signups waiting for admin approval. */
+function PendingDot({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span
+      className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-background"
+      aria-label={`${count} signup${count === 1 ? "" : "s"} pending approval`}
+    />
+  );
+}
 
 /** Prominent admin entry points for staff users. */
 export function AdminStaffBanner() {
   const { isStaff, isSuperAdmin, loading } = useStaffRole();
+  const pendingCount = usePendingSignupCount();
 
   if (loading || !isStaff) return null;
 
@@ -26,10 +39,11 @@ export function AdminStaffBanner() {
             Manage users, analytics, promo codes, and banners.
           </p>
         </div>
-        <Button asChild className="shrink-0 font-semibold">
+        <Button asChild className="relative shrink-0 font-semibold">
           <Link to="/admin">
             <LayoutDashboard className="mr-2 h-4 w-4" />
             Open admin panel
+            <PendingDot count={pendingCount} />
           </Link>
         </Button>
       </div>
@@ -39,6 +53,7 @@ export function AdminStaffBanner() {
 
 export function AdminStaffHeaderButton() {
   const { isStaff, loading } = useStaffRole();
+  const pendingCount = usePendingSignupCount();
 
   if (loading || !isStaff) return null;
 
@@ -46,12 +61,13 @@ export function AdminStaffHeaderButton() {
     <Link
       to="/admin"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-xs font-semibold text-primary sm:px-3 sm:text-sm",
+        "relative inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-xs font-semibold text-primary sm:px-3 sm:text-sm",
         "hover:bg-primary/10 transition-colors",
       )}
     >
       <ShieldCheck className="h-4 w-4" />
       Admin
+      <PendingDot count={pendingCount} />
     </Link>
   );
 }

@@ -19,6 +19,7 @@ export const listAdminUsers = createServerFn({ method: "POST" })
       .object({
         search: z.string().max(100).optional(),
         role: z.enum(["client", "pat_pal", "admin", "super_admin", "all"]).optional(),
+        pendingOnly: z.boolean().optional(),
         page: z.number().int().min(1).optional().default(1),
         perPage: z.number().int().min(1).max(100).optional().default(50),
       })
@@ -29,7 +30,7 @@ export const listAdminUsers = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const roleFilter = data.role ?? "all";
-    const hasFilters = !!data.search?.trim() || roleFilter !== "all";
+    const hasFilters = !!data.search?.trim() || roleFilter !== "all" || !!data.pendingOnly;
     const fetchPerPage = hasFilters ? 1000 : data.perPage;
 
     const { data: authList, error: authError } = await supabaseAdmin.auth.admin.listUsers({
@@ -43,7 +44,10 @@ export const listAdminUsers = createServerFn({ method: "POST" })
     const ids = users.map((u) => u.id);
 
     const [{ data: profiles }, { data: roles }] = await Promise.all([
-      supabaseAdmin.from("profiles").select("id, full_name, is_active, created_at").in("id", ids),
+      supabaseAdmin
+        .from("profiles")
+        .select("id, full_name, is_active, approval_status, created_at")
+        .in("id", ids),
       supabaseAdmin.from("user_roles").select("user_id, role").in("user_id", ids),
     ]);
 
@@ -60,13 +64,15 @@ export const listAdminUsers = createServerFn({ method: "POST" })
         email: u.email ?? "",
         fullName: profile?.full_name ?? "",
         isActive: profile?.is_active ?? true,
+        approvalStatus: (profile?.approval_status ?? "approved") as
+          "pending" | "approved" | "rejected",
         emailConfirmed: !!u.email_confirmed_at,
         role: roleMap.get(u.id) ?? "client",
         createdAt: profile?.created_at ?? u.created_at,
       };
     });
 
-    const filtered = filterAdminUsers(rows, data.search, roleFilter);
+    const filtered = filterAdminUsers(rows, data.search, roleFilter, data.pendingOnly);
 
     if (hasFilters) {
       const start = (data.page - 1) * data.perPage;
@@ -111,6 +117,25 @@ export const setUserActive = createServerFn({ method: "POST" })
     });
     if (authError) throw new Error(authError.message);
 
+    return { ok: true };
+  });
+
+/** Approve or reject a pending signup — gates whether the account can sign in at all. */
+export const setUserApprovalStatus = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) =>
+    z.object({ userId: z.string().uuid(), status: z.enum(["approved", "rejected"]) }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ approval_status: data.status, updated_at: new Date().toISOString() })
+      .eq("id", data.userId);
+
+    if (error) throw new Error(error.message);
     return { ok: true };
   });
 
@@ -515,6 +540,13 @@ export const setUserRole = createServerFn({ method: "POST" })
 
     if (data.role === "admin" || data.role === "super_admin") {
       await ensureTeamPalRecord(supabaseAdmin, data.userId);
+      // Admins/super_admins must never be blocked by the signup approval
+      // gate, even if they were promoted while their own signup was still
+      // pending review.
+      await supabaseAdmin
+        .from("profiles")
+        .update({ approval_status: "approved" })
+        .eq("id", data.userId);
     } else if (currentRole === "admin" || currentRole === "super_admin") {
       await supabaseAdmin.from("pat_pals").update({ is_team: false }).eq("user_id", data.userId);
     }

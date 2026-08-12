@@ -31,8 +31,14 @@ export function assertCanAssignRole(opts: {
 }
 
 export function filterAdminUsers<
-  T extends { email: string; fullName: string; role: AppRole; createdAt?: string | null },
->(users: T[], search?: string, roleFilter: AppRole | "all" = "all"): T[] {
+  T extends {
+    email: string;
+    fullName: string;
+    role: AppRole;
+    createdAt?: string | null;
+    approvalStatus?: "pending" | "approved" | "rejected";
+  },
+>(users: T[], search?: string, roleFilter: AppRole | "all" = "all", pendingOnly?: boolean): T[] {
   let rows = users;
 
   const q = search?.trim().toLowerCase();
@@ -44,6 +50,10 @@ export function filterAdminUsers<
 
   if (roleFilter !== "all") {
     rows = rows.filter((r) => r.role === roleFilter);
+  }
+
+  if (pendingOnly) {
+    rows = rows.filter((r) => r.approvalStatus === "pending");
   }
 
   return [...rows].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));

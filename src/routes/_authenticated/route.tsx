@@ -8,7 +8,6 @@ import { IncomingCallProvider } from "@/components/IncomingCallProvider";
 import { PushRegistration } from "@/components/PushRegistration";
 import { IncomingCallDeepLink } from "@/components/IncomingCallDeepLink";
 import { NotificationProvider } from "@/components/NotificationProvider";
-import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: requireAuthBeforeLoad,
@@ -43,10 +42,14 @@ function AuthenticatedLayout() {
       .eq("id", user.id)
       .maybeSingle()
       .then(({ data, error }) => {
-        // If the approval_status column hasn't been migrated onto this
-        // database yet, fail open rather than locking out every user.
-        if (error && isMissingColumnError(error)) return;
-        if (data?.is_active === false || data?.approval_status !== "approved") {
+        // Fail open on any error or missing row (migration not applied yet,
+        // profile row not created yet, transient network error, etc.) —
+        // only redirect on a confirmed, successful read that shows the
+        // account is actually blocked. Blocking on an unconfirmed read here
+        // caused a redirect loop with /account-status, which fails open the
+        // same way when it can't confirm a status either.
+        if (error || !data) return;
+        if (data.is_active === false || data.approval_status !== "approved") {
           navigate({ to: "/account-status", replace: true });
         }
       });

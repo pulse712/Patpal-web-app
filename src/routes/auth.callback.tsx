@@ -7,7 +7,6 @@ import { sendWelcome } from "@/lib/welcome.functions";
 import { sendWelcomeOnce } from "@/lib/welcome-client";
 import { applySignupRole } from "@/lib/signup.functions";
 import { parseSignupRole, parseSignupCategorySlugs, parseSignupService } from "@/lib/signup-role";
-import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 /** Handles Supabase email links (#access_token=...) after signup or magic link. */
 export const Route = createFileRoute("/auth/callback")({
@@ -56,12 +55,14 @@ function finishSignIn(
       .select("is_active, approval_status")
       .eq("id", session.user.id)
       .maybeSingle();
-    // If approval_status hasn't been migrated onto this database yet, fail
-    // open rather than blocking every new signup from completing onboarding.
-    const migrationPending = !!profileError && isMissingColumnError(profileError);
+    // Fail open on any error or missing row (migration not applied yet,
+    // profile row not created yet, transient network error, etc.) — only
+    // block a signup on a confirmed, successful read that shows it's
+    // actually pending/rejected/banned.
     if (
-      !migrationPending &&
-      (profile?.is_active === false || profile?.approval_status !== "approved")
+      !profileError &&
+      profile &&
+      (profile.is_active === false || profile.approval_status !== "approved")
     ) {
       navigate({ to: "/account-status", replace: true });
       return;

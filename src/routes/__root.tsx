@@ -171,6 +171,26 @@ function RootComponent() {
       reloadForStaleChunkOnce();
     }
     window.addEventListener("vite:preloadError", handlePreloadError);
+
+    // Last-resort net: a chunk-load failure that surfaces during React's
+    // concurrent-render recovery (its own synchronous retry after an initial
+    // failure) can end up truly uncaught, bypassing both the event above and
+    // the router's route-tree ErrorComponent boundary. Catch it here too so
+    // it still resolves with one reload instead of a blank/crashed page.
+    function handleWindowError(event: ErrorEvent) {
+      if (isChunkLoadError(event.error)) {
+        event.preventDefault();
+        reloadForStaleChunkOnce();
+      }
+    }
+    function handleUnhandledRejection(event: PromiseRejectionEvent) {
+      if (isChunkLoadError(event.reason)) {
+        event.preventDefault();
+        reloadForStaleChunkOnce();
+      }
+    }
+    window.addEventListener("error", handleWindowError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
     const clearGuard = clearStaleChunkGuardAfterDelay();
 
     // Register service worker for PWA support
@@ -203,6 +223,8 @@ function RootComponent() {
     });
     return () => {
       window.removeEventListener("vite:preloadError", handlePreloadError);
+      window.removeEventListener("error", handleWindowError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
       clearGuard();
       sub.subscription.unsubscribe();
     };

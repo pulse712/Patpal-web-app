@@ -10,11 +10,22 @@
 const RELOAD_GUARD_KEY = "chunk-reload-attempted";
 const GUARD_RESET_MS = 10_000;
 
+const CHUNK_ERROR_PATTERN =
+  /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed/i;
+
 export function isChunkLoadError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed/i.test(
-    message,
-  );
+  // React can wrap the real failure (e.g. its concurrent-render recovery,
+  // "error #520", after a first attempt at rendering a lazy chunk fails and
+  // it retries synchronously) in a new Error with the original one attached
+  // as `.cause` instead of surfacing our message directly — check the whole
+  // cause chain, not just the outermost error.
+  let current: unknown = error;
+  for (let i = 0; i < 5 && current != null; i++) {
+    const message = current instanceof Error ? current.message : String(current);
+    if (CHUNK_ERROR_PATTERN.test(message)) return true;
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
 }
 
 /** Reloads once per problem window; returns false (does nothing) if already tried recently. */

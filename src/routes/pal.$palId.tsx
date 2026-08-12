@@ -35,6 +35,7 @@ import { getWalletBalance } from "@/lib/session.functions";
 import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
 import { listPalReviews, type PalReview } from "@/lib/rating.functions";
 import { CallScreen } from "@/components/CallScreen";
+import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 type Day = (typeof DAYS)[number];
@@ -151,7 +152,7 @@ function PalProfile() {
         .eq("user_id", palId)
         .maybeSingle();
 
-      if (rowRes.error && /service_range|is_approved|column/i.test(rowRes.error.message)) {
+      if (rowRes.error && isMissingColumnError(rowRes.error)) {
         const basicRes = await supabase
           .from("pat_pals")
           .select(

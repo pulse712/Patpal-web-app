@@ -9,6 +9,7 @@ import { useIsOnline, useOnlineUsers } from "@/lib/presence";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getTeamMembers, type TeamMember } from "@/lib/team.functions";
 import { AdminStaffBanner, AdminStaffHeaderButton } from "@/components/AdminStaffLinks";
+import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -102,7 +103,7 @@ function Home() {
         catsRes.error?.message ??
         palsRes.error?.message ??
         bansRes.error?.message;
-      if (loadError && /is_approved|starts_at|column/i.test(loadError)) {
+      if (loadError && isMissingColumnError(loadError)) {
         // Migration not applied yet — fall back without new columns
       } else if (loadError) {
         toast.error("Could not load your dashboard. Please refresh.");
@@ -113,7 +114,7 @@ function Home() {
       const w = wRes.data;
       const cats = catsRes.data;
       let pals = palsRes.data;
-      if (palsRes.error && /is_approved|column/i.test(palsRes.error.message)) {
+      if (palsRes.error && isMissingColumnError(palsRes.error)) {
         const fallback = await supabase
           .from("pat_pals")
           .select(
@@ -122,7 +123,7 @@ function Home() {
         pals = (fallback.data ?? []).map((row) => ({ ...row, is_approved: true }));
       }
       let bans = bansRes.data;
-      if (bansRes.error && /starts_at|ends_at|column/i.test(bansRes.error.message)) {
+      if (bansRes.error && isMissingColumnError(bansRes.error)) {
         const fallback = await supabase
           .from("promo_banners")
           .select("id, title, body, image_url")

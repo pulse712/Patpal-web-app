@@ -363,19 +363,13 @@ export const setPatPalApproved = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const patch: {
-      is_approved: boolean;
-      availability?: "available" | "offline";
-      updated_at: string;
-    } = {
+    // Visibility on Browse/Home is driven solely by is_approved — availability
+    // is a separate, independent toggle the admin controls with its own
+    // Enable/Disable buttons, so approval must not overwrite it.
+    const patch = {
       is_approved: data.isApproved,
       updated_at: new Date().toISOString(),
     };
-    if (data.isApproved) {
-      patch.availability = "available";
-    } else {
-      patch.availability = "offline";
-    }
     const { error } = await supabaseAdmin.from("pat_pals").update(patch).eq("user_id", data.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -506,11 +500,16 @@ export const setUserRole = createServerFn({ method: "POST" })
     if (insertError) throw new Error(insertError.message);
 
     if (data.role === "pat_pal") {
+      // ignoreDuplicates must be false (the default) here — an admin
+      // directly granting the pat_pal role is meant to approve them even if
+      // they already have a pending row from self-signup. With
+      // ignoreDuplicates: true this upsert was a no-op on conflict, so
+      // is_approved silently stayed false despite the admin's action.
       await supabaseAdmin
         .from("pat_pals")
         .upsert(
           { user_id: data.userId, is_approved: true, availability: "available" },
-          { onConflict: "user_id", ignoreDuplicates: true },
+          { onConflict: "user_id" },
         );
     }
 

@@ -11,6 +11,7 @@ import {
   resolveTrialGrantSeconds,
 } from "@/lib/trial-utils";
 import { hasPlatformStaffRole } from "@/lib/billing-guard";
+import { escapeLikePattern } from "@/lib/postgrest-utils";
 
 export const redeemTrialCode = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
@@ -34,7 +35,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
       .select("id")
       .eq("user_id", userId)
       .eq("kind", "trial")
-      .like("note", `Trial code ${trimmed}:%`)
+      .like("note", `Trial code ${escapeLikePattern(trimmed)}:%`)
       .maybeSingle();
 
     assertTrialCodeRedeemable(tc, !!prior);

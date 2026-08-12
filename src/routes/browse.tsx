@@ -15,6 +15,7 @@ import {
 import { Search } from "lucide-react";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getStaffUserIds } from "@/lib/team.functions";
+import { isMissingColumnError } from "@/lib/postgrest-utils";
 import {
   filterBrowsePals,
   buildPriceOptions,
@@ -97,7 +98,7 @@ function Browse() {
         .eq("is_approved", true)
         .order("rating_avg", { ascending: false });
 
-      if (palsRes.error && /service_range|is_approved|column/i.test(palsRes.error.message)) {
+      if (palsRes.error && isMissingColumnError(palsRes.error)) {
         const basicPalsRes = await supabase
           .from("pat_pals")
           .select("user_id, headline, price_cents_per_minute, availability, category_slugs, tier")

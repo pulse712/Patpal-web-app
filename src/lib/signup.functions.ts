@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { SignupRole } from "@/lib/signup-role";
 import { normalizeCategorySlugs, resolveValidCategorySlugs } from "@/lib/categories";
 import { loadDefaultPriceCents } from "@/lib/app-settings";
+import { escapeLikePattern } from "@/lib/postgrest-utils";
 
 const applySignupRoleSchema = z
   .object({
@@ -50,7 +51,7 @@ export const checkDisplayNameAvailable = createServerFn({ method: "POST" })
     const { data: rows, error } = await supabaseAdmin
       .from("profiles")
       .select("id, full_name")
-      .ilike("full_name", name)
+      .ilike("full_name", escapeLikePattern(name))
       .limit(20);
 
     if (error) throw new Error(error.message);
@@ -136,7 +137,7 @@ export const applySignupRole = createServerFn({ method: "POST" })
           .from("profiles")
           .select("id, full_name")
           .neq("id", userId)
-          .ilike("full_name", fullName)
+          .ilike("full_name", escapeLikePattern(fullName))
           .limit(20);
         const taken = (dupes ?? []).some(
           (r) => (r.full_name ?? "").trim().toLowerCase() === fullName.toLowerCase(),

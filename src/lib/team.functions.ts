@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { serverAuth } from "@/lib/server-auth";
+import { loadDefaultPriceCents } from "@/lib/app-settings";
 
 type TeamRole = "admin" | "super_admin";
 
@@ -43,11 +44,13 @@ export async function ensureTeamPalRecord(
     return;
   }
 
+  const defaultPrice = await loadDefaultPriceCents(supabaseAdmin as never);
+
   await supabaseAdmin.from("pat_pals").insert({
     user_id: userId,
     headline,
     availability: "available",
-    price_cents_per_minute: 100,
+    price_cents_per_minute: defaultPrice,
     tier: "trusted",
     is_team: true,
     is_approved: true,

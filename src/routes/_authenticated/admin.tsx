@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { AdminSessionsChart } from "@/components/AdminSessionsChart";
+import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   beforeLoad: requireAdminBeforeLoad,
@@ -167,7 +168,7 @@ function AdminPanel() {
       listPromoBanners(),
     ]);
     let palRows = p.data ?? [];
-    if (p.error && /is_approved|column/i.test(p.error.message)) {
+    if (p.error && isMissingColumnError(p.error)) {
       const fallback = await supabase
         .from("pat_pals")
         .select("user_id, headline, availability, price_cents_per_minute, tier")

@@ -85,4 +85,8 @@ describe("computeTrialBalance", () => {
   it("grants configured seconds", () => {
     expect(computeTrialBalance(300, 120)).toBe(420);
   });
+
+  it("defaults to TRIAL_GRANT_SECONDS when called with a single argument", () => {
+    expect(computeTrialBalance(300)).toBe(300 + TRIAL_GRANT_SECONDS);
+  });
 });

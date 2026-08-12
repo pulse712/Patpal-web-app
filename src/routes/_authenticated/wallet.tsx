@@ -40,12 +40,38 @@ type Tx = {
   created_at: string;
 };
 
-// Credit packages — must match stripe.server.ts CREDIT_PACKAGES
-const PACKAGES = [
-  { id: "pack_15min", label: "15 minutes", minutes: "15 min", price: "$10", badge: undefined },
-  { id: "pack_30min", label: "30 minutes", minutes: "30 min", price: "$18", badge: "Popular" },
-  { id: "pack_60min", label: "60 minutes", minutes: "60 min", price: "$30", badge: undefined },
-] as const;
+// Credit packages — loaded from app_settings when available
+const FALLBACK_PACKAGES = [
+  {
+    id: "pack_15min",
+    label: "15 minutes",
+    minutes: "15 min",
+    price: "$10",
+    badge: undefined as string | undefined,
+  },
+  {
+    id: "pack_30min",
+    label: "30 minutes",
+    minutes: "30 min",
+    price: "$18",
+    badge: "Popular" as string | undefined,
+  },
+  {
+    id: "pack_60min",
+    label: "60 minutes",
+    minutes: "60 min",
+    price: "$30",
+    badge: undefined as string | undefined,
+  },
+];
+
+type WalletPackage = {
+  id: string;
+  label: string;
+  minutes: string;
+  price: string;
+  badge?: string;
+};
 
 function Wallet() {
   const navigate = useNavigate();
@@ -60,22 +86,26 @@ function Wallet() {
   const [codeBusy, setCodeBusy] = useState(false);
   const [buyingId, setBuyingId] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState("");
+  const [packages, setPackages] = useState<WalletPackage[]>(FALLBACK_PACKAGES);
   const balanceBeforePaymentRef = useRef<number | null>(null);
 
-  const load = useCallback(async (id: string) => {
-    const [wallet, { data: t }] = await Promise.all([
-      getWalletBalanceFn(),
-      supabase
-        .from("credit_transactions")
-        .select("*")
-        .eq("user_id", id)
-        .order("created_at", { ascending: false })
-        .limit(30),
-    ]);
-    setSeconds(wallet.displayBalanceSeconds);
-    setUnlimitedUntil(wallet.unlimitedUntil);
-    setTx((t ?? []) as Tx[]);
-  }, [getWalletBalanceFn]);
+  const load = useCallback(
+    async (id: string) => {
+      const [wallet, { data: t }] = await Promise.all([
+        getWalletBalanceFn(),
+        supabase
+          .from("credit_transactions")
+          .select("*")
+          .eq("user_id", id)
+          .order("created_at", { ascending: false })
+          .limit(30),
+      ]);
+      setSeconds(wallet.displayBalanceSeconds);
+      setUnlimitedUntil(wallet.unlimitedUntil);
+      setTx((t ?? []) as Tx[]);
+    },
+    [getWalletBalanceFn],
+  );
 
   // Handle return from Stripe checkout — poll until webhook credits wallet
   useEffect(() => {
@@ -137,6 +167,31 @@ function Wallet() {
       if (!sess.session) return;
       setUid(sess.session.user.id);
       await load(sess.session.user.id);
+
+      const { data: setting } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "credit_packages")
+        .maybeSingle();
+      if (setting?.value && Array.isArray(setting.value)) {
+        const mapped: WalletPackage[] = [];
+        for (const [i, row] of (setting.value as Record<string, unknown>[]).entries()) {
+          if (!row || typeof row !== "object") continue;
+          const id = typeof row.id === "string" ? row.id : null;
+          const label = typeof row.label === "string" ? row.label : null;
+          const seconds = typeof row.seconds === "number" ? row.seconds : null;
+          const amount = typeof row.amount === "number" ? row.amount : null;
+          if (!id || !label || !seconds || amount == null) continue;
+          mapped.push({
+            id,
+            label,
+            minutes: `${Math.round(seconds / 60)} min`,
+            price: `$${(amount / 100).toFixed(amount % 100 === 0 ? 0 : 2)}`,
+            badge: i === 1 ? "Popular" : undefined,
+          });
+        }
+        if (mapped.length > 0) setPackages(mapped);
+      }
     })();
   }, [load]);
 
@@ -296,7 +351,7 @@ function Wallet() {
         <h2 className="text-base font-bold">Buy Minutes</h2>
         <p className="text-sm text-muted-foreground">One-time credit — never expires.</p>
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          {PACKAGES.map((pkg) => (
+          {packages.map((pkg) => (
             <button
               key={pkg.id}
               onClick={() => buyPackage(pkg.id, pkg.label)}

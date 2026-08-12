@@ -21,7 +21,8 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
   .validator((data: unknown) => checkoutSchema.parse(data))
   .handler(async ({ data, context }) => {
     const { getRequest } = await import("@tanstack/react-start/server");
-    const { CREDIT_PACKAGES, createWalletCheckoutSession } = await import("@/lib/stripe.server");
+    const { resolveCreditPackages, createWalletCheckoutSession } =
+      await import("@/lib/stripe.server");
     const { userId } = context;
     const request = getRequest();
 
@@ -30,7 +31,8 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
     let label: string;
 
     if (data.packageId) {
-      const pkg = CREDIT_PACKAGES.find((p) => p.id === data.packageId);
+      const packages = await resolveCreditPackages();
+      const pkg = packages.find((p) => p.id === data.packageId);
       if (!pkg) throw new Error("Invalid package ID");
       seconds = pkg.seconds;
       amountCents = pkg.amount;

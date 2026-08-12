@@ -145,12 +145,31 @@ export type Database = {
           },
         ];
       };
+      app_settings: {
+        Row: {
+          key: string;
+          value: unknown;
+          updated_at: string;
+        };
+        Insert: {
+          key: string;
+          value: unknown;
+          updated_at?: string;
+        };
+        Update: {
+          key?: string;
+          value?: unknown;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       pat_pals: {
         Row: {
           availability: Database["public"]["Enums"]["availability_status"];
           category_slugs: string[];
           created_at: string;
           headline: string | null;
+          is_approved: boolean;
           is_team: boolean;
           price_cents_per_minute: number;
           rating_avg: number;
@@ -165,6 +184,7 @@ export type Database = {
           category_slugs?: string[];
           created_at?: string;
           headline?: string | null;
+          is_approved?: boolean;
           is_team?: boolean;
           price_cents_per_minute?: number;
           rating_avg?: number;
@@ -179,6 +199,7 @@ export type Database = {
           category_slugs?: string[];
           created_at?: string;
           headline?: string | null;
+          is_approved?: boolean;
           is_team?: boolean;
           price_cents_per_minute?: number;
           rating_avg?: number;
@@ -277,10 +298,12 @@ export type Database = {
           created_at: string;
           cta_href: string | null;
           cta_label: string | null;
+          ends_at: string | null;
           id: string;
           image_url: string | null;
           is_visible: boolean;
           sort_order: number;
+          starts_at: string | null;
           title: string;
           updated_at: string;
         };
@@ -289,10 +312,12 @@ export type Database = {
           created_at?: string;
           cta_href?: string | null;
           cta_label?: string | null;
+          ends_at?: string | null;
           id?: string;
           image_url?: string | null;
           is_visible?: boolean;
           sort_order?: number;
+          starts_at?: string | null;
           title: string;
           updated_at?: string;
         };
@@ -301,10 +326,12 @@ export type Database = {
           created_at?: string;
           cta_href?: string | null;
           cta_label?: string | null;
+          ends_at?: string | null;
           id?: string;
           image_url?: string | null;
           is_visible?: boolean;
           sort_order?: number;
+          starts_at?: string | null;
           title?: string;
           updated_at?: string;
         };
@@ -418,27 +445,33 @@ export type Database = {
           code: string;
           created_at: string;
           expires_at: string | null;
+          grant_seconds: number | null;
           id: string;
           is_active: boolean;
           label: string | null;
+          starts_at: string | null;
           unlimited: boolean;
         };
         Insert: {
           code: string;
           created_at?: string;
           expires_at?: string | null;
+          grant_seconds?: number | null;
           id?: string;
           is_active?: boolean;
           label?: string | null;
+          starts_at?: string | null;
           unlimited?: boolean;
         };
         Update: {
           code?: string;
           created_at?: string;
           expires_at?: string | null;
+          grant_seconds?: number | null;
           id?: string;
           is_active?: boolean;
           label?: string | null;
+          starts_at?: string | null;
           unlimited?: boolean;
         };
         Relationships: [];

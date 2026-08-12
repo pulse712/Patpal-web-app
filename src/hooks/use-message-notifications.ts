@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchPublicProfile } from "@/lib/public-profiles";
 import { isViewingConversation, showLocalNotification } from "@/lib/local-notifications";
+import { playMessageChime } from "@/lib/message-chime";
 
 type MessageRow = {
   id: string;
@@ -46,6 +47,8 @@ export function useMessageNotifications(userId: string | null) {
           const preview = msg.body.length > 80 ? `${msg.body.slice(0, 80)}…` : msg.body;
           const url = `/chat/${msg.conversation_id}`;
           const title = `New message from ${senderName}`;
+
+          playMessageChime();
 
           if (document.hidden) {
             void showLocalNotification({

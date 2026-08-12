@@ -21,7 +21,7 @@ import {
   formatAuthEmailError,
   resendSignupVerification,
 } from "@/lib/auth-email";
-import { applySignupRole } from "@/lib/signup.functions";
+import { applySignupRole, checkDisplayNameAvailable } from "@/lib/signup.functions";
 import type { SignupRole } from "@/lib/signup-role";
 
 type SignupCategory = { id: string; name: string; slug: string; emoji: string | null };
@@ -245,6 +245,21 @@ function RegisterForm() {
     if (signupRole === "pat_pal" && service.trim().length < 3) {
       return toast.error("Please describe your service (at least 3 characters).");
     }
+    if (!fullName.trim()) return toast.error("Please enter your name.");
+
+    if (signupRole === "pat_pal") {
+      try {
+        const nameCheck = await checkDisplayNameAvailable({
+          data: { fullName: fullName.trim() },
+        });
+        if (!nameCheck.available) {
+          return toast.error("That display name is already taken. Please choose another.");
+        }
+      } catch (err) {
+        return toast.error(err instanceof Error ? err.message : "Could not verify name");
+      }
+    }
+
     setBusy(true);
     setPendingVerificationEmail(null);
     const signupMetadata: Record<string, string> = {
@@ -276,9 +291,7 @@ function RegisterForm() {
         await applySignupRole({
           data: {
             role: signupRole,
-            ...(signupRole === "pat_pal"
-              ? { categorySlugs, service: service.trim() }
-              : {}),
+            ...(signupRole === "pat_pal" ? { categorySlugs, service: service.trim() } : {}),
           },
         });
       } catch (err) {

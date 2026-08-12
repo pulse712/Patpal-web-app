@@ -191,3 +191,44 @@ export async function sendWelcomeEmail(opts: { to: string; name: string }) {
 
   await sendEmail({ to: opts.to, subject: "Welcome to Pat My Back 🤝", html });
 }
+
+// ─── Template: New Pat Pal pending approval ───────────────────────────────────
+export async function sendPatPalPendingReviewEmail(opts: {
+  to: string;
+  palName: string;
+  palEmail: string;
+  service?: string;
+}) {
+  const appUrl = getAppUrl();
+  const html = layout(`
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:800;color:#111827;">New Pat Pal pending review</h2>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">
+      A new Pat Pal account was created and is waiting for admin approval before appearing in Browse.
+    </p>
+    <table width="100%" style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+      <tr style="background:#f9fafb;">
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;">Name</td>
+        <td style="padding:12px 16px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${opts.palName}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;border-top:1px solid #e5e7eb;">Email</td>
+        <td style="padding:12px 16px;font-size:14px;font-weight:600;color:#111827;text-align:right;">${opts.palEmail}</td>
+      </tr>
+      ${
+        opts.service
+          ? `<tr style="background:#f9fafb;">
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;font-weight:600;border-top:1px solid #e5e7eb;">Service</td>
+        <td style="padding:12px 16px;font-size:14px;color:#374151;text-align:right;">${opts.service}</td>
+      </tr>`
+          : ""
+      }
+    </table>
+    ${btn("Open admin panel", `${appUrl}/admin`)}
+  `);
+
+  await sendEmail({
+    to: opts.to,
+    subject: `New Pat Pal pending: ${opts.palName}`,
+    html,
+  });
+}

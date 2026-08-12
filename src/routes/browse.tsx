@@ -17,8 +17,8 @@ import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getStaffUserIds } from "@/lib/team.functions";
 import {
   filterBrowsePals,
+  buildPriceOptions,
   paramToMaxPrice,
-  PRICE_OPTIONS,
   TIER_OPTIONS,
   type PalBrowseRow,
   type PalTier,
@@ -92,16 +92,15 @@ function Browse() {
       const palsRes = await supabase
         .from("pat_pals")
         .select(
-          "user_id, headline, service_range, price_cents_per_minute, availability, category_slugs, tier",
+          "user_id, headline, service_range, price_cents_per_minute, availability, category_slugs, tier, is_approved",
         )
+        .eq("is_approved", true)
         .order("rating_avg", { ascending: false });
 
-      if (palsRes.error && /service_range|column/i.test(palsRes.error.message)) {
+      if (palsRes.error && /service_range|is_approved|column/i.test(palsRes.error.message)) {
         const basicPalsRes = await supabase
           .from("pat_pals")
-          .select(
-            "user_id, headline, price_cents_per_minute, availability, category_slugs, tier",
-          )
+          .select("user_id, headline, price_cents_per_minute, availability, category_slugs, tier")
           .order("rating_avg", { ascending: false });
         palsError = basicPalsRes.error?.message;
         palRows = (basicPalsRes.data ?? []).map((row) => ({ ...row, service_range: null }));
@@ -156,6 +155,8 @@ function Browse() {
     [pals, activeCategory, activeTier, activePrice, q],
   );
 
+  const priceOptions = useMemo(() => buildPriceOptions(pals), [pals]);
+
   function updateSearch(patch: Partial<BrowseSearch>) {
     navigate({
       to: "/browse",
@@ -174,7 +175,9 @@ function Browse() {
     <AppShell>
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/95 px-5 pt-6 pb-4 backdrop-blur lg:px-8">
         <h1 className="text-2xl font-extrabold tracking-tight">Browse</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Find a Pat Pal by topic, tier, or price</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Find a Pat Pal by topic, tier, or price
+        </p>
         <div className="relative mt-4">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -196,9 +199,7 @@ function Browse() {
             <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Category</p>
             <Select
               value={activeCategory ?? "all"}
-              onValueChange={(v) =>
-                updateSearch({ category: v === "all" ? undefined : v })
-              }
+              onValueChange={(v) => updateSearch({ category: v === "all" ? undefined : v })}
             >
               <SelectTrigger className="h-10 w-full bg-background">
                 <SelectValue placeholder="All categories" />
@@ -240,7 +241,7 @@ function Browse() {
                 <SelectValue placeholder="Price" />
               </SelectTrigger>
               <SelectContent>
-                {PRICE_OPTIONS.map((opt) => (
+                {priceOptions.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -258,7 +259,7 @@ function Browse() {
               : ""}
             {activeTier !== "all" ? ` · ${activeTier}` : ""}
             {activePrice !== "all"
-              ? ` · ${PRICE_OPTIONS.find((o) => o.value === activePrice)?.label ?? activePrice}`
+              ? ` · ${priceOptions.find((o) => o.value === activePrice)?.label ?? activePrice}`
               : ""}
           </p>
         )}

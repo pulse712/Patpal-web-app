@@ -85,14 +85,15 @@ function Home() {
         supabase
           .from("pat_pals")
           .select(
-            "user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count",
-          ),
+            "user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count, category_slugs, is_approved",
+          )
+          .eq("is_approved", true),
         supabase
           .from("promo_banners")
-          .select("id, title, body, image_url")
+          .select("id, title, body, image_url, starts_at, ends_at")
           .eq("is_visible", true)
           .order("sort_order")
-          .limit(3),
+          .limit(8),
         getTeamMembers(),
       ]);
       const loadError =
@@ -101,7 +102,9 @@ function Home() {
         catsRes.error?.message ??
         palsRes.error?.message ??
         bansRes.error?.message;
-      if (loadError) {
+      if (loadError && /is_approved|starts_at|column/i.test(loadError)) {
+        // Migration not applied yet — fall back without new columns
+      } else if (loadError) {
         toast.error("Could not load your dashboard. Please refresh.");
         setLoading(false);
         return;
@@ -109,14 +112,40 @@ function Home() {
       const p = pRes.data;
       const w = wRes.data;
       const cats = catsRes.data;
-      const pals = palsRes.data;
-      const bans = bansRes.data;
+      let pals = palsRes.data;
+      if (palsRes.error && /is_approved|column/i.test(palsRes.error.message)) {
+        const fallback = await supabase
+          .from("pat_pals")
+          .select(
+            "user_id, headline, price_cents_per_minute, availability, tier, is_team, rating_avg, rating_count, category_slugs",
+          );
+        pals = (fallback.data ?? []).map((row) => ({ ...row, is_approved: true }));
+      }
+      let bans = bansRes.data;
+      if (bansRes.error && /starts_at|ends_at|column/i.test(bansRes.error.message)) {
+        const fallback = await supabase
+          .from("promo_banners")
+          .select("id, title, body, image_url")
+          .eq("is_visible", true)
+          .order("sort_order")
+          .limit(3);
+        bans = (fallback.data ?? []).map((b) => ({ ...b, starts_at: null, ends_at: null }));
+      } else {
+        const { isBannerInSchedule } = await import("@/lib/app-settings");
+        bans = (bans ?? []).filter((b) => isBannerInSchedule(b)).slice(0, 3);
+      }
       setProfile(p as Profile | null);
       setBalanceSeconds(w?.balance_seconds ?? 0);
-      setCategories((cats ?? []) as unknown as Category[]);
-      setBanners(bans ?? []);
 
       const rows = pals ?? [];
+      const usedSlugs = new Set<string>();
+      for (const r of rows) {
+        for (const slug of r.category_slugs ?? []) usedSlugs.add(slug);
+      }
+      const filteredCats = ((cats ?? []) as Category[]).filter((c) => usedSlugs.has(c.slug));
+      setCategories(filteredCats.length > 0 ? filteredCats : ((cats ?? []) as Category[]));
+      setBanners(bans ?? []);
+
       const nameMap = await fetchPublicProfiles(rows.map((r) => r.user_id));
       const merged: Pal[] = rows.map((r) => ({
         user_id: r.user_id,
@@ -251,11 +280,7 @@ function Home() {
             >
               {b.image_url && (
                 <div className="aspect-[12/5] w-full overflow-hidden">
-                  <img
-                    src={b.image_url}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
+                  <img src={b.image_url} alt="" className="h-full w-full object-cover" />
                 </div>
               )}
               <div className="px-4 py-3">
@@ -310,47 +335,47 @@ function Home() {
 
       {/* Online now + Top rated — side by side on large screens */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:px-5">
-      {/* Online now */}
-      <section className="px-5 pt-6 lg:px-0">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm font-bold">
-            <span className="inline-block h-2 w-2 rounded-full bg-success" /> Online now
-          </h3>
-          <Link to="/browse" className="text-xs font-semibold text-primary">
-            See all
-          </Link>
-        </div>
-        {online.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
-            <Users className="mx-auto mb-1 h-5 w-5 opacity-60" />
-            No Pals online right now.
+        {/* Online now */}
+        <section className="px-5 pt-6 lg:px-0">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-bold">
+              <span className="inline-block h-2 w-2 rounded-full bg-success" /> Online now
+            </h3>
+            <Link to="/browse" className="text-xs font-semibold text-primary">
+              See all
+            </Link>
           </div>
-        ) : (
-          <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
-            {online.map((p) => (
-              <PalRow key={p.user_id} pal={p} />
-            ))}
-          </div>
-        )}
-      </section>
+          {online.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
+              <Users className="mx-auto mb-1 h-5 w-5 opacity-60" />
+              No Pals online right now.
+            </div>
+          ) : (
+            <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
+              {online.map((p) => (
+                <PalRow key={p.user_id} pal={p} />
+              ))}
+            </div>
+          )}
+        </section>
 
-      {/* Top rated */}
-      <section className="px-5 pt-6 lg:px-0">
-        <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
-          <Star className="h-4 w-4 fill-accent text-accent" /> Top rated
-        </h3>
-        {topRated.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
-            No ratings yet.
-          </p>
-        ) : (
-          <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
-            {topRated.map((p) => (
-              <PalRow key={p.user_id} pal={p} />
-            ))}
-          </div>
-        )}
-      </section>
+        {/* Top rated */}
+        <section className="px-5 pt-6 lg:px-0">
+          <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
+            <Star className="h-4 w-4 fill-accent text-accent" /> Top rated
+          </h3>
+          {topRated.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
+              No ratings yet.
+            </p>
+          ) : (
+            <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
+              {topRated.map((p) => (
+                <PalRow key={p.user_id} pal={p} />
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </AppShell>
   );

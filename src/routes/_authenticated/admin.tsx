@@ -37,6 +37,10 @@ import {
   createPromoBanner,
   setPromoBannerVisible,
   deletePromoBanner,
+  setPatPalApproved,
+  setPatPalPrice,
+  getAppPricingSettings,
+  saveAppPricingSettings,
 } from "@/lib/admin.functions";
 import { requireAdminBeforeLoad } from "@/lib/admin-guard";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
@@ -65,6 +69,7 @@ type Pal = {
   price_cents_per_minute: number;
   tier: string;
   full_name: string | null;
+  is_approved?: boolean;
 };
 type Code = {
   id: string;
@@ -73,6 +78,8 @@ type Code = {
   is_active: boolean;
   unlimited: boolean;
   expires_at: string | null;
+  starts_at?: string | null;
+  grant_seconds?: number | null;
 };
 type Banner = {
   id: string;
@@ -81,6 +88,14 @@ type Banner = {
   image_url: string | null;
   is_visible: boolean;
   sort_order: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+};
+type PricingPackage = {
+  id: string;
+  label: string;
+  seconds: number;
+  amount: number;
 };
 
 type Analytics = Awaited<ReturnType<typeof getAnalytics>>;
@@ -112,12 +127,30 @@ function AdminPanel() {
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
   const [emailConfirmBusy, setEmailConfirmBusy] = useState<string | null>(null);
 
-  const [newCode, setNewCode] = useState({ label: "", unlimited: false });
-  const [newBanner, setNewBanner] = useState({ title: "", body: "", image_url: "" });
+  const [newCode, setNewCode] = useState({
+    label: "",
+    code: "",
+    unlimited: false,
+    startsAt: "",
+    expiresAt: "",
+    grantMinutes: "60",
+  });
+  const [newBanner, setNewBanner] = useState({
+    title: "",
+    body: "",
+    image_url: "",
+    startsAt: "",
+    endsAt: "",
+  });
   const [bannerImageUploading, setBannerImageUploading] = useState(false);
   const [cropDialogOpen, setCropDialogOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
   const [lastCropSource, setLastCropSource] = useState<string | null>(null);
+  const [pricingDefaultCents, setPricingDefaultCents] = useState(100);
+  const [pricingPackages, setPricingPackages] = useState<PricingPackage[]>([]);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingBusy, setPricingBusy] = useState(false);
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (loading || !user) return;
@@ -128,19 +161,34 @@ function AdminPanel() {
     const [p, c, b] = await Promise.all([
       supabase
         .from("pat_pals")
-        .select("user_id, headline, availability, price_cents_per_minute, tier")
+        .select("user_id, headline, availability, price_cents_per_minute, tier, is_approved")
         .order("created_at", { ascending: false }),
       listTrialCodes(),
       listPromoBanners(),
     ]);
-    const palRows = p.data ?? [];
+    let palRows = p.data ?? [];
+    if (p.error && /is_approved|column/i.test(p.error.message)) {
+      const fallback = await supabase
+        .from("pat_pals")
+        .select("user_id, headline, availability, price_cents_per_minute, tier")
+        .order("created_at", { ascending: false });
+      palRows = (fallback.data ?? []).map((row) => ({ ...row, is_approved: true }));
+    }
     const nameMap = await fetchPublicProfiles(palRows.map((r) => r.user_id));
-    setPals(
-      palRows.map((r) => ({
-        ...r,
-        full_name: nameMap.get(r.user_id)?.full_name ?? null,
-      })) as Pal[],
-    );
+    const nextPals = palRows.map((r) => ({
+      ...r,
+      full_name: nameMap.get(r.user_id)?.full_name ?? null,
+    })) as Pal[];
+    setPals(nextPals);
+    setPriceDrafts((prev) => {
+      const next = { ...prev };
+      for (const pal of nextPals) {
+        if (next[pal.user_id] === undefined) {
+          next[pal.user_id] = (pal.price_cents_per_minute / 100).toFixed(2);
+        }
+      }
+      return next;
+    });
     setCodes(c.codes as Code[]);
     setBanners(b.banners as Banner[]);
   }
@@ -229,14 +277,29 @@ function AdminPanel() {
   async function createCode() {
     const label = newCode.label.trim();
     if (!label) return toast.error("Label is required");
+    const grantMinutes = Number(newCode.grantMinutes);
+    if (!newCode.unlimited && (!Number.isFinite(grantMinutes) || grantMinutes < 1)) {
+      return toast.error("Grant minutes must be at least 1");
+    }
     try {
       const result = await createTrialCode({
         data: {
           label,
+          code: newCode.code.trim() || undefined,
           unlimited: newCode.unlimited,
+          startsAt: newCode.startsAt || undefined,
+          expiresAt: newCode.expiresAt || undefined,
+          grantMinutes: newCode.unlimited ? null : grantMinutes,
         },
       });
-      setNewCode({ label: "", unlimited: false });
+      setNewCode({
+        label: "",
+        code: "",
+        unlimited: false,
+        startsAt: "",
+        expiresAt: "",
+        grantMinutes: "60",
+      });
       toast.success(`Created — Label: ${label} · Code: ${result.code}`);
       refresh();
     } catch (err) {
@@ -266,9 +329,7 @@ function AdminPanel() {
 
   async function deleteCode(id: string) {
     if (
-      !window.confirm(
-        "Delete this code permanently? Any users who redeemed it will lose access.",
-      )
+      !window.confirm("Delete this code permanently? Any users who redeemed it will lose access.")
     ) {
       return;
     }
@@ -326,14 +387,90 @@ function AdminPanel() {
           body: newBanner.body || undefined,
           image_url: newBanner.image_url || undefined,
           sort_order: banners.length,
+          startsAt: newBanner.startsAt || undefined,
+          endsAt: newBanner.endsAt || undefined,
         },
       });
-      setNewBanner({ title: "", body: "", image_url: "" });
+      setNewBanner({ title: "", body: "", image_url: "", startsAt: "", endsAt: "" });
       setLastCropSource(null);
       toast.success("Banner created");
       refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create banner");
+    }
+  }
+
+  async function setApproved(userId: string, isApproved: boolean) {
+    try {
+      await setPatPalApproved({ data: { userId, isApproved } });
+      toast.success(isApproved ? "Pat Pal approved" : "Pat Pal unlisted");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  async function savePalPrice(userId: string) {
+    const raw = priceDrafts[userId]?.trim() ?? "";
+    const dollars = parseFloat(raw);
+    if (!Number.isFinite(dollars) || dollars < 0) {
+      return toast.error("Enter a valid price");
+    }
+    const priceCentsPerMinute = Math.round(dollars * 100);
+    try {
+      await setPatPalPrice({ data: { userId, priceCentsPerMinute } });
+      setPriceDrafts((prev) => ({
+        ...prev,
+        [userId]: (priceCentsPerMinute / 100).toFixed(2),
+      }));
+      toast.success("Price updated");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update price");
+    }
+  }
+
+  async function loadPricing() {
+    setPricingLoading(true);
+    try {
+      const data = await getAppPricingSettings();
+      setPricingDefaultCents(data.defaultPriceCents);
+      setPricingPackages(data.packages);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load pricing");
+    } finally {
+      setPricingLoading(false);
+    }
+  }
+
+  async function savePricing() {
+    if (pricingPackages.length === 0) {
+      return toast.error("Add at least one package");
+    }
+    for (const pkg of pricingPackages) {
+      if (!pkg.label.trim()) return toast.error("Each package needs a label");
+      if (pkg.seconds < 60) return toast.error("Package minutes must be at least 1");
+      if (pkg.amount < 0) return toast.error("Package amount cannot be negative");
+    }
+    setPricingBusy(true);
+    try {
+      await saveAppPricingSettings({
+        data: {
+          defaultPriceCents: pricingDefaultCents,
+          packages: pricingPackages.map((pkg) => ({
+            id: pkg.id,
+            label: pkg.label.trim(),
+            seconds: pkg.seconds,
+            amount: pkg.amount,
+          })),
+        },
+      });
+      toast.success("Pricing saved");
+      await loadPricing();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save pricing");
+    } finally {
+      setPricingBusy(false);
     }
   }
 
@@ -371,8 +508,13 @@ function AdminPanel() {
           <h1 className="text-2xl font-bold">Control panel</h1>
         </header>
 
-        <Tabs defaultValue="analytics">
-          <TabsList className="grid h-auto w-full grid-cols-5 gap-1">
+        <Tabs
+          defaultValue="analytics"
+          onValueChange={(value) => {
+            if (value === "pricing") void loadPricing();
+          }}
+        >
+          <TabsList className="grid h-auto w-full grid-cols-6 gap-1">
             <TabsTrigger value="analytics" className="text-xs sm:text-sm">
               Stats
             </TabsTrigger>
@@ -384,6 +526,9 @@ function AdminPanel() {
             </TabsTrigger>
             <TabsTrigger value="codes" className="text-xs sm:text-sm">
               Codes
+            </TabsTrigger>
+            <TabsTrigger value="pricing" className="text-xs sm:text-sm">
+              Pricing
             </TabsTrigger>
             <TabsTrigger value="banners" className="text-xs sm:text-sm">
               Banners
@@ -617,8 +762,7 @@ function AdminPanel() {
                     value={u.role}
                     disabled={
                       roleBusy === u.id ||
-                      (u.id === user?.id &&
-                        (u.role === "admin" || u.role === "super_admin"))
+                      (u.id === user?.id && (u.role === "admin" || u.role === "super_admin"))
                     }
                     onValueChange={(value) => assignUserRole(u.id, value as AppRole)}
                   >
@@ -666,36 +810,80 @@ function AdminPanel() {
             {pals.length === 0 && (
               <p className="p-4 text-sm text-muted-foreground">No Pat Pals yet.</p>
             )}
-            {pals.map((p) => (
-              <Card key={p.user_id} className="space-y-2 p-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-semibold">{p.full_name || "Unnamed"}</p>
-                    <p className="text-xs text-muted-foreground">{p.headline || "No headline"}</p>
-                    <p className="mt-1 text-xs">
-                      ${(p.price_cents_per_minute / 100).toFixed(2)}/min · {p.tier} ·{" "}
-                      {p.availability}
-                    </p>
+            {pals.map((p) => {
+              const approved = p.is_approved !== false;
+              return (
+                <Card key={p.user_id} className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{p.full_name || "Unnamed"}</p>
+                        <Badge variant={approved ? "default" : "secondary"}>
+                          {approved ? "Approved" : "Pending"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{p.headline || "No headline"}</p>
+                      <p className="mt-1 text-xs">
+                        ${(p.price_cents_per_minute / 100).toFixed(2)}/min · {p.tier} ·{" "}
+                        {p.availability}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setAvailability(p.user_id, "available")}
-                  >
-                    Enable
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setAvailability(p.user_id, "offline")}
-                  >
-                    Disable
-                  </Button>
-                </div>
-              </Card>
-            ))}
+                  <div className="flex flex-wrap gap-2">
+                    {approved ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setApproved(p.user_id, false)}
+                      >
+                        Unlist
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => setApproved(p.user_id, true)}>
+                        Approve
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAvailability(p.user_id, "available")}
+                    >
+                      Enable
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAvailability(p.user_id, "offline")}
+                    >
+                      Disable
+                    </Button>
+                  </div>
+                  <div className="flex items-end gap-2 border-t border-border pt-2">
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <Label htmlFor={`price-${p.user_id}`}>Price ($/min)</Label>
+                      <Input
+                        id={`price-${p.user_id}`}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={
+                          priceDrafts[p.user_id] ?? (p.price_cents_per_minute / 100).toFixed(2)
+                        }
+                        onChange={(e) =>
+                          setPriceDrafts((prev) => ({
+                            ...prev,
+                            [p.user_id]: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <Button size="sm" onClick={() => savePalPrice(p.user_id)}>
+                      Save
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
           </TabsContent>
 
           <TabsContent value="codes" className="space-y-3">
@@ -714,9 +902,46 @@ function AdminPanel() {
                   onChange={(e) => setNewCode({ ...newCode, label: e.target.value })}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Click create to generate a random 10-character redeem code for users.
-              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="code-value">Custom redeem code</Label>
+                <Input
+                  id="code-value"
+                  placeholder="Leave blank to auto-generate"
+                  value={newCode.code}
+                  onChange={(e) => setNewCode({ ...newCode, code: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="code-starts">Start date</Label>
+                  <Input
+                    id="code-starts"
+                    type="date"
+                    value={newCode.startsAt}
+                    onChange={(e) => setNewCode({ ...newCode, startsAt: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="code-expires">End date</Label>
+                  <Input
+                    id="code-expires"
+                    type="date"
+                    value={newCode.expiresAt}
+                    onChange={(e) => setNewCode({ ...newCode, expiresAt: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="code-grant">Grant minutes</Label>
+                <Input
+                  id="code-grant"
+                  type="number"
+                  min="1"
+                  disabled={newCode.unlimited}
+                  value={newCode.grantMinutes}
+                  onChange={(e) => setNewCode({ ...newCode, grantMinutes: e.target.value })}
+                />
+              </div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="unlimited">Unlimited access</Label>
                 <Switch
@@ -754,11 +979,15 @@ function AdminPanel() {
                           {c.unlimited && <Badge variant="outline">Unlimited</Badge>}
                         </div>
                       </div>
-                      {c.expires_at && (
-                        <p className="text-xs text-muted-foreground">
-                          Expires {new Date(c.expires_at).toLocaleDateString()}
-                        </p>
-                      )}
+                      <div className="space-y-0.5 text-xs text-muted-foreground">
+                        {c.starts_at && <p>Starts {new Date(c.starts_at).toLocaleDateString()}</p>}
+                        {c.expires_at && (
+                          <p>Expires {new Date(c.expires_at).toLocaleDateString()}</p>
+                        )}
+                        {!c.unlimited && c.grant_seconds != null && (
+                          <p>Grant {Math.round(c.grant_seconds / 60)} min</p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
                       {c.is_active ? (
@@ -860,7 +1089,9 @@ function AdminPanel() {
                     <span className="text-sm font-medium">
                       {bannerImageUploading ? "Uploading…" : "Upload picture"}
                     </span>
-                    <span className="text-xs text-muted-foreground">PNG, JPG, or WebP up to 5 MB</span>
+                    <span className="text-xs text-muted-foreground">
+                      PNG, JPG, or WebP up to 5 MB
+                    </span>
                   </label>
                 )}
                 <input
@@ -874,6 +1105,26 @@ function AdminPanel() {
                     e.target.value = "";
                   }}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="banner-starts">Start date</Label>
+                  <Input
+                    id="banner-starts"
+                    type="date"
+                    value={newBanner.startsAt}
+                    onChange={(e) => setNewBanner({ ...newBanner, startsAt: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="banner-ends">End date</Label>
+                  <Input
+                    id="banner-ends"
+                    type="date"
+                    value={newBanner.endsAt}
+                    onChange={(e) => setNewBanner({ ...newBanner, endsAt: e.target.value })}
+                  />
+                </div>
               </div>
               <Button onClick={createBanner} className="w-full" disabled={bannerImageUploading}>
                 Create banner
@@ -896,6 +1147,15 @@ function AdminPanel() {
                   <div className="min-w-0">
                     <p className="font-semibold">{b.title}</p>
                     <p className="line-clamp-2 text-xs text-muted-foreground">{b.body || "—"}</p>
+                    {(b.starts_at || b.ends_at) && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {b.starts_at
+                          ? `From ${new Date(b.starts_at).toLocaleDateString()}`
+                          : "No start"}
+                        {" · "}
+                        {b.ends_at ? `Until ${new Date(b.ends_at).toLocaleDateString()}` : "No end"}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -906,6 +1166,126 @@ function AdminPanel() {
                 </div>
               </Card>
             ))}
+          </TabsContent>
+
+          <TabsContent value="pricing" className="mt-4 space-y-3">
+            <Card className="space-y-3 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold">App pricing</h3>
+                <Button size="sm" variant="outline" onClick={loadPricing} disabled={pricingLoading}>
+                  {pricingLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                    </>
+                  ) : (
+                    "Load"
+                  )}
+                </Button>
+              </div>
+              {pricingLoading && pricingPackages.length === 0 ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="default-price">Default price ($/min)</Label>
+                    <Input
+                      id="default-price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={(pricingDefaultCents / 100).toFixed(2)}
+                      onChange={(e) => {
+                        const dollars = parseFloat(e.target.value);
+                        if (!Number.isFinite(dollars) || dollars < 0) return;
+                        setPricingDefaultCents(Math.round(dollars * 100));
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Credit packages
+                    </p>
+                    {pricingPackages.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        Click Load to fetch current packages.
+                      </p>
+                    )}
+                    {pricingPackages.map((pkg, idx) => (
+                      <Card key={pkg.id} className="space-y-2 p-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor={`pkg-label-${pkg.id}`}>Label</Label>
+                          <Input
+                            id={`pkg-label-${pkg.id}`}
+                            value={pkg.label}
+                            onChange={(e) => {
+                              const label = e.target.value;
+                              setPricingPackages((prev) =>
+                                prev.map((row, i) => (i === idx ? { ...row, label } : row)),
+                              );
+                            }}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1.5">
+                            <Label htmlFor={`pkg-min-${pkg.id}`}>Minutes</Label>
+                            <Input
+                              id={`pkg-min-${pkg.id}`}
+                              type="number"
+                              min="1"
+                              value={String(Math.round(pkg.seconds / 60))}
+                              onChange={(e) => {
+                                const minutes = Number(e.target.value);
+                                if (!Number.isFinite(minutes) || minutes < 1) return;
+                                setPricingPackages((prev) =>
+                                  prev.map((row, i) =>
+                                    i === idx ? { ...row, seconds: Math.round(minutes) * 60 } : row,
+                                  ),
+                                );
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor={`pkg-amt-${pkg.id}`}>Amount ($)</Label>
+                            <Input
+                              id={`pkg-amt-${pkg.id}`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={(pkg.amount / 100).toFixed(2)}
+                              onChange={(e) => {
+                                const dollars = parseFloat(e.target.value);
+                                if (!Number.isFinite(dollars) || dollars < 0) return;
+                                setPricingPackages((prev) =>
+                                  prev.map((row, i) =>
+                                    i === idx ? { ...row, amount: Math.round(dollars * 100) } : row,
+                                  ),
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">ID: {pkg.id}</p>
+                      </Card>
+                    ))}
+                  </div>
+                  <Button
+                    onClick={savePricing}
+                    className="w-full"
+                    disabled={pricingBusy || pricingPackages.length === 0}
+                  >
+                    {pricingBusy ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+                      </>
+                    ) : (
+                      "Save pricing"
+                    )}
+                  </Button>
+                </>
+              )}
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

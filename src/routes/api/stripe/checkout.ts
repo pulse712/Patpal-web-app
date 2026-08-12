@@ -10,7 +10,7 @@ export const Route = createFileRoute("/api/stripe/checkout")({
   server: {
     handlers: {
       POST: async () => {
-        const { CREDIT_PACKAGES, createWalletCheckoutSession } =
+        const { resolveCreditPackages, createWalletCheckoutSession } =
           await import("@/lib/stripe.server");
 
         const request = getRequest();
@@ -55,7 +55,8 @@ export const Route = createFileRoute("/api/stripe/checkout")({
         let label: string;
 
         if (body.packageId) {
-          const pkg = CREDIT_PACKAGES.find((p) => p.id === body.packageId);
+          const packages = await resolveCreditPackages();
+          const pkg = packages.find((p) => p.id === body.packageId);
           if (!pkg) {
             return new Response(JSON.stringify({ error: "Invalid package" }), {
               status: 400,

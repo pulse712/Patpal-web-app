@@ -5,6 +5,7 @@ import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 import type { SignupRole } from "@/lib/signup-role";
 import { normalizeCategorySlugs, resolveValidCategorySlugs } from "@/lib/categories";
+import { loadDefaultPriceCents } from "@/lib/app-settings";
 
 const applySignupRoleSchema = z
   .object({
@@ -39,6 +40,65 @@ const applySignupRoleSchema = z
     }
   });
 
+export const checkDisplayNameAvailable = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ fullName: z.string().min(1).max(120) }).parse(data))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const name = data.fullName.trim();
+    if (!name) return { available: false };
+
+    const { data: rows, error } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name")
+      .ilike("full_name", name)
+      .limit(20);
+
+    if (error) throw new Error(error.message);
+
+    const taken = (rows ?? []).some(
+      (r) => (r.full_name ?? "").trim().toLowerCase() === name.toLowerCase(),
+    );
+    return { available: !taken };
+  });
+
+async function notifySuperAdminsOfNewPatPal(opts: { palUserId: string; service?: string }) {
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { sendPatPalPendingReviewEmail } = await import("@/lib/email.server");
+
+    const [{ data: roleRows }, { data: profile }, { data: authUser }] = await Promise.all([
+      supabaseAdmin.from("user_roles").select("user_id").eq("role", "super_admin"),
+      supabaseAdmin.from("profiles").select("full_name").eq("id", opts.palUserId).maybeSingle(),
+      supabaseAdmin.auth.admin.getUserById(opts.palUserId),
+    ]);
+
+    const adminIds = (roleRows ?? []).map((r) => r.user_id);
+    if (adminIds.length === 0) return;
+
+    const emails: string[] = [];
+    for (const id of adminIds) {
+      const { data } = await supabaseAdmin.auth.admin.getUserById(id);
+      if (data.user?.email) emails.push(data.user.email);
+    }
+
+    const palName = profile?.full_name?.trim() || "New Pat Pal";
+    const palEmail = authUser.user?.email ?? "unknown";
+
+    await Promise.all(
+      emails.map((to) =>
+        sendPatPalPendingReviewEmail({
+          to,
+          palName,
+          palEmail,
+          service: opts.service,
+        }),
+      ),
+    );
+  } catch (err) {
+    console.error("[signup] failed to notify super admins:", err);
+  }
+}
+
 export const applySignupRole = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
   .validator((data: unknown) => applySignupRoleSchema.parse(data))
@@ -63,6 +123,30 @@ export const applySignupRole = createServerFn({ method: "POST" })
       return { ok: true, role };
     }
 
+    // Enforce unique display name for Pat Pals
+    if (role === "pat_pal") {
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userId)
+        .maybeSingle();
+      const fullName = profile?.full_name?.trim() ?? "";
+      if (fullName) {
+        const { data: dupes } = await supabaseAdmin
+          .from("profiles")
+          .select("id, full_name")
+          .neq("id", userId)
+          .ilike("full_name", fullName)
+          .limit(20);
+        const taken = (dupes ?? []).some(
+          (r) => (r.full_name ?? "").trim().toLowerCase() === fullName.toLowerCase(),
+        );
+        if (taken) {
+          throw new Error("That display name is already taken. Please choose another name.");
+        }
+      }
+    }
+
     const targetRole = role;
     const { error: deleteErr } = await supabaseAdmin
       .from("user_roles")
@@ -76,20 +160,29 @@ export const applySignupRole = createServerFn({ method: "POST" })
     if (roleErr) throw new Error(roleErr.message);
 
     if (role === "pat_pal") {
-      const validSlugs = await resolveValidCategorySlugs(supabaseAdmin, categorySlugs);
+      const validSlugs = await resolveValidCategorySlugs(supabaseAdmin as never, categorySlugs);
+      const defaultPrice = await loadDefaultPriceCents(supabaseAdmin as never);
 
       const { error: palErr } = await supabaseAdmin.from("pat_pals").upsert(
         {
           user_id: userId,
           headline: service!,
-          availability: "available",
-          price_cents_per_minute: 100,
+          availability: "offline",
+          is_approved: false,
+          price_cents_per_minute: defaultPrice,
           tier: "trusted",
           category_slugs: validSlugs,
         },
         { onConflict: "user_id" },
       );
-      if (palErr) throw new Error(palErr.message);
+      if (palErr) {
+        if (palErr.code === "23505") {
+          throw new Error("That display name is already taken. Please choose another name.");
+        }
+        throw new Error(palErr.message);
+      }
+
+      void notifySuperAdminsOfNewPatPal({ palUserId: userId, service });
     }
 
     return { ok: true, role };

@@ -57,7 +57,8 @@ export function filterBrowsePals(pals: PalBrowseRow[], filters: BrowseFilters): 
 
     if (q) {
       const langs = (p.profiles?.languages ?? []).join(" ");
-      const hay = `${p.profiles?.full_name ?? ""} ${p.headline ?? ""} ${p.profiles?.bio ?? ""} ${p.profiles?.introduction ?? ""} ${p.service_range ?? ""} ${langs}`.toLowerCase();
+      const hay =
+        `${p.profiles?.full_name ?? ""} ${p.headline ?? ""} ${p.profiles?.bio ?? ""} ${p.profiles?.introduction ?? ""} ${p.service_range ?? ""} ${langs}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
 
@@ -73,12 +74,37 @@ export const TIER_OPTIONS: { value: PalTier | "all"; label: string }[] = [
 ];
 
 export const PRICE_OPTIONS = [
-  { value: "all", label: "Any price", maxPriceCents: undefined },
+  { value: "all", label: "Any price", maxPriceCents: undefined as number | undefined },
   { value: "free", label: "Free", maxPriceCents: 0 },
   { value: "100", label: "Up to $1/min", maxPriceCents: 100 },
   { value: "200", label: "Up to $2/min", maxPriceCents: 200 },
   { value: "300", label: "Up to $3/min", maxPriceCents: 300 },
-] as const;
+];
+
+export type PriceOption = { value: string; label: string; maxPriceCents: number | undefined };
+
+/** Build price filter options from actual listed Pat Pal rates. */
+export function buildPriceOptions(pals: { price_cents_per_minute: number }[]): PriceOption[] {
+  const options: PriceOption[] = [{ value: "all", label: "Any price", maxPriceCents: undefined }];
+  const prices = [
+    ...new Set(pals.map((p) => p.price_cents_per_minute).filter((n) => Number.isFinite(n))),
+  ].sort((a, b) => a - b);
+
+  if (prices.includes(0)) {
+    options.push({ value: "free", label: "Free", maxPriceCents: 0 });
+  }
+
+  for (const cents of prices) {
+    if (cents <= 0) continue;
+    const dollars = cents / 100;
+    const label = Number.isInteger(dollars)
+      ? `Up to $${dollars}/min`
+      : `Up to $${dollars.toFixed(2)}/min`;
+    options.push({ value: String(cents), label, maxPriceCents: cents });
+  }
+
+  return options.length > 1 ? options : PRICE_OPTIONS;
+}
 
 export function maxPriceToParam(maxPriceCents: number | undefined): string {
   if (maxPriceCents === undefined) return "all";

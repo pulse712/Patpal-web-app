@@ -18,9 +18,7 @@ export type TeamMember = {
 
 /** Ensure admins appear as callable team members on the homepage. */
 export async function ensureTeamPalRecord(
-  supabaseAdmin: Awaited<
-    typeof import("@/integrations/supabase/client.server")
-  >["supabaseAdmin"],
+  supabaseAdmin: Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"],
   userId: string,
 ) {
   const { data: profile } = await supabaseAdmin
@@ -40,7 +38,7 @@ export async function ensureTeamPalRecord(
   if (existing) {
     await supabaseAdmin
       .from("pat_pals")
-      .update({ is_team: true, availability: "available" })
+      .update({ is_team: true, availability: "available", is_approved: true })
       .eq("user_id", userId);
     return;
   }
@@ -52,6 +50,7 @@ export async function ensureTeamPalRecord(
     price_cents_per_minute: 100,
     tier: "trusted",
     is_team: true,
+    is_approved: true,
   });
 }
 

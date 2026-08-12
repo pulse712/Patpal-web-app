@@ -8,7 +8,7 @@ import {
   buildTrialNote,
   computeTrialBalance,
   normalizeTrialCode,
-  TRIAL_GRANT_SECONDS,
+  resolveTrialGrantSeconds,
 } from "@/lib/trial-utils";
 import { hasPlatformStaffRole } from "@/lib/billing-guard";
 
@@ -22,7 +22,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
 
     const { data: tc, error: codeError } = await supabaseAdmin
       .from("trial_codes")
-      .select("id, code, label, is_active, expires_at, unlimited")
+      .select("id, code, label, is_active, expires_at, starts_at, grant_seconds, unlimited")
       .eq("code", trimmed)
       .eq("is_active", true)
       .maybeSingle();
@@ -41,7 +41,9 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
 
     const isPlatformStaff = await hasPlatformStaffRole(userId);
     if (isPlatformStaff && tc.unlimited) {
-      throw new Error("Unlimited trial codes cannot be used on admin accounts. Top up the wallet instead.");
+      throw new Error(
+        "Unlimited trial codes cannot be used on admin accounts. Top up the wallet instead.",
+      );
     }
 
     const { data: wallet } = await supabaseAdmin
@@ -50,7 +52,8 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .maybeSingle();
 
-    const note = buildTrialNote(tc.code, tc.label, tc.unlimited);
+    const grantSeconds = resolveTrialGrantSeconds(tc);
+    const note = buildTrialNote(tc.code, tc.label, tc.unlimited, grantSeconds);
 
     if (tc.unlimited) {
       const until = tc.expires_at ?? new Date(Date.now() + 7 * 864e5).toISOString();
@@ -70,7 +73,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
 
     const { error } = await supabaseAdmin.rpc("apply_trial_code", {
       p_user_id: userId,
-      p_seconds: TRIAL_GRANT_SECONDS,
+      p_seconds: grantSeconds,
       p_unlimited_until: null,
       p_note: note,
       p_trial_code_id: tc.id,
@@ -79,7 +82,7 @@ export const redeemTrialCode = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message || "Could not apply trial code");
 
     const currentBalance = wallet?.balance_seconds ?? 0;
-    const newBalance = computeTrialBalance(currentBalance);
+    const newBalance = computeTrialBalance(currentBalance, grantSeconds);
 
-    return { ok: true, balanceSeconds: newBalance, secondsGranted: TRIAL_GRANT_SECONDS };
+    return { ok: true, balanceSeconds: newBalance, secondsGranted: grantSeconds };
   });

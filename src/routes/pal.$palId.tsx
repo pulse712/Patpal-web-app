@@ -146,12 +146,12 @@ function PalProfile() {
       const rowRes = await supabase
         .from("pat_pals")
         .select(
-          "user_id, headline, service_range, price_cents_per_minute, availability, rating_avg, rating_count, category_slugs, tier, is_team",
+          "user_id, headline, service_range, price_cents_per_minute, availability, rating_avg, rating_count, category_slugs, tier, is_team, is_approved",
         )
         .eq("user_id", palId)
         .maybeSingle();
 
-      if (rowRes.error && /service_range|column/i.test(rowRes.error.message)) {
+      if (rowRes.error && /service_range|is_approved|column/i.test(rowRes.error.message)) {
         const basicRes = await supabase
           .from("pat_pals")
           .select(
@@ -160,10 +160,14 @@ function PalProfile() {
           .eq("user_id", palId)
           .maybeSingle();
         if (basicRes.data) {
-          palData = { ...basicRes.data, service_range: null } as Pal;
+          palData = { ...basicRes.data, service_range: null, is_approved: true } as unknown as Pal;
         }
       } else if (rowRes.data) {
-        palData = rowRes.data as Pal;
+        if (rowRes.data.is_approved === false) {
+          palData = null;
+        } else {
+          palData = rowRes.data as unknown as Pal;
+        }
       }
 
       let profile: Pal["profiles"] = null;

@@ -21,13 +21,24 @@ export const stripe = new Proxy({} as Stripe, {
 // Credit packages available for purchase.
 // seconds: how many seconds are added to the wallet.
 // amount: price in cents (USD).
+// Prefer DB app_settings via loadCreditPackages(); these are the fallback defaults.
 export const CREDIT_PACKAGES = [
   { id: "pack_15min", label: "15 minutes", seconds: 15 * 60, amount: 1000 }, // $10
   { id: "pack_30min", label: "30 minutes", seconds: 30 * 60, amount: 1800 }, // $18
   { id: "pack_60min", label: "60 minutes", seconds: 60 * 60, amount: 3000 }, // $30
 ] as const;
 
-export type PackageId = (typeof CREDIT_PACKAGES)[number]["id"];
+export type PackageId = string;
+
+export async function resolveCreditPackages() {
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { loadCreditPackages } = await import("@/lib/app-settings");
+    return await loadCreditPackages(supabaseAdmin);
+  } catch {
+    return [...CREDIT_PACKAGES];
+  }
+}
 
 export async function createWalletCheckoutSession(opts: {
   userId: string;

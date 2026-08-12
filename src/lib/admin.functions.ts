@@ -151,13 +151,43 @@ function generateTrialCodeValue(): string {
   return Array.from(bytes, (b) => TRIAL_CODE_CHARS[b % TRIAL_CODE_CHARS.length]).join("");
 }
 
+/** Accept ISO datetime or YYYY-MM-DD from date inputs. */
+function optionalDateString(endOfDay = false) {
+  return z
+    .string()
+    .trim()
+    .optional()
+    .nullable()
+    .transform((v, ctx) => {
+      if (v == null || v === "") return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        return endOfDay ? `${v}T23:59:59.999Z` : `${v}T00:00:00.000Z`;
+      }
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid date" });
+        return z.NEVER;
+      }
+      return d.toISOString();
+    });
+}
+
 export const createTrialCode = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
   .validator((data: unknown) =>
     z
       .object({
         label: z.string().min(1).max(100),
+        code: z
+          .string()
+          .min(4)
+          .max(32)
+          .regex(/^[A-Za-z0-9_-]+$/, "Code may only contain letters, numbers, _ and -")
+          .optional(),
         unlimited: z.boolean().optional().default(false),
+        startsAt: optionalDateString(false),
+        expiresAt: optionalDateString(true),
+        grantMinutes: z.number().int().min(1).max(10080).nullable().optional(),
       })
       .parse(data),
   )
@@ -165,17 +195,40 @@ export const createTrialCode = createServerFn({ method: "POST" })
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const code = generateTrialCodeValue();
+    if (data.startsAt && data.expiresAt && new Date(data.startsAt) > new Date(data.expiresAt)) {
+      throw new Error("Start date must be before end date");
+    }
+
+    const grantSeconds =
+      data.unlimited || data.grantMinutes == null ? null : data.grantMinutes * 60;
+
+    const tryInsert = async (code: string) => {
       const { error } = await supabaseAdmin.from("trial_codes").insert({
         code,
         label: data.label.trim(),
         unlimited: data.unlimited,
         is_active: true,
+        starts_at: data.startsAt,
+        expires_at: data.expiresAt,
+        grant_seconds: grantSeconds,
       });
+      return error;
+    };
 
+    if (data.code?.trim()) {
+      const code = data.code.trim().toUpperCase();
+      const error = await tryInsert(code);
+      if (error) {
+        if (error.code === "23505") throw new Error("That code already exists");
+        throw new Error(error.message);
+      }
+      return { ok: true, code };
+    }
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const code = generateTrialCodeValue();
+      const error = await tryInsert(code);
       if (!error) return { ok: true, code };
-
       if (error.code === "23505") continue;
       throw new Error(error.message);
     }
@@ -246,18 +299,25 @@ export const createPromoBanner = createServerFn({ method: "POST" })
         body: z.string().max(1000).optional(),
         image_url: z.string().url().max(2000).optional(),
         sort_order: z.number().int().min(0).optional(),
+        startsAt: optionalDateString(false),
+        endsAt: optionalDateString(true),
       })
       .parse(data),
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    if (data.startsAt && data.endsAt && new Date(data.startsAt) > new Date(data.endsAt)) {
+      throw new Error("Banner start must be before end");
+    }
     const { error } = await supabaseAdmin.from("promo_banners").insert({
       title: data.title,
       body: data.body || null,
       image_url: data.image_url || null,
       is_visible: true,
       sort_order: data.sort_order ?? 0,
+      starts_at: data.startsAt,
+      ends_at: data.endsAt,
     });
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -287,6 +347,117 @@ export const deletePromoBanner = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("promo_banners").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const setPatPalApproved = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) =>
+    z
+      .object({
+        userId: z.string().uuid(),
+        isApproved: z.boolean(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const patch: {
+      is_approved: boolean;
+      availability?: "available" | "offline";
+      updated_at: string;
+    } = {
+      is_approved: data.isApproved,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.isApproved) {
+      patch.availability = "available";
+    } else {
+      patch.availability = "offline";
+    }
+    const { error } = await supabaseAdmin.from("pat_pals").update(patch).eq("user_id", data.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const setPatPalPrice = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) =>
+    z
+      .object({
+        userId: z.string().uuid(),
+        priceCentsPerMinute: z.number().int().min(0).max(100000),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("pat_pals")
+      .update({
+        price_cents_per_minute: data.priceCentsPerMinute,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", data.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const getAppPricingSettings = createServerFn({ method: "GET" })
+  .middleware([...serverAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { loadCreditPackages, loadDefaultPriceCents } = await import("@/lib/app-settings");
+    const [packages, defaultPriceCents] = await Promise.all([
+      loadCreditPackages(supabaseAdmin),
+      loadDefaultPriceCents(supabaseAdmin),
+    ]);
+    return { packages, defaultPriceCents };
+  });
+
+export const saveAppPricingSettings = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) =>
+    z
+      .object({
+        defaultPriceCents: z.number().int().min(0).max(100000),
+        packages: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(64),
+              label: z.string().min(1).max(100),
+              seconds: z
+                .number()
+                .int()
+                .min(60)
+                .max(86400 * 30),
+              amount: z.number().int().min(0).max(1_000_000),
+            }),
+          )
+          .min(1)
+          .max(12),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const now = new Date().toISOString();
+    const { error: e1 } = await supabaseAdmin.from("app_settings").upsert({
+      key: "default_price_cents_per_minute",
+      value: data.defaultPriceCents,
+      updated_at: now,
+    });
+    if (e1) throw new Error(e1.message);
+    const { error: e2 } = await supabaseAdmin.from("app_settings").upsert({
+      key: "credit_packages",
+      value: data.packages,
+      updated_at: now,
+    });
+    if (e2) throw new Error(e2.message);
     return { ok: true };
   });
 
@@ -337,16 +508,16 @@ export const setUserRole = createServerFn({ method: "POST" })
     if (data.role === "pat_pal") {
       await supabaseAdmin
         .from("pat_pals")
-        .upsert({ user_id: data.userId }, { onConflict: "user_id", ignoreDuplicates: true });
+        .upsert(
+          { user_id: data.userId, is_approved: true, availability: "available" },
+          { onConflict: "user_id", ignoreDuplicates: true },
+        );
     }
 
     if (data.role === "admin" || data.role === "super_admin") {
       await ensureTeamPalRecord(supabaseAdmin, data.userId);
     } else if (currentRole === "admin" || currentRole === "super_admin") {
-      await supabaseAdmin
-        .from("pat_pals")
-        .update({ is_team: false })
-        .eq("user_id", data.userId);
+      await supabaseAdmin.from("pat_pals").update({ is_team: false }).eq("user_id", data.userId);
     }
 
     return { ok: true };

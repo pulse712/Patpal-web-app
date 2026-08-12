@@ -4,6 +4,7 @@ import {
   buildTrialNote,
   computeTrialBalance,
   normalizeTrialCode,
+  resolveTrialGrantSeconds,
   TRIAL_GRANT_SECONDS,
 } from "./trial-utils";
 
@@ -12,6 +13,8 @@ const validCode = {
   label: "Launch promo",
   is_active: true,
   expires_at: null,
+  starts_at: null,
+  grant_seconds: null,
   unlimited: false,
 };
 
@@ -33,6 +36,16 @@ describe("assertTrialCodeRedeemable", () => {
     );
   });
 
+  it("rejects not-yet-started codes", () => {
+    expect(() =>
+      assertTrialCodeRedeemable(
+        { ...validCode, starts_at: "2030-01-01T00:00:00.000Z" },
+        false,
+        new Date("2024-01-01T00:00:00.000Z"),
+      ),
+    ).toThrow(/not active yet/);
+  });
+
   it("rejects expired codes", () => {
     expect(() =>
       assertTrialCodeRedeemable(
@@ -48,6 +61,16 @@ describe("assertTrialCodeRedeemable", () => {
   });
 });
 
+describe("resolveTrialGrantSeconds", () => {
+  it("uses grant_seconds when set", () => {
+    expect(resolveTrialGrantSeconds({ ...validCode, grant_seconds: 120 })).toBe(120);
+  });
+
+  it("falls back to default hour", () => {
+    expect(resolveTrialGrantSeconds(validCode)).toBe(TRIAL_GRANT_SECONDS);
+  });
+});
+
 describe("buildTrialNote", () => {
   it("uses the label when provided", () => {
     expect(buildTrialNote("VIP", "Friends", false)).toBe("Trial code VIP: Friends");
@@ -59,7 +82,7 @@ describe("buildTrialNote", () => {
 });
 
 describe("computeTrialBalance", () => {
-  it("grants one hour of credits", () => {
-    expect(computeTrialBalance(300)).toBe(300 + TRIAL_GRANT_SECONDS);
+  it("grants configured seconds", () => {
+    expect(computeTrialBalance(300, 120)).toBe(420);
   });
 });

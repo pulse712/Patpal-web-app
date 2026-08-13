@@ -13,15 +13,12 @@ export const Route = createFileRoute("/account-status")({
 
 type Status = "checking" | "pending" | "rejected" | "banned" | "deleted";
 
-const POLL_MS = 5000;
-
 function AccountStatusPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<Status>("checking");
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
     async function check() {
       const { data: sess } = await supabase.auth.getSession();
@@ -72,11 +69,16 @@ function AccountStatusPage() {
       }
       if (profile.approval_status === "rejected") {
         setStatus("rejected");
+        void supabase.auth.signOut();
         return;
       }
       if (profile.approval_status === "pending") {
         setStatus("pending");
-        timer = setTimeout(check, POLL_MS);
+        // Signed out immediately rather than left with a live session while
+        // waiting — matches banned/rejected/deleted. This does mean we can
+        // no longer poll for approval on this page (no session left to
+        // check with), so approval now requires a fresh sign-in attempt.
+        void supabase.auth.signOut();
         return;
       }
 
@@ -88,7 +90,6 @@ function AccountStatusPage() {
 
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
     };
   }, [navigate]);
 
@@ -144,7 +145,7 @@ const STATUS_COPY: Record<
   pending: {
     icon: <Clock className="h-6 w-6 text-amber-600" />,
     title: "Your signup request is being reviewed",
-    body: "Your signup request is being reviewed by our support team. We'll let you know the result within 24 hours. This page will update automatically once you're approved.",
+    body: "Your signup request is being reviewed by our support team. We'll let you know the result within 24 hours. Please try signing in again after that.",
   },
   rejected: {
     icon: <XCircle className="h-6 w-6 text-destructive" />,

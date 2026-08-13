@@ -51,9 +51,24 @@ function AuthenticatedLayout() {
     let cancelled = false;
     setStatusOk(false);
 
+    function statusFromProfile(data: {
+      is_active: boolean;
+      approval_status: string;
+    } | null): "pending" | "banned" | "deleted" | "rejected" {
+      if (!data) return "deleted";
+      if (data.is_active === false) return "banned";
+      if (data.approval_status === "rejected") return "rejected";
+      if (data.approval_status !== "approved") return "pending";
+      return "pending";
+    }
+
+    function goAccountStatus(status: "pending" | "banned" | "deleted" | "rejected") {
+      navigate({ to: "/account-status", search: { status }, replace: true });
+    }
+
     function checkStatus(data: { is_active: boolean; approval_status: string } | null) {
       if (!data || data.is_active === false || data.approval_status !== "approved") {
-        navigate({ to: "/account-status", replace: true });
+        goAccountStatus(statusFromProfile(data));
         return;
       }
       if (!cancelled) setStatusOk(true);
@@ -88,7 +103,7 @@ function AuthenticatedLayout() {
           return;
         }
         // Could not confirm approval after retries — do not unlock the app.
-        navigate({ to: "/account-status", replace: true });
+        navigate({ to: "/account-status", search: { status: "pending" }, replace: true });
         return;
       }
 
@@ -105,7 +120,7 @@ function AuthenticatedLayout() {
       const result = await ensureMyProfile();
       if (cancelled) return;
       if (result.deleted) {
-        navigate({ to: "/account-status", replace: true });
+        goAccountStatus("deleted");
         return;
       }
 
@@ -116,7 +131,7 @@ function AuthenticatedLayout() {
         .maybeSingle();
       if (cancelled) return;
       if (healedError || !healed) {
-        navigate({ to: "/account-status", replace: true });
+        goAccountStatus("deleted");
         return;
       }
       checkStatus(healed);
@@ -138,7 +153,7 @@ function AuthenticatedLayout() {
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "profiles", filter: `id=eq.${uid}` },
-        () => navigate({ to: "/account-status", replace: true }),
+        () => goAccountStatus("deleted"),
       )
       .subscribe();
 

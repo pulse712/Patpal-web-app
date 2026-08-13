@@ -25,6 +25,8 @@ import { applySignupRole, checkDisplayNameAvailable } from "@/lib/signup.functio
 import type { SignupRole } from "@/lib/signup-role";
 import { resolveAccountGate } from "@/lib/account-access";
 
+const ACCOUNT_NOT_FOUND_MESSAGE = "Your account does not exist. Please sign up.";
+
 type SignupCategory = { id: string; name: string; slug: string; emoji: string | null };
 
 export const Route = createFileRoute("/auth")({
@@ -144,6 +146,8 @@ function LoginForm() {
       setBusy(false);
       if (isEmailNotConfirmedError(error.message)) {
         toast.error("Please verify your email first. Use resend below if needed.");
+      } else if (/invalid login credentials|invalid email or password|user not found/i.test(error.message)) {
+        toast.error(ACCOUNT_NOT_FOUND_MESSAGE);
       } else {
         toast.error(error.message);
       }
@@ -153,14 +157,22 @@ function LoginForm() {
     const userId = data.user?.id ?? data.session?.user.id;
     if (!userId) {
       setBusy(false);
-      toast.error("Could not sign in. Try again.");
+      toast.error(ACCOUNT_NOT_FOUND_MESSAGE);
       return;
     }
 
     const gate = await resolveAccountGate(userId);
     setBusy(false);
     if (!gate.allowed) {
-      navigate({ to: "/account-status", replace: true });
+      const status =
+        gate.reason === "banned"
+          ? "banned"
+          : gate.reason === "pending"
+            ? "pending"
+            : gate.reason === "rejected" || gate.reason === "missing"
+              ? "deleted"
+              : "pending";
+      navigate({ to: "/account-status", search: { status }, replace: true });
       return;
     }
 
@@ -335,7 +347,7 @@ function RegisterForm() {
         send: (payload) => sendWelcome({ data: payload }),
       });
       toast.success("Account created — waiting for admin approval.");
-      navigate({ to: "/account-status", replace: true });
+      navigate({ to: "/account-status", search: { status: "pending" }, replace: true });
       return;
     }
 

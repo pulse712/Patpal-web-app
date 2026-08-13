@@ -52,7 +52,7 @@ function finishSignIn(
 
     // Always land on account-status after email confirmation so pending
     // signups never enter /home or /pal-dashboard before admin approval.
-    navigate({ to: "/account-status", replace: true });
+    navigate({ to: "/account-status", search: { status: "pending" }, replace: true });
   })();
 }
 

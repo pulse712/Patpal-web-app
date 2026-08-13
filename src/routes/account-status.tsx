@@ -1,23 +1,45 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { Loader2, Clock, ShieldAlert, XCircle, UserX } from "lucide-react";
+import { Loader2, Clock, ShieldAlert, UserX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/BrandLogo";
 import { ensureMyProfile } from "@/lib/account.functions";
 
+export const SUPPORT_EMAIL = "thebenhurk@gmail.com";
+
+type Status = "checking" | "pending" | "rejected" | "banned" | "deleted";
+
+type AccountStatusSearch = {
+  status?: Exclude<Status, "checking">;
+};
+
 export const Route = createFileRoute("/account-status")({
+  validateSearch: (search: Record<string, unknown>): AccountStatusSearch => ({
+    status:
+      search.status === "pending" ||
+      search.status === "rejected" ||
+      search.status === "banned" ||
+      search.status === "deleted"
+        ? search.status
+        : undefined,
+  }),
   head: () => ({ meta: [{ title: "Account status — Pat My Back" }] }),
   component: AccountStatusPage,
 });
 
-type Status = "checking" | "pending" | "rejected" | "banned" | "deleted";
-
 function AccountStatusPage() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<Status>("checking");
+  const search = Route.useSearch();
+  const [status, setStatus] = useState<Status>(search.status ?? "checking");
 
   useEffect(() => {
+    // Message already provided by login redirect — keep it and clear session.
+    if (search.status) {
+      void supabase.auth.signOut();
+      return;
+    }
+
     let cancelled = false;
 
     async function check() {
@@ -36,16 +58,11 @@ function AccountStatusPage() {
       if (cancelled) return;
 
       if (error) {
-        // Can't confirm approval — do not unlock the app.
         navigate({ to: "/auth", replace: true });
         return;
       }
 
       if (!profile) {
-        // No row is ambiguous on its own: deleted, or (a real, separate
-        // bug) the signup trigger silently failed to create one at signup
-        // — confirmed to happen for at least one existing super_admin. Ask
-        // the server to disambiguate before concluding "deleted".
         const result = await ensureMyProfile();
         if (cancelled) return;
         if (result.deleted) {
@@ -80,10 +97,6 @@ function AccountStatusPage() {
 
       if (profile.is_active === false) {
         setStatus("banned");
-        // Deactivated accounts are signed out immediately — the message
-        // above stays visible since it's driven by local state, not by
-        // the session, but the underlying session/token is invalidated
-        // right away rather than lingering until it naturally expires.
         void supabase.auth.signOut();
         return;
       }
@@ -94,15 +107,10 @@ function AccountStatusPage() {
       }
       if (profile.approval_status === "pending") {
         setStatus("pending");
-        // Signed out immediately rather than left with a live session while
-        // waiting — matches banned/rejected/deleted. This does mean we can
-        // no longer poll for approval on this page (no session left to
-        // check with), so approval now requires a fresh sign-in attempt.
         void supabase.auth.signOut();
         return;
       }
 
-      // Approved and active — release them into the app.
       navigate({ to: "/home", replace: true });
     }
 
@@ -111,9 +119,9 @@ function AccountStatusPage() {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, search.status]);
 
-  async function handleSignOut() {
+  async function handleBackToAuth() {
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
@@ -128,7 +136,7 @@ function AccountStatusPage() {
           {status === "checking" ? (
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
           ) : (
-            <StatusBody status={status} onSignOut={handleSignOut} />
+            <StatusBody status={status} onBack={handleBackToAuth} />
           )}
         </div>
       </div>
@@ -138,10 +146,10 @@ function AccountStatusPage() {
 
 function StatusBody({
   status,
-  onSignOut,
+  onBack,
 }: {
   status: Exclude<Status, "checking">;
-  onSignOut: () => void;
+  onBack: () => void;
 }) {
   const copy = STATUS_COPY[status];
   return (
@@ -151,35 +159,53 @@ function StatusBody({
       </div>
       <h1 className="text-xl font-semibold text-foreground">{copy.title}</h1>
       <p className="mt-2 text-sm text-muted-foreground">{copy.body}</p>
-      <Button onClick={onSignOut} variant="outline" className="mt-6 w-full">
-        Sign out
-      </Button>
+      {status === "deleted" || status === "rejected" ? (
+        <Button asChild className="mt-6 w-full">
+          <Link to="/auth">Sign up</Link>
+        </Button>
+      ) : (
+        <Button onClick={onBack} variant="outline" className="mt-6 w-full">
+          Back to sign in
+        </Button>
+      )}
     </>
   );
 }
 
 const STATUS_COPY: Record<
   Exclude<Status, "checking">,
-  { icon: ReactNode; title: string; body: string }
+  { icon: ReactNode; title: string; body: ReactNode }
 > = {
   pending: {
     icon: <Clock className="h-6 w-6 text-amber-600" />,
     title: "Your signup request is being reviewed",
-    body: "Your signup request is being reviewed by our support team. We'll let you know the result within 24 hours. Please try signing in again after that.",
+    body: "Your signup request is being reviewed by our support team. This can take up to 24 hours.",
   },
   rejected: {
-    icon: <XCircle className="h-6 w-6 text-destructive" />,
-    title: "Signup request not approved",
-    body: "Our support team was not able to approve your signup request. If you think this is a mistake, please contact support.",
+    icon: <UserX className="h-6 w-6 text-destructive" />,
+    title: "Your account does not exist",
+    body: "Your account does not exist. Please sign up.",
   },
   banned: {
     icon: <ShieldAlert className="h-6 w-6 text-destructive" />,
     title: "Your account is not active",
-    body: "Your account has been deactivated by our support team and you've been signed out. Please contact support if you think this is a mistake.",
+    body: (
+      <>
+        Your account has been deactivated by our support team and you&apos;ve been signed out.
+        Please contact support{" "}
+        <a
+          href={`mailto:${SUPPORT_EMAIL}`}
+          className="font-medium text-primary underline underline-offset-2"
+        >
+          {SUPPORT_EMAIL}
+        </a>{" "}
+        if you think this is a mistake.
+      </>
+    ),
   },
   deleted: {
     icon: <UserX className="h-6 w-6 text-destructive" />,
-    title: "This account no longer exists",
-    body: "Your account was removed by our support team and you've been signed out. You're welcome to sign up again with the same email.",
+    title: "Your account does not exist",
+    body: "Your account does not exist. Please sign up.",
   },
 };

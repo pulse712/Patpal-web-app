@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { Loader2, Clock, ShieldAlert, XCircle } from "lucide-react";
+import { Loader2, Clock, ShieldAlert, XCircle, UserX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -10,7 +10,7 @@ export const Route = createFileRoute("/account-status")({
   component: AccountStatusPage,
 });
 
-type Status = "checking" | "pending" | "rejected" | "banned";
+type Status = "checking" | "pending" | "rejected" | "banned" | "deleted";
 
 const POLL_MS = 5000;
 
@@ -30,14 +30,29 @@ function AccountStatusPage() {
         return;
       }
 
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from("profiles")
         .select("is_active, approval_status")
         .eq("id", sess.session.user.id)
         .maybeSingle();
       if (cancelled) return;
 
-      if (profile?.is_active === false) {
+      if (error) {
+        // Can't confirm anything (migration not applied yet, transient
+        // network error, etc.) — don't strand them on this page forever.
+        navigate({ to: "/home", replace: true });
+        return;
+      }
+
+      if (!profile) {
+        // A clean read finding zero rows is confirmed, not unconfirmed —
+        // the account was deleted.
+        setStatus("deleted");
+        void supabase.auth.signOut();
+        return;
+      }
+
+      if (profile.is_active === false) {
         setStatus("banned");
         // Deactivated accounts are signed out immediately — the message
         // above stays visible since it's driven by local state, not by
@@ -46,11 +61,11 @@ function AccountStatusPage() {
         void supabase.auth.signOut();
         return;
       }
-      if (profile?.approval_status === "rejected") {
+      if (profile.approval_status === "rejected") {
         setStatus("rejected");
         return;
       }
-      if (profile?.approval_status === "pending") {
+      if (profile.approval_status === "pending") {
         setStatus("pending");
         timer = setTimeout(check, POLL_MS);
         return;
@@ -131,5 +146,10 @@ const STATUS_COPY: Record<
     icon: <ShieldAlert className="h-6 w-6 text-destructive" />,
     title: "Your account is not active",
     body: "Your account has been deactivated by our support team and you've been signed out. Please contact support if you think this is a mistake.",
+  },
+  deleted: {
+    icon: <UserX className="h-6 w-6 text-destructive" />,
+    title: "This account no longer exists",
+    body: "Your account was removed by our support team and you've been signed out. You're welcome to sign up again with the same email.",
   },
 };

@@ -38,8 +38,11 @@ function AuthenticatedLayout() {
     if (!user) return;
 
     function checkStatus(data: { is_active: boolean; approval_status: string } | null) {
-      if (!data) return;
-      if (data.is_active === false || data.approval_status !== "approved") {
+      // No row at all is a confirmed fact, not an unconfirmed one — for
+      // someone already inside the authenticated app, their profile row
+      // must have existed when they signed up, so its absence now means the
+      // account was deleted. Treat that the same as banned/not-approved.
+      if (!data || data.is_active === false || data.approval_status !== "approved") {
         navigate({ to: "/account-status", replace: true });
       }
     }
@@ -50,24 +53,28 @@ function AuthenticatedLayout() {
       .eq("id", user.id)
       .maybeSingle()
       .then(({ data, error }) => {
-        // Fail open on any error or missing row (migration not applied yet,
-        // profile row not created yet, transient network error, etc.) —
-        // only redirect on a confirmed, successful read that shows the
-        // account is actually blocked. Blocking on an unconfirmed read here
-        // caused a redirect loop with /account-status, which fails open the
-        // same way when it can't confirm a status either.
+        // Only a genuine error (migration not applied yet, transient
+        // network error, etc.) fails open — we can't confirm anything then.
+        // A clean read, even one that finds zero rows, is confirmed and
+        // goes through checkStatus like any other result.
         if (error) return;
         checkStatus(data);
       });
 
-    // Also react live: if an admin deactivates/bans this account while
-    // they're already using the app, don't wait for their next page load.
+    // Also react live: if an admin deactivates/bans/deletes this account
+    // while they're already using the app, don't wait for their next page
+    // load.
     const channel = supabase
       .channel(`profile-status:${user.id}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
         (payload) => checkStatus(payload.new as { is_active: boolean; approval_status: string }),
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+        () => checkStatus(null),
       )
       .subscribe();
 

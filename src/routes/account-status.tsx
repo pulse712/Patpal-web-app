@@ -4,6 +4,7 @@ import { Loader2, Clock, ShieldAlert, XCircle, UserX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/BrandLogo";
+import { ensureMyProfile } from "@/lib/account.functions";
 
 export const Route = createFileRoute("/account-status")({
   head: () => ({ meta: [{ title: "Account status — Pat My Back" }] }),
@@ -45,10 +46,18 @@ function AccountStatusPage() {
       }
 
       if (!profile) {
-        // A clean read finding zero rows is confirmed, not unconfirmed —
-        // the account was deleted.
-        setStatus("deleted");
-        void supabase.auth.signOut();
+        // No row is ambiguous on its own: deleted, or (a real, separate
+        // bug) the signup trigger silently failed to create one at signup
+        // — confirmed to happen for at least one existing super_admin. Ask
+        // the server to disambiguate before concluding "deleted".
+        const result = await ensureMyProfile();
+        if (cancelled) return;
+        if (result.deleted) {
+          setStatus("deleted");
+          void supabase.auth.signOut();
+        } else {
+          navigate({ to: "/home", replace: true });
+        }
         return;
       }
 

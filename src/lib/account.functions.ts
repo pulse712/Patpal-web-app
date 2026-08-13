@@ -31,7 +31,7 @@ export const ensureMyProfile = createServerFn({ method: "POST" })
       .select("id")
       .eq("id", userId)
       .maybeSingle();
-    if (existing) return { deleted: false };
+    if (existing) return { deleted: false as const };
 
     const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId);
     const fallbackName =
@@ -39,17 +39,25 @@ export const ensureMyProfile = createServerFn({ method: "POST" })
       authUser.user?.email?.split("@")[0] ||
       "";
 
+    // Only staff are auto-approved on self-heal. Everyone else stays pending
+    // so a missing profile row cannot bypass the signup approval gate.
+    const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
+      supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "admin" }),
+      supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "super_admin" }),
+    ]);
+    const isStaff = !!(isAdmin || isSuperAdmin);
+
     const { error } = await supabaseAdmin.from("profiles").insert({
       id: userId,
       full_name: fallbackName,
       is_active: true,
-      approval_status: "approved",
+      approval_status: isStaff ? "approved" : "pending",
     });
 
     if (error) {
-      if (error.code === "23503") return { deleted: true };
+      if (error.code === "23503") return { deleted: true as const };
       throw new Error(error.message);
     }
 
-    return { deleted: false };
+    return { deleted: false as const };
   });

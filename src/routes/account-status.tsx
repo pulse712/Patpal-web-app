@@ -36,9 +36,8 @@ function AccountStatusPage() {
       if (cancelled) return;
 
       if (error) {
-        // Can't confirm anything (migration not applied yet, transient
-        // network error, etc.) — don't strand them on this page forever.
-        navigate({ to: "/home", replace: true });
+        // Can't confirm approval — do not unlock the app.
+        navigate({ to: "/auth", replace: true });
         return;
       }
 
@@ -52,9 +51,30 @@ function AccountStatusPage() {
         if (result.deleted) {
           setStatus("deleted");
           void supabase.auth.signOut();
-        } else {
-          navigate({ to: "/home", replace: true });
+          return;
         }
+        const { data: healed } = await supabase
+          .from("profiles")
+          .select("is_active, approval_status")
+          .eq("id", sess.session.user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (!healed || healed.is_active === false) {
+          setStatus("banned");
+          void supabase.auth.signOut();
+          return;
+        }
+        if (healed.approval_status === "rejected") {
+          setStatus("rejected");
+          void supabase.auth.signOut();
+          return;
+        }
+        if (healed.approval_status !== "approved") {
+          setStatus("pending");
+          void supabase.auth.signOut();
+          return;
+        }
+        navigate({ to: "/home", replace: true });
         return;
       }
 

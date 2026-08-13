@@ -87,9 +87,8 @@ function AuthenticatedLayout() {
           setTimeout(() => void runCheck(attempt + 1), RETRY_DELAY_MS);
           return;
         }
-        // Persisted across every retry — genuinely can't confirm. Fail open
-        // as a last resort rather than stranding a legitimate user forever.
-        setStatusOk(true);
+        // Could not confirm approval after retries — do not unlock the app.
+        navigate({ to: "/account-status", replace: true });
         return;
       }
 
@@ -102,14 +101,25 @@ function AuthenticatedLayout() {
       // deleted, or (a real, separate bug) that the signup trigger silently
       // failed to create a profile row in the first place — confirmed to
       // happen for at least one existing super_admin. Ask the server to
-      // disambiguate before concluding "deleted".
+      // disambiguate, then re-check approval — never grant access blindly.
       const result = await ensureMyProfile();
       if (cancelled) return;
       if (result.deleted) {
         navigate({ to: "/account-status", replace: true });
-      } else {
-        setStatusOk(true);
+        return;
       }
+
+      const { data: healed, error: healedError } = await supabase
+        .from("profiles")
+        .select("is_active, approval_status")
+        .eq("id", uid)
+        .maybeSingle();
+      if (cancelled) return;
+      if (healedError || !healed) {
+        navigate({ to: "/account-status", replace: true });
+        return;
+      }
+      checkStatus(healed);
     }
 
     void runCheck(1);

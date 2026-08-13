@@ -50,14 +50,9 @@ function finishSignIn(
       });
     }
 
-    // No approval/ban check here — _authenticated/route.tsx's layout gate
-    // runs on every mount regardless of entry path and is the single,
-    // retry-protected source of truth for that. Duplicating a weaker
-    // version of it here (this component only gets one shot, no retries)
-    // previously meant a single transient error on this specific request
-    // could send a pending signup straight into the app without it ever
-    // being re-checked.
-    navigate({ to: signupRole === "pat_pal" ? "/pal-dashboard" : "/home", replace: true });
+    // Always land on account-status after email confirmation so pending
+    // signups never enter /home or /pal-dashboard before admin approval.
+    navigate({ to: "/account-status", replace: true });
   })();
 }
 

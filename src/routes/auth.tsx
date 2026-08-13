@@ -23,6 +23,7 @@ import {
 } from "@/lib/auth-email";
 import { applySignupRole, checkDisplayNameAvailable } from "@/lib/signup.functions";
 import type { SignupRole } from "@/lib/signup-role";
+import { resolveAccountGate } from "@/lib/account-access";
 
 type SignupCategory = { id: string; name: string; slug: string; emoji: string | null };
 
@@ -43,9 +44,12 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const navigate = useNavigate();
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/home", replace: true });
-    });
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return;
+      const gate = await resolveAccountGate(data.session.user.id);
+      navigate({ to: gate.allowed ? "/home" : "/account-status", replace: true });
+    })();
   }, [navigate]);
 
   return (
@@ -135,9 +139,9 @@ function LoginForm() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      setBusy(false);
       if (isEmailNotConfirmedError(error.message)) {
         toast.error("Please verify your email first. Use resend below if needed.");
       } else {
@@ -145,11 +149,22 @@ function LoginForm() {
       }
       return;
     }
-    // No "Welcome back!" toast here — a successful signInWithPassword only
-    // confirms the credentials, not that the account is approved/active.
-    // Showing it before the approval/ban check (which runs after this
-    // navigate) contradicted the pending/rejected/banned message that could
-    // follow immediately after.
+
+    const userId = data.user?.id ?? data.session?.user.id;
+    if (!userId) {
+      setBusy(false);
+      toast.error("Could not sign in. Try again.");
+      return;
+    }
+
+    const gate = await resolveAccountGate(userId);
+    setBusy(false);
+    if (!gate.allowed) {
+      navigate({ to: "/account-status", replace: true });
+      return;
+    }
+
+    toast.success("Welcome back!");
     navigate({ to: "/home", replace: true });
   }
 
@@ -319,11 +334,8 @@ function RegisterForm() {
         email,
         send: (payload) => sendWelcome({ data: payload }),
       });
-      toast.success("Account created!");
-      navigate({
-        to: signupRole === "pat_pal" ? "/pal-dashboard" : "/home",
-        replace: true,
-      });
+      toast.success("Account created — waiting for admin approval.");
+      navigate({ to: "/account-status", replace: true });
       return;
     }
 

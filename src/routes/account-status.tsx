@@ -4,7 +4,6 @@ import { Loader2, Clock, ShieldAlert, UserX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/BrandLogo";
-import { ensureMyProfile } from "@/lib/account.functions";
 
 export const SUPPORT_EMAIL = "thebenhurk@gmail.com";
 
@@ -63,7 +62,16 @@ function AccountStatusPage() {
       }
 
       if (!profile) {
-        const result = await ensureMyProfile();
+        let result: { deleted: boolean };
+        try {
+          const { ensureMyProfile } = await import("@/lib/account.functions");
+          result = await ensureMyProfile();
+        } catch (err) {
+          console.error("[account-status] ensureMyProfile failed:", err);
+          setStatus("pending");
+          void supabase.auth.signOut();
+          return;
+        }
         if (cancelled) return;
         if (result.deleted) {
           setStatus("deleted");

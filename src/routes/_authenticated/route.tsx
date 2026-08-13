@@ -8,7 +8,6 @@ import { IncomingCallProvider } from "@/components/IncomingCallProvider";
 import { PushRegistration } from "@/components/PushRegistration";
 import { IncomingCallDeepLink } from "@/components/IncomingCallDeepLink";
 import { NotificationProvider } from "@/components/NotificationProvider";
-import { ensureMyProfile } from "@/lib/account.functions";
 import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -59,6 +58,7 @@ function AuthenticatedLayout() {
       if (data.is_active === false) return "banned";
       if (data.approval_status === "rejected") return "rejected";
       if (data.approval_status !== "approved") return "pending";
+      // Unreachable when called from checkStatus (approved already handled).
       return "pending";
     }
 
@@ -78,6 +78,34 @@ function AuthenticatedLayout() {
     const RETRY_DELAY_MS = 800;
 
     async function runCheck(attempt: number): Promise<void> {
+      // Prefer authoritative server check (avoids RLS/client flakiness that
+      // incorrectly locked approved users out as "pending").
+      try {
+        const { checkMyAccountAccess } = await import("@/lib/account.functions");
+        const gate = await checkMyAccountAccess();
+        if (cancelled) return;
+        if (gate.allowed) {
+          setStatusOk(true);
+          return;
+        }
+        if (gate.reason === "unknown" && attempt < MAX_ATTEMPTS) {
+          setTimeout(() => void runCheck(attempt + 1), RETRY_DELAY_MS);
+          return;
+        }
+        goAccountStatus(
+          gate.reason === "banned"
+            ? "banned"
+            : gate.reason === "rejected"
+              ? "rejected"
+              : gate.reason === "missing"
+                ? "deleted"
+                : "pending",
+        );
+        return;
+      } catch (err) {
+        console.warn("[auth] server account check failed, falling back:", err);
+      }
+
       const { data, error } = await supabase
         .from("profiles")
         .select("is_active, approval_status")
@@ -117,7 +145,17 @@ function AuthenticatedLayout() {
       // failed to create a profile row in the first place — confirmed to
       // happen for at least one existing super_admin. Ask the server to
       // disambiguate, then re-check approval — never grant access blindly.
-      const result = await ensureMyProfile();
+      // Dynamic import so a missing account.functions chunk does not break
+      // the whole authenticated layout for users who already have a profile.
+      let result: { deleted: boolean };
+      try {
+        const { ensureMyProfile } = await import("@/lib/account.functions");
+        result = await ensureMyProfile();
+      } catch (healErr) {
+        console.error("[auth] ensureMyProfile failed:", healErr);
+        goAccountStatus("pending");
+        return;
+      }
       if (cancelled) return;
       if (result.deleted) {
         goAccountStatus("deleted");

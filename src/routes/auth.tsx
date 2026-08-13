@@ -23,7 +23,7 @@ import {
 } from "@/lib/auth-email";
 import { applySignupRole, checkDisplayNameAvailable } from "@/lib/signup.functions";
 import type { SignupRole } from "@/lib/signup-role";
-import { resolveAccountGate } from "@/lib/account-access";
+import { resolveAccountGate, accountStatusFromGate } from "@/lib/account-access";
 
 const ACCOUNT_NOT_FOUND_MESSAGE = "Your account does not exist. Please sign up.";
 
@@ -50,7 +50,19 @@ function AuthPage() {
       const { data } = await supabase.auth.getSession();
       if (!data.session) return;
       const gate = await resolveAccountGate(data.session.user.id);
-      navigate({ to: gate.allowed ? "/home" : "/account-status", replace: true });
+      if (gate.allowed) {
+        navigate({ to: "/home", replace: true });
+        return;
+      }
+      if (gate.reason === "unknown") {
+        // Don't force a pending lockout on a flaky check while already signed in.
+        return;
+      }
+      navigate({
+        to: "/account-status",
+        search: { status: accountStatusFromGate(gate.reason) },
+        replace: true,
+      });
     })();
   }, [navigate]);
 
@@ -164,15 +176,16 @@ function LoginForm() {
     const gate = await resolveAccountGate(userId);
     setBusy(false);
     if (!gate.allowed) {
-      const status =
-        gate.reason === "banned"
-          ? "banned"
-          : gate.reason === "pending"
-            ? "pending"
-            : gate.reason === "rejected" || gate.reason === "missing"
-              ? "deleted"
-              : "pending";
-      navigate({ to: "/account-status", search: { status }, replace: true });
+      if (gate.reason === "unknown") {
+        toast.error("Could not verify your account status. Please try again.");
+        await supabase.auth.signOut();
+        return;
+      }
+      navigate({
+        to: "/account-status",
+        search: { status: accountStatusFromGate(gate.reason) },
+        replace: true,
+      });
       return;
     }
 

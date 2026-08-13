@@ -5,12 +5,29 @@ export type AccountGateResult =
   | { allowed: true }
   | { allowed: false; reason: "pending" | "rejected" | "banned" | "missing" | "unknown" };
 
+export function accountStatusFromGate(
+  reason: "pending" | "rejected" | "banned" | "missing" | "unknown",
+): "pending" | "banned" | "deleted" {
+  if (reason === "banned") return "banned";
+  if (reason === "rejected" || reason === "missing") return "deleted";
+  return "pending";
+}
+
 /**
  * After password/session auth succeeds, confirm the profile is approved and
- * active before sending the user into the app. Pending/rejected/banned users
- * must not land on /home or /pal-dashboard.
+ * active before sending the user into the app.
+ *
+ * Prefers the server-side admin check (bypasses RLS / flaky client reads).
+ * Falls back to a direct profiles select if the server fn chunk fails to load.
  */
 export async function resolveAccountGate(userId: string): Promise<AccountGateResult> {
+  try {
+    const { checkMyAccountAccess } = await import("@/lib/account.functions");
+    return await checkMyAccountAccess();
+  } catch (err) {
+    console.warn("[account-access] server check failed, falling back to client:", err);
+  }
+
   const { data, error } = await supabase
     .from("profiles")
     .select("is_active, approval_status")

@@ -7,6 +7,7 @@ import { sendWelcome } from "@/lib/welcome.functions";
 import { sendWelcomeOnce } from "@/lib/welcome-client";
 import { applySignupRole } from "@/lib/signup.functions";
 import { parseSignupRole, parseSignupCategorySlugs, parseSignupService } from "@/lib/signup-role";
+import { resolveAccountGate, accountStatusFromGate } from "@/lib/account-access";
 
 /** Handles Supabase email links (#access_token=...) after signup or magic link. */
 export const Route = createFileRoute("/auth/callback")({
@@ -50,9 +51,21 @@ function finishSignIn(
       });
     }
 
-    // Always land on account-status after email confirmation so pending
-    // signups never enter /home or /pal-dashboard before admin approval.
-    navigate({ to: "/account-status", search: { status: "pending" }, replace: true });
+    const gate = await resolveAccountGate(session.user.id);
+    if (gate.allowed) {
+      navigate({ to: "/home", replace: true });
+      return;
+    }
+    if (gate.reason === "unknown") {
+      // Safer default for brand-new email confirmations: show pending review.
+      navigate({ to: "/account-status", search: { status: "pending" }, replace: true });
+      return;
+    }
+    navigate({
+      to: "/account-status",
+      search: { status: accountStatusFromGate(gate.reason) },
+      replace: true,
+    });
   })();
 }
 

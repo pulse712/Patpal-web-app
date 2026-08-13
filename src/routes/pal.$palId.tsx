@@ -189,14 +189,43 @@ function PalProfile() {
     })();
   }, [palId, listPalReviewsFn]);
 
-  async function startChat() {
-    setStarting("chat");
+  /**
+   * Confirms the signed-in user's account is actually usable (approved and
+   * active) before letting them create a conversation/session. Chat and
+   * calls are created via direct client inserts (RLS-enforced, not server
+   * functions), and this page lives outside the _authenticated layout, so
+   * neither of those already-existing gates cover this entry point — this
+   * check exists purely for a clear message; RLS is the real backstop.
+   */
+  async function requireUsableAccount(): Promise<string | null> {
     const { data: sess } = await supabase.auth.getSession();
     if (!sess.session) {
       navigate({ to: "/auth" });
+      return null;
+    }
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("is_active, approval_status")
+      .eq("id", sess.session.user.id)
+      .maybeSingle();
+    if (
+      !error &&
+      profile &&
+      (profile.is_active === false || profile.approval_status !== "approved")
+    ) {
+      navigate({ to: "/account-status" });
+      return null;
+    }
+    return sess.session.user.id;
+  }
+
+  async function startChat() {
+    setStarting("chat");
+    const clientId = await requireUsableAccount();
+    if (!clientId) {
+      setStarting(null);
       return;
     }
-    const clientId = sess.session.user.id;
     const { data: existing } = await supabase
       .from("conversations")
       .select("id")
@@ -248,11 +277,8 @@ function PalProfile() {
   async function startCall(kind: "audio" | "video") {
     setStarting(kind);
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        navigate({ to: "/auth" });
-        return;
-      }
+      const userId = await requireUsableAccount();
+      if (!userId) return;
 
       const wallet = await getWalletBalanceFn();
       if (!wallet.canStartCall) {
@@ -264,13 +290,13 @@ function PalProfile() {
       void preloadAgoraSdk();
       void preloadCallMedia(kind);
 
-      const convoId = await ensureConversation(sess.session.user.id);
+      const convoId = await ensureConversation(userId);
       if (!convoId) return;
 
       const { data: prof } = await supabase
         .from("profiles")
         .select("full_name")
-        .eq("id", sess.session.user.id)
+        .eq("id", userId)
         .maybeSingle();
       setCallerName(prof?.full_name ?? "Someone");
       setCallConversationId(convoId);

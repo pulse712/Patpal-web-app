@@ -39,6 +39,11 @@ function AccountStatusPage() {
 
       if (profile?.is_active === false) {
         setStatus("banned");
+        // Deactivated accounts are signed out immediately — the message
+        // above stays visible since it's driven by local state, not by
+        // the session, but the underlying session/token is invalidated
+        // right away rather than lingering until it naturally expires.
+        void supabase.auth.signOut();
         return;
       }
       if (profile?.approval_status === "rejected") {
@@ -124,7 +129,7 @@ const STATUS_COPY: Record<
   },
   banned: {
     icon: <ShieldAlert className="h-6 w-6 text-destructive" />,
-    title: "Account suspended",
-    body: "Your account has been suspended by our support team. Please contact support if you have questions.",
+    title: "Your account is not active",
+    body: "Your account has been deactivated by our support team and you've been signed out. Please contact support if you think this is a mistake.",
   },
 };

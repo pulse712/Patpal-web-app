@@ -36,6 +36,14 @@ function AuthenticatedLayout() {
 
   useEffect(() => {
     if (!user) return;
+
+    function checkStatus(data: { is_active: boolean; approval_status: string } | null) {
+      if (!data) return;
+      if (data.is_active === false || data.approval_status !== "approved") {
+        navigate({ to: "/account-status", replace: true });
+      }
+    }
+
     supabase
       .from("profiles")
       .select("is_active, approval_status")
@@ -48,11 +56,24 @@ function AuthenticatedLayout() {
         // account is actually blocked. Blocking on an unconfirmed read here
         // caused a redirect loop with /account-status, which fails open the
         // same way when it can't confirm a status either.
-        if (error || !data) return;
-        if (data.is_active === false || data.approval_status !== "approved") {
-          navigate({ to: "/account-status", replace: true });
-        }
+        if (error) return;
+        checkStatus(data);
       });
+
+    // Also react live: if an admin deactivates/bans this account while
+    // they're already using the app, don't wait for their next page load.
+    const channel = supabase
+      .channel(`profile-status:${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+        (payload) => checkStatus(payload.new as { is_active: boolean; approval_status: string }),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, [user, navigate]);
 
   if (loading) return <AuthPending />;

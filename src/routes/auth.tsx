@@ -286,6 +286,15 @@ function RegisterForm() {
       return toast.error(error.message);
     }
 
+    // Supabase deliberately doesn't return an error for signUp() when the
+    // email already has a confirmed account (anti-enumeration behavior) —
+    // it returns a user object with no session and an empty identities
+    // array instead of a new signup.
+    if (data.user && data.user.identities?.length === 0) {
+      toast.error("You've already signed up with this email. Please sign in instead.");
+      return;
+    }
+
     if (data.session) {
       try {
         await applySignupRole({

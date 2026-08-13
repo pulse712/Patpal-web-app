@@ -143,8 +143,8 @@ const STATUS_COPY: Record<
 > = {
   pending: {
     icon: <Clock className="h-6 w-6 text-amber-600" />,
-    title: "Waiting for support team's approval",
-    body: "We're checking your request. You'll be able to sign in as soon as our support team approves your account — this page will update automatically.",
+    title: "Your signup request is being reviewed",
+    body: "Your signup request is being reviewed by our support team. We'll let you know the result within 24 hours. This page will update automatically once you're approved.",
   },
   rejected: {
     icon: <XCircle className="h-6 w-6 text-destructive" />,

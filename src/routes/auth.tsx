@@ -145,7 +145,11 @@ function LoginForm() {
       }
       return;
     }
-    toast.success("Welcome back!");
+    // No "Welcome back!" toast here — a successful signInWithPassword only
+    // confirms the credentials, not that the account is approved/active.
+    // Showing it before the approval/ban check (which runs after this
+    // navigate) contradicted the pending/rejected/banned message that could
+    // follow immediately after.
     navigate({ to: "/home", replace: true });
   }
 

@@ -50,24 +50,13 @@ function finishSignIn(
       });
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("is_active, approval_status")
-      .eq("id", session.user.id)
-      .maybeSingle();
-    // Fail open on any error or missing row (migration not applied yet,
-    // profile row not created yet, transient network error, etc.) — only
-    // block a signup on a confirmed, successful read that shows it's
-    // actually pending/rejected/banned.
-    if (
-      !profileError &&
-      profile &&
-      (profile.is_active === false || profile.approval_status !== "approved")
-    ) {
-      navigate({ to: "/account-status", replace: true });
-      return;
-    }
-
+    // No approval/ban check here — _authenticated/route.tsx's layout gate
+    // runs on every mount regardless of entry path and is the single,
+    // retry-protected source of truth for that. Duplicating a weaker
+    // version of it here (this component only gets one shot, no retries)
+    // previously meant a single transient error on this specific request
+    // could send a pending signup straight into the app without it ever
+    // being re-checked.
     navigate({ to: signupRole === "pat_pal" ? "/pal-dashboard" : "/home", replace: true });
   })();
 }

@@ -9,6 +9,7 @@ import { PushRegistration } from "@/components/PushRegistration";
 import { IncomingCallDeepLink } from "@/components/IncomingCallDeepLink";
 import { NotificationProvider } from "@/components/NotificationProvider";
 import { ensureMyProfile } from "@/lib/account.functions";
+import { isMissingColumnError } from "@/lib/postgrest-utils";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: requireAuthBeforeLoad,
@@ -46,6 +47,7 @@ function AuthenticatedLayout() {
 
   useEffect(() => {
     if (!userId) return;
+    const uid = userId;
     let cancelled = false;
     setStatusOk(false);
 
@@ -57,52 +59,75 @@ function AuthenticatedLayout() {
       if (!cancelled) setStatusOk(true);
     }
 
-    supabase
-      .from("profiles")
-      .select("is_active, approval_status")
-      .eq("id", userId)
-      .maybeSingle()
-      .then(async ({ data, error }) => {
-        if (cancelled) return;
-        // A genuine error (migration not applied yet, transient network
-        // error, etc.) fails open — we can't confirm anything then, but we
-        // still need to stop blocking the page forever.
-        if (error) {
+    const MAX_ATTEMPTS = 4;
+    const RETRY_DELAY_MS = 800;
+
+    async function runCheck(attempt: number): Promise<void> {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_active, approval_status")
+        .eq("id", uid)
+        .maybeSingle();
+      if (cancelled) return;
+
+      if (error) {
+        // Only fail open for the one specific, expected reason: the
+        // approval_status column genuinely doesn't exist on this database
+        // yet (migration not applied). Anything else — a transient network
+        // blip, a momentary connection hiccup right after a fresh redirect,
+        // etc. — retries instead of granting access outright. A single
+        // one-off error used to permanently unlock the app for the rest of
+        // that session, since this check only runs once per login and
+        // nothing else re-triggers it if nothing in the row ever changes.
+        if (isMissingColumnError(error)) {
           setStatusOk(true);
           return;
         }
-        if (data) {
-          checkStatus(data);
+        if (attempt < MAX_ATTEMPTS) {
+          setTimeout(() => void runCheck(attempt + 1), RETRY_DELAY_MS);
           return;
         }
-        // No row found is ambiguous on its own: it can mean the account was
-        // deleted, or (a real, separate bug) that the signup trigger
-        // silently failed to create a profile row in the first place —
-        // confirmed to happen for at least one existing super_admin. Ask
-        // the server to disambiguate before concluding "deleted".
-        const result = await ensureMyProfile();
-        if (cancelled) return;
-        if (result.deleted) {
-          navigate({ to: "/account-status", replace: true });
-        } else {
-          setStatusOk(true);
-        }
-      });
+        // Persisted across every retry — genuinely can't confirm. Fail open
+        // as a last resort rather than stranding a legitimate user forever.
+        setStatusOk(true);
+        return;
+      }
+
+      if (data) {
+        checkStatus(data);
+        return;
+      }
+
+      // No row found is ambiguous on its own: it can mean the account was
+      // deleted, or (a real, separate bug) that the signup trigger silently
+      // failed to create a profile row in the first place — confirmed to
+      // happen for at least one existing super_admin. Ask the server to
+      // disambiguate before concluding "deleted".
+      const result = await ensureMyProfile();
+      if (cancelled) return;
+      if (result.deleted) {
+        navigate({ to: "/account-status", replace: true });
+      } else {
+        setStatusOk(true);
+      }
+    }
+
+    void runCheck(1);
 
     // Also react live: if an admin deactivates/bans this account while
     // they're already using the app, don't wait for their next page load.
     // A realtime DELETE event is unambiguous (unlike a missing row found on
     // initial load), so no self-heal check is needed here.
     const channel = supabase
-      .channel(`profile-status:${userId}`)
+      .channel(`profile-status:${uid}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${uid}` },
         (payload) => checkStatus(payload.new as { is_active: boolean; approval_status: string }),
       )
       .on(
         "postgres_changes",
-        { event: "DELETE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
+        { event: "DELETE", schema: "public", table: "profiles", filter: `id=eq.${uid}` },
         () => navigate({ to: "/account-status", replace: true }),
       )
       .subscribe();

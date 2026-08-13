@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { requireAuthBeforeLoad } from "@/lib/auth-guard";
 import { useSession } from "@/lib/session";
@@ -28,6 +28,15 @@ function AuthPending() {
 function AuthenticatedLayout() {
   const { user, loading } = useSession();
   const navigate = useNavigate();
+  // Gates rendering the actual protected content (<Outlet />) until the
+  // approval/ban check below has confirmed the account is clear. Without
+  // this, a pending/banned/deleted user's page rendered immediately on
+  // login and only got redirected away afterward, once the async check
+  // resolved — a real gap, not just a cosmetic flash, since a slow
+  // connection (or someone not waiting out the redirect) let them keep
+  // using the app.
+  const [statusOk, setStatusOk] = useState(false);
+  const userId = user?.id;
 
   useEffect(() => {
     if (!loading && !user) {
@@ -36,23 +45,32 @@ function AuthenticatedLayout() {
   }, [loading, user, navigate]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
+    let cancelled = false;
+    setStatusOk(false);
 
     function checkStatus(data: { is_active: boolean; approval_status: string } | null) {
       if (!data || data.is_active === false || data.approval_status !== "approved") {
         navigate({ to: "/account-status", replace: true });
+        return;
       }
+      if (!cancelled) setStatusOk(true);
     }
 
     supabase
       .from("profiles")
       .select("is_active, approval_status")
-      .eq("id", user.id)
+      .eq("id", userId)
       .maybeSingle()
       .then(async ({ data, error }) => {
+        if (cancelled) return;
         // A genuine error (migration not applied yet, transient network
-        // error, etc.) fails open — we can't confirm anything then.
-        if (error) return;
+        // error, etc.) fails open — we can't confirm anything then, but we
+        // still need to stop blocking the page forever.
+        if (error) {
+          setStatusOk(true);
+          return;
+        }
         if (data) {
           checkStatus(data);
           return;
@@ -63,10 +81,12 @@ function AuthenticatedLayout() {
         // confirmed to happen for at least one existing super_admin. Ask
         // the server to disambiguate before concluding "deleted".
         const result = await ensureMyProfile();
+        if (cancelled) return;
         if (result.deleted) {
           navigate({ to: "/account-status", replace: true });
+        } else {
+          setStatusOk(true);
         }
-        // Otherwise the row now exists (self-healed) — nothing to do.
       });
 
     // Also react live: if an admin deactivates/bans this account while
@@ -74,26 +94,28 @@ function AuthenticatedLayout() {
     // A realtime DELETE event is unambiguous (unlike a missing row found on
     // initial load), so no self-heal check is needed here.
     const channel = supabase
-      .channel(`profile-status:${user.id}`)
+      .channel(`profile-status:${userId}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
         (payload) => checkStatus(payload.new as { is_active: boolean; approval_status: string }),
       )
       .on(
         "postgres_changes",
-        { event: "DELETE", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+        { event: "DELETE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
         () => navigate({ to: "/account-status", replace: true }),
       )
       .subscribe();
 
     return () => {
+      cancelled = true;
       void supabase.removeChannel(channel);
     };
-  }, [user, navigate]);
+  }, [userId, navigate]);
 
   if (loading) return <AuthPending />;
   if (!user) return null;
+  if (!statusOk) return <AuthPending />;
 
   return (
     <IncomingCallProvider userId={user.id}>

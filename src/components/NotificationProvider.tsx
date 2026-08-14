@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useMessageNotifications } from "@/hooks/use-message-notifications";
 import { useSignupNotifications, PendingPalAlertBanner } from "@/hooks/use-signup-notifications";
 import { NotificationPromptBanner } from "@/components/NotificationPromptBanner";
@@ -13,6 +14,7 @@ export function NotificationProvider({
 }) {
   useMessageNotifications(userId);
   const { alerts, dismissAll } = useSignupNotifications();
+  const navigate = useNavigate();
 
   return (
     <>
@@ -21,7 +23,7 @@ export function NotificationProvider({
         alerts={alerts}
         onReview={() => {
           dismissAll();
-          window.location.href = "/admin?tab=pals";
+          void navigate({ to: "/admin", search: { tab: "pals" }, replace: true });
         }}
       />
       <NotificationPromptBanner />

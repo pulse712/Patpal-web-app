@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
+import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useStaffRole } from "@/hooks/use-staff-role";
 import { useSession } from "@/lib/session";
@@ -11,6 +12,24 @@ export type PendingPalAlert = {
   name: string;
 };
 
+function seenKey(adminId: string) {
+  return `pal-alerts-seen:${adminId}`;
+}
+
+function loadSeen(adminId: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(seenKey(adminId));
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSeen(adminId: string, ids: Set<string>) {
+  localStorage.setItem(seenKey(adminId), JSON.stringify([...ids]));
+}
+
 /** Sticky live alert: shown on admin login until they tap Review. */
 export function useSignupNotifications() {
   const { isStaff, loading: staffLoading } = useStaffRole();
@@ -20,7 +39,7 @@ export function useSignupNotifications() {
   const lastHydratedUser = useRef<string | null>(null);
 
   useEffect(() => {
-    dismissedRef.current = new Set();
+    dismissedRef.current = user?.id ? loadSeen(user.id) : new Set();
     lastHydratedUser.current = null;
     setAlerts([]);
   }, [user?.id]);
@@ -33,16 +52,22 @@ export function useSignupNotifications() {
     }
 
     let cancelled = false;
+    const adminId = user.id;
 
     async function hydrate() {
       try {
         const { listPendingPatPals } = await import("@/lib/admin.functions");
         const { pals } = await listPendingPatPals();
         if (cancelled) return;
+        const pendingIds = new Set(pals.map((p) => p.userId));
+        for (const id of [...dismissedRef.current]) {
+          if (!pendingIds.has(id)) dismissedRef.current.delete(id);
+        }
+        saveSeen(adminId, dismissedRef.current);
         const unseen = pals.filter((p) => !dismissedRef.current.has(p.userId));
         setAlerts(unseen);
-        const isFreshLogin = lastHydratedUser.current !== user.id;
-        lastHydratedUser.current = user.id;
+        const isFreshLogin = lastHydratedUser.current !== adminId;
+        lastHydratedUser.current = adminId;
         if (unseen.length > 0 && isFreshLogin) {
           playMessageChime();
           if (document.hidden) {
@@ -117,6 +142,7 @@ export function useSignupNotifications() {
 
   function dismissAll() {
     for (const alert of alerts) dismissedRef.current.add(alert.userId);
+    if (user?.id) saveSeen(user.id, dismissedRef.current);
     setAlerts([]);
   }
 
@@ -130,7 +156,8 @@ export function PendingPalAlertBanner({
   alerts: PendingPalAlert[];
   onReview: () => void;
 }) {
-  if (alerts.length === 0) return null;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  if (alerts.length === 0 || pathname === "/admin") return null;
 
   const title =
     alerts.length === 1

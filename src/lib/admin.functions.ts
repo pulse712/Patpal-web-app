@@ -169,6 +169,14 @@ export const setUserApprovalStatus = createServerFn({ method: "POST" })
       .eq("id", data.userId);
 
     if (error) throw new Error(error.message);
+
+    if (data.status === "approved") {
+      await supabaseAdmin
+        .from("pat_pals")
+        .update({ is_approved: true, availability: "available", updated_at: new Date().toISOString() })
+        .eq("user_id", data.userId);
+    }
+
     return { ok: true };
   });
 
@@ -421,15 +429,27 @@ export const setPatPalApproved = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    // Visibility on Browse/Home is driven solely by is_approved — availability
-    // is a separate, independent toggle the admin controls with its own
-    // Enable/Disable buttons, so approval must not overwrite it.
-    const patch = {
-      is_approved: data.isApproved,
-      updated_at: new Date().toISOString(),
-    };
-    const { error } = await supabaseAdmin.from("pat_pals").update(patch).eq("user_id", data.userId);
+    const now = new Date().toISOString();
+    const { error } = await supabaseAdmin
+      .from("pat_pals")
+      .update({
+        is_approved: data.isApproved,
+        availability: data.isApproved ? "available" : "offline",
+        updated_at: now,
+      })
+      .eq("user_id", data.userId);
     if (error) throw new Error(error.message);
+
+    // Listing (is_approved) used to be separate from login (approval_status),
+    // so approving a Pal on the Pals tab left them locked out as "pending".
+    if (data.isApproved) {
+      const { error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .update({ approval_status: "approved", updated_at: now })
+        .eq("id", data.userId);
+      if (profileError) throw new Error(profileError.message);
+    }
+
     return { ok: true };
   });
 
@@ -569,6 +589,10 @@ export const setUserRole = createServerFn({ method: "POST" })
           { user_id: data.userId, is_approved: true, availability: "available" },
           { onConflict: "user_id" },
         );
+      await supabaseAdmin
+        .from("profiles")
+        .update({ approval_status: "approved" })
+        .eq("id", data.userId);
     }
 
     if (data.role === "admin" || data.role === "super_admin") {

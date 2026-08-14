@@ -12,6 +12,7 @@ import { MessageCircle, DollarSign, Star, Clock, Bell } from "lucide-react";
 import { useIsOnline } from "@/lib/presence";
 import { checkPalAccess } from "@/lib/pal-guard";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { iosNeedsHomeScreenInstall } from "@/lib/push-support";
 
 export const Route = createFileRoute("/_authenticated/pal-dashboard")({
   beforeLoad: async () => {
@@ -152,23 +153,33 @@ function PalDashboard() {
           </div>
         </header>
 
-        {!push.subscribed && push.permission !== "denied" && push.permission !== "unsupported" && (
+        {(iosNeedsHomeScreenInstall() ||
+          (!push.subscribed && push.permission !== "denied" && push.permission !== "unsupported")) && (
           <Card className="flex items-start gap-3 border-primary/30 bg-primary/5 p-4">
             <Bell className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
               <p className="font-semibold">Get chat and call alerts on this device</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Enable notifications to receive new messages and incoming audio or video calls
-                even when this browser is in the background.
-              </p>
-              <Button
-                size="sm"
-                className="mt-3"
-                disabled={push.loading}
-                onClick={() => void push.enable()}
-              >
-                {push.loading ? "Enabling…" : "Enable notifications"}
-              </Button>
+              {iosNeedsHomeScreenInstall() ? (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  On iPhone, tap Share → Add to Home Screen, open Pat My Back from that icon,
+                  then enable notifications. Alerts do not work from a Safari tab.
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Enable notifications to receive new messages and incoming audio or video calls
+                  even when this browser is in the background.
+                </p>
+              )}
+              {!iosNeedsHomeScreenInstall() && (
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  disabled={push.loading}
+                  onClick={() => void push.enable()}
+                >
+                  {push.loading ? "Enabling…" : "Enable notifications"}
+                </Button>
+              )}
             </div>
           </Card>
         )}

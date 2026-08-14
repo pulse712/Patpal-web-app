@@ -92,7 +92,7 @@ async function notifySuperAdminsOfNewPatPal(opts: { palUserId: string; service?:
     const { sendPatPalPendingReviewEmail } = await import("@/lib/email.server");
 
     const [emails, { data: profile }, { data: authUser }] = await Promise.all([
-      getStaffEmailsByRoles(supabaseAdmin, ["super_admin"]),
+      getStaffEmailsByRoles(supabaseAdmin, ["admin", "super_admin"]),
       supabaseAdmin.from("profiles").select("full_name").eq("id", opts.palUserId).maybeSingle(),
       supabaseAdmin.auth.admin.getUserById(opts.palUserId),
     ]);
@@ -113,32 +113,6 @@ async function notifySuperAdminsOfNewPatPal(opts: { palUserId: string; service?:
     );
   } catch (err) {
     console.error("[signup] failed to notify super admins:", err);
-  }
-}
-
-/** Notifies admins + super_admins that a new signup needs approval before it can sign in. */
-async function notifyStaffOfNewSignup(opts: { userId: string; role: SignupRole }) {
-  try {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { sendNewSignupPendingReviewEmail } = await import("@/lib/email.server");
-
-    const [emails, { data: profile }, { data: authUser }] = await Promise.all([
-      getStaffEmailsByRoles(supabaseAdmin, ["admin", "super_admin"]),
-      supabaseAdmin.from("profiles").select("full_name").eq("id", opts.userId).maybeSingle(),
-      supabaseAdmin.auth.admin.getUserById(opts.userId),
-    ]);
-    if (emails.length === 0) return;
-
-    const userName = profile?.full_name?.trim() || "New user";
-    const userEmail = authUser.user?.email ?? "unknown";
-
-    await Promise.all(
-      emails.map((to) =>
-        sendNewSignupPendingReviewEmail({ to, userName, userEmail, role: opts.role }),
-      ),
-    );
-  } catch (err) {
-    console.error("[signup] failed to notify staff of new signup:", err);
   }
 }
 
@@ -225,10 +199,18 @@ export const applySignupRole = createServerFn({ method: "POST" })
         throw new Error(palErr.message);
       }
 
-      void notifySuperAdminsOfNewPatPal({ palUserId: userId, service });
-    }
+      await supabaseAdmin
+        .from("profiles")
+        .update({ approval_status: "pending" })
+        .eq("id", userId);
 
-    void notifyStaffOfNewSignup({ userId, role });
+      void notifySuperAdminsOfNewPatPal({ palUserId: userId, service });
+    } else {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ approval_status: "approved" })
+        .eq("id", userId);
+    }
 
     return { ok: true, role };
   });

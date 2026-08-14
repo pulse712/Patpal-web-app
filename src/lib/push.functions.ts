@@ -8,10 +8,16 @@ export type PushPayload = {
   requireInteraction?: boolean;
 };
 
+function readEnv(name: string): string | undefined {
+  if (typeof process === "undefined" || !process.env) return undefined;
+  const value = process.env[name]?.trim();
+  return value || undefined;
+}
+
 export async function sendPushToUser(targetUserId: string, payload: PushPayload) {
-  const vapidPublic = process.env.VAPID_PUBLIC_KEY;
-  const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
-  const vapidEmail = process.env.VAPID_EMAIL ?? "mailto:admin@patmyback.com";
+  const vapidPublic = readEnv("VAPID_PUBLIC_KEY") ?? readEnv("VITE_VAPID_PUBLIC_KEY");
+  const vapidPrivate = readEnv("VAPID_PRIVATE_KEY");
+  const vapidEmail = readEnv("VAPID_EMAIL") ?? "mailto:admin@patmyback.com";
 
   if (!vapidPublic || !vapidPrivate) {
     console.warn("[Push] VAPID keys not configured — skipping push.");

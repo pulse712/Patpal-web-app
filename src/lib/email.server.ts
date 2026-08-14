@@ -6,7 +6,8 @@ import { Resend } from "resend";
 
 import { getAppUrl } from "@/lib/app-url";
 
-const FROM = "Pat My Back <noreply@patmyback.com>";
+const FROM =
+  process.env.RESEND_FROM?.trim() || "Pat My Back <noreply@mail.patmyback.com>";
 
 function getResend(): Resend {
   const key = process.env.RESEND_API_KEY;

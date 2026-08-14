@@ -359,8 +359,16 @@ function RegisterForm() {
         email,
         send: (payload) => sendWelcome({ data: payload }),
       });
-      toast.success("Account created — waiting for admin approval.");
-      navigate({ to: "/account-status", search: { status: "pending" }, replace: true });
+      toast.success(
+        signupRole === "pat_pal"
+          ? "Account created — waiting for admin approval."
+          : "Account created — welcome!",
+      );
+      if (signupRole === "pat_pal") {
+        navigate({ to: "/account-status", search: { status: "pending" }, replace: true });
+      } else {
+        navigate({ to: "/home", replace: true });
+      }
       return;
     }
 

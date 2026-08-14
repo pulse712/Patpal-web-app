@@ -59,6 +59,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AdminSessionsChart } from "@/components/AdminSessionsChart";
 import { isMissingColumnError } from "@/lib/postgrest-utils";
+import { parseDollarToCents } from "@/lib/money-input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,6 +84,7 @@ type Pal = {
   tier: string;
   full_name: string | null;
   is_approved?: boolean;
+  approval_status?: string;
 };
 type Code = {
   id: string;
@@ -122,6 +124,12 @@ const ROLE_LABELS: Record<AppRole, string> = {
   super_admin: "Super Admin",
 };
 
+function palListingState(p: Pal): "pending" | "listed" | "disabled" {
+  if (p.is_approved) return "listed";
+  if (p.approval_status === "approved") return "disabled";
+  return "pending";
+}
+
 function AdminPanel() {
   const { isSuperAdmin = false } = Route.useRouteContext();
   const { user, loading } = useSession();
@@ -141,7 +149,7 @@ function AdminPanel() {
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
   const [emailConfirmBusy, setEmailConfirmBusy] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const [newCode, setNewCode] = useState({
@@ -163,8 +171,11 @@ function AdminPanel() {
   const [cropDialogOpen, setCropDialogOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
   const [lastCropSource, setLastCropSource] = useState<string | null>(null);
-  const [pricingDefaultCents, setPricingDefaultCents] = useState(100);
+  const [pricingDefaultDraft, setPricingDefaultDraft] = useState("1.00");
   const [pricingPackages, setPricingPackages] = useState<PricingPackage[]>([]);
+  const [packageDrafts, setPackageDrafts] = useState<
+    Record<string, { minutes: string; amount: string }>
+  >({});
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingBusy, setPricingBusy] = useState(false);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
@@ -192,9 +203,19 @@ function AdminPanel() {
       palRows = (fallback.data ?? []).map((row) => ({ ...row, is_approved: true }));
     }
     const nameMap = await fetchPublicProfiles(palRows.map((r) => r.user_id));
+    const ids = palRows.map((r) => r.user_id);
+    let statusMap = new Map<string, string>();
+    if (ids.length > 0) {
+      const { data: statusRows } = await supabase
+        .from("profiles")
+        .select("id, approval_status")
+        .in("id", ids);
+      statusMap = new Map((statusRows ?? []).map((row) => [row.id, row.approval_status]));
+    }
     const nextPals = palRows.map((r) => ({
       ...r,
       full_name: nameMap.get(r.user_id)?.full_name ?? null,
+      approval_status: statusMap.get(r.user_id),
     })) as Pal[];
     setPals(nextPals);
     setPriceDrafts((prev) => {
@@ -263,7 +284,7 @@ function AdminPanel() {
       await deleteUserAccount({ data: { userId: deleteTarget.id } });
       toast.success("Account deleted — that email can be used to sign up again");
       setDeleteTarget(null);
-      await loadUsers(userPage);
+      await Promise.all([loadUsers(userPage), refresh()]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
     } finally {
@@ -310,14 +331,18 @@ function AdminPanel() {
     }
   }
 
-  async function setAvailability(userId: string, next: "available" | "busy" | "offline") {
-    const { error } = await supabase
-      .from("pat_pals")
-      .update({ availability: next })
-      .eq("user_id", userId);
-    if (error) return toast.error(error.message);
-    toast.success("Updated");
-    refresh();
+  async function setApproved(userId: string, isApproved: boolean) {
+    try {
+      await setPatPalApproved({ data: { userId, isApproved } });
+      toast.success(
+        isApproved
+          ? "Pat Pal approved — they can sign in and appear in Browse"
+          : "Pat Pal disabled and unlisted",
+      );
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    }
   }
 
   async function createCode() {
@@ -446,16 +471,6 @@ function AdminPanel() {
     }
   }
 
-  async function setApproved(userId: string, isApproved: boolean) {
-    try {
-      await setPatPalApproved({ data: { userId, isApproved } });
-      toast.success(isApproved ? "Pat Pal approved" : "Pat Pal unlisted");
-      await refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed");
-    }
-  }
-
   async function savePalPrice(userId: string) {
     const raw = priceDrafts[userId]?.trim() ?? "";
     const dollars = parseFloat(raw);
@@ -480,8 +495,19 @@ function AdminPanel() {
     setPricingLoading(true);
     try {
       const data = await getAppPricingSettings();
-      setPricingDefaultCents(data.defaultPriceCents);
+      setPricingDefaultDraft((data.defaultPriceCents / 100).toFixed(2));
       setPricingPackages(data.packages);
+      setPackageDrafts(
+        Object.fromEntries(
+          data.packages.map((pkg) => [
+            pkg.id,
+            {
+              minutes: String(Math.round(pkg.seconds / 60)),
+              amount: (pkg.amount / 100).toFixed(2),
+            },
+          ]),
+        ),
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load pricing");
     } finally {
@@ -493,17 +519,38 @@ function AdminPanel() {
     if (pricingPackages.length === 0) {
       return toast.error("Add at least one package");
     }
+    const defaultCents = parseDollarToCents(pricingDefaultDraft);
+    if (defaultCents == null) {
+      return toast.error("Enter a valid default price");
+    }
+    const packages: PricingPackage[] = [];
     for (const pkg of pricingPackages) {
       if (!pkg.label.trim()) return toast.error("Each package needs a label");
-      if (pkg.seconds < 60) return toast.error("Package minutes must be at least 1");
-      if (pkg.amount < 0) return toast.error("Package amount cannot be negative");
+      const draft = packageDrafts[pkg.id] ?? {
+        minutes: String(Math.round(pkg.seconds / 60)),
+        amount: (pkg.amount / 100).toFixed(2),
+      };
+      const minutes = Number(draft.minutes);
+      if (!Number.isFinite(minutes) || minutes < 1) {
+        return toast.error("Package minutes must be at least 1");
+      }
+      const amountCents = parseDollarToCents(draft.amount);
+      if (amountCents == null) {
+        return toast.error("Package amount cannot be negative");
+      }
+      packages.push({
+        ...pkg,
+        label: pkg.label.trim(),
+        seconds: Math.round(minutes) * 60,
+        amount: amountCents,
+      });
     }
     setPricingBusy(true);
     try {
       await saveAppPricingSettings({
         data: {
-          defaultPriceCents: pricingDefaultCents,
-          packages: pricingPackages.map((pkg) => ({
+          defaultPriceCents: defaultCents,
+          packages: packages.map((pkg) => ({
             id: pkg.id,
             label: pkg.label.trim(),
             seconds: pkg.seconds,
@@ -511,8 +558,8 @@ function AdminPanel() {
           })),
         },
       });
+      setPricingPackages(packages);
       toast.success("Pricing saved");
-      await loadPricing();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save pricing");
     } finally {
@@ -795,7 +842,7 @@ function AdminPanel() {
                           Inactive
                         </Badge>
                       )}
-                      {u.approvalStatus === "pending" && (
+                      {u.role === "pat_pal" && u.approvalStatus === "pending" && (
                         <Badge variant="secondary" className="text-[10px] text-amber-700">
                           Pending approval
                         </Badge>
@@ -820,7 +867,7 @@ function AdminPanel() {
                   </div>
                 </div>
 
-                {u.approvalStatus !== "approved" && (
+                {u.role === "pat_pal" && u.approvalStatus !== "approved" && (
                   <div className="flex flex-wrap gap-2 border-t border-border pt-2">
                     <Button
                       type="button"
@@ -904,7 +951,12 @@ function AdminPanel() {
                       size="sm"
                       variant="outline"
                       className="w-full text-destructive hover:text-destructive"
-                      onClick={() => setDeleteTarget(u)}
+                      onClick={() =>
+                        setDeleteTarget({
+                          id: u.id,
+                          label: u.fullName || u.email || "this account",
+                        })
+                      }
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete account
@@ -920,51 +972,70 @@ function AdminPanel() {
               <p className="p-4 text-sm text-muted-foreground">No Pat Pals yet.</p>
             )}
             {pals.map((p) => {
-              const approved = p.is_approved !== false;
+              const state = palListingState(p);
+              const badgeLabel =
+                state === "listed" ? "Listed" : state === "disabled" ? "Disabled" : "Pending";
               return (
-                <Card key={p.user_id} className="space-y-2 p-3">
+                <Card
+                  key={p.user_id}
+                  className={
+                    state === "disabled"
+                      ? "space-y-2 border-dashed p-3 opacity-70"
+                      : "space-y-2 p-3"
+                  }
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold">{p.full_name || "Unnamed"}</p>
-                        <Badge variant={approved ? "default" : "secondary"}>
-                          {approved ? "Approved" : "Pending"}
+                        <Badge variant={state === "listed" ? "default" : "secondary"}>
+                          {badgeLabel}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">{p.headline || "No headline"}</p>
                       <p className="mt-1 text-xs">
-                        ${(p.price_cents_per_minute / 100).toFixed(2)}/min · {p.tier} ·{" "}
-                        {p.availability}
+                        ${(p.price_cents_per_minute / 100).toFixed(2)}/min · {p.tier}
                       </p>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {approved ? (
+                    {state === "pending" && (
+                      <Button size="sm" onClick={() => setApproved(p.user_id, true)}>
+                        Approve
+                      </Button>
+                    )}
+                    {state === "listed" && (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => setApproved(p.user_id, false)}
                       >
-                        Unlist
+                        Disable
                       </Button>
-                    ) : (
+                    )}
+                    {state === "listed" && p.approval_status && p.approval_status !== "approved" && (
                       <Button size="sm" onClick={() => setApproved(p.user_id, true)}>
-                        Approve
+                        Unlock sign-in
+                      </Button>
+                    )}
+                    {state === "disabled" && (
+                      <Button size="sm" onClick={() => setApproved(p.user_id, true)}>
+                        Enable
                       </Button>
                     )}
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setAvailability(p.user_id, "available")}
+                      className="text-destructive hover:text-destructive"
+                      onClick={() =>
+                        setDeleteTarget({
+                          id: p.user_id,
+                          label: p.full_name || "this Pat Pal",
+                        })
+                      }
                     >
-                      Enable
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setAvailability(p.user_id, "offline")}
-                    >
-                      Disable
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      Delete
                     </Button>
                   </div>
                   <div className="flex items-end gap-2 border-t border-border pt-2">
@@ -972,9 +1043,8 @@ function AdminPanel() {
                       <Label htmlFor={`price-${p.user_id}`}>Price ($/min)</Label>
                       <Input
                         id={`price-${p.user_id}`}
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={
                           priceDrafts[p.user_id] ?? (p.price_cents_per_minute / 100).toFixed(2)
                         }
@@ -1301,15 +1371,11 @@ function AdminPanel() {
                     <Label htmlFor="default-price">Default price ($/min)</Label>
                     <Input
                       id="default-price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={(pricingDefaultCents / 100).toFixed(2)}
-                      onChange={(e) => {
-                        const dollars = parseFloat(e.target.value);
-                        if (!Number.isFinite(dollars) || dollars < 0) return;
-                        setPricingDefaultCents(Math.round(dollars * 100));
-                      }}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="1.00"
+                      value={pricingDefaultDraft}
+                      onChange={(e) => setPricingDefaultDraft(e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1341,17 +1407,22 @@ function AdminPanel() {
                             <Label htmlFor={`pkg-min-${pkg.id}`}>Minutes</Label>
                             <Input
                               id={`pkg-min-${pkg.id}`}
-                              type="number"
-                              min="1"
-                              value={String(Math.round(pkg.seconds / 60))}
+                              type="text"
+                              inputMode="numeric"
+                              value={
+                                packageDrafts[pkg.id]?.minutes ??
+                                String(Math.round(pkg.seconds / 60))
+                              }
                               onChange={(e) => {
-                                const minutes = Number(e.target.value);
-                                if (!Number.isFinite(minutes) || minutes < 1) return;
-                                setPricingPackages((prev) =>
-                                  prev.map((row, i) =>
-                                    i === idx ? { ...row, seconds: Math.round(minutes) * 60 } : row,
-                                  ),
-                                );
+                                const minutes = e.target.value;
+                                setPackageDrafts((prev) => ({
+                                  ...prev,
+                                  [pkg.id]: {
+                                    minutes,
+                                    amount:
+                                      prev[pkg.id]?.amount ?? (pkg.amount / 100).toFixed(2),
+                                  },
+                                }));
                               }}
                             />
                           </div>
@@ -1359,18 +1430,22 @@ function AdminPanel() {
                             <Label htmlFor={`pkg-amt-${pkg.id}`}>Amount ($)</Label>
                             <Input
                               id={`pkg-amt-${pkg.id}`}
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={(pkg.amount / 100).toFixed(2)}
+                              type="text"
+                              inputMode="decimal"
+                              value={
+                                packageDrafts[pkg.id]?.amount ?? (pkg.amount / 100).toFixed(2)
+                              }
                               onChange={(e) => {
-                                const dollars = parseFloat(e.target.value);
-                                if (!Number.isFinite(dollars) || dollars < 0) return;
-                                setPricingPackages((prev) =>
-                                  prev.map((row, i) =>
-                                    i === idx ? { ...row, amount: Math.round(dollars * 100) } : row,
-                                  ),
-                                );
+                                const amount = e.target.value;
+                                setPackageDrafts((prev) => ({
+                                  ...prev,
+                                  [pkg.id]: {
+                                    minutes:
+                                      prev[pkg.id]?.minutes ??
+                                      String(Math.round(pkg.seconds / 60)),
+                                    amount,
+                                  },
+                                }));
                               }}
                             />
                           </div>
@@ -1410,7 +1485,7 @@ function AdminPanel() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {deleteTarget?.fullName || deleteTarget?.email || "this account"}?
+              Are you sure you want to delete {deleteTarget?.label || "this account"}?
             </AlertDialogTitle>
             <AlertDialogDescription>
               This permanently deletes the account, profile, wallet, sessions, and messages tied to

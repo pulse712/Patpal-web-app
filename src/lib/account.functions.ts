@@ -74,19 +74,22 @@ export const ensureMyProfile = createServerFn({ method: "POST" })
       authUser.user?.email?.split("@")[0] ||
       "";
 
-    // Only staff are auto-approved on self-heal. Everyone else stays pending
-    // so a missing profile row cannot bypass the signup approval gate.
-    const [{ data: isAdmin }, { data: isSuperAdmin }] = await Promise.all([
+    // Only staff are auto-approved on self-heal. Pat Pals stay pending so a
+    // missing profile row cannot bypass the signup approval gate. Customers
+    // are approved immediately.
+    const [{ data: isAdmin }, { data: isSuperAdmin }, { data: isPatPal }] = await Promise.all([
       supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "admin" }),
       supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "super_admin" }),
+      supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "pat_pal" }),
     ]);
     const isStaff = !!(isAdmin || isSuperAdmin);
+    const approvalStatus = isStaff || !isPatPal ? "approved" : "pending";
 
     const { error } = await supabaseAdmin.from("profiles").insert({
       id: userId,
       full_name: fallbackName,
       is_active: true,
-      approval_status: isStaff ? "approved" : "pending",
+      approval_status: approvalStatus,
     });
 
     if (error) {

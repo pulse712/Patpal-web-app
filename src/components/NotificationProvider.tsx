@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useMessageNotifications } from "@/hooks/use-message-notifications";
-import { useSignupNotifications } from "@/hooks/use-signup-notifications";
+import { useSignupNotifications, PendingPalAlertBanner } from "@/hooks/use-signup-notifications";
 import { NotificationPromptBanner } from "@/components/NotificationPromptBanner";
 
 /** Wires in-app chat/call notification listeners for authenticated users. */
@@ -12,11 +12,18 @@ export function NotificationProvider({
   children: ReactNode;
 }) {
   useMessageNotifications(userId);
-  useSignupNotifications();
+  const { alerts, dismissAll } = useSignupNotifications();
 
   return (
     <>
       {children}
+      <PendingPalAlertBanner
+        alerts={alerts}
+        onReview={() => {
+          dismissAll();
+          window.location.href = "/admin?tab=pals";
+        }}
+      />
       <NotificationPromptBanner />
     </>
   );

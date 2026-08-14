@@ -73,6 +73,9 @@ import {
 
 export const Route = createFileRoute("/_authenticated/admin")({
   beforeLoad: requireAdminBeforeLoad,
+  validateSearch: (search: Record<string, unknown>): { tab?: "pals" } => ({
+    tab: search.tab === "pals" ? "pals" : undefined,
+  }),
   component: AdminPanel,
 });
 
@@ -132,6 +135,7 @@ function palListingState(p: Pal): "pending" | "listed" | "disabled" {
 
 function AdminPanel() {
   const { isSuperAdmin = false } = Route.useRouteContext();
+  const { tab } = Route.useSearch();
   const { user, loading } = useSession();
   const [pals, setPals] = useState<Pal[]>([]);
   const [codes, setCodes] = useState<Code[]>([]);
@@ -602,7 +606,7 @@ function AdminPanel() {
         </header>
 
         <Tabs
-          defaultValue="analytics"
+          defaultValue={tab === "pals" ? "pals" : "analytics"}
           onValueChange={(value) => {
             if (value === "pricing") void loadPricing();
           }}

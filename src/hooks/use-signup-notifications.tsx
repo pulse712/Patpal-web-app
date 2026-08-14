@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useStaffRole } from "@/hooks/use-staff-role";
 import { showLocalNotification } from "@/lib/local-notifications";
 import { playMessageChime } from "@/lib/message-chime";
-import { Button } from "@/components/ui/button";
 
 export type PendingPalAlert = {
   userId: string;
@@ -162,9 +161,9 @@ export function PendingPalAlertBanner({
             Tap to review — this stays until you open it.
           </p>
         </div>
-        <Button type="button" size="sm" className="shrink-0" tabIndex={-1}>
+        <span className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">
           Review
-        </Button>
+        </span>
       </button>
     </div>
   );

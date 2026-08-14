@@ -196,6 +196,36 @@ export const confirmUserEmail = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Pending Pat Pals waiting for approval — shown to admins on login. */
+export const listPendingPatPals = createServerFn({ method: "GET" })
+  .middleware([...serverAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: pals, error: palError } = await supabaseAdmin
+      .from("pat_pals")
+      .select("user_id")
+      .eq("is_approved", false);
+    if (palError) throw new Error(palError.message);
+    const ids = (pals ?? []).map((p) => p.user_id);
+    if (ids.length === 0) return { pals: [] as { userId: string; name: string }[] };
+
+    const { data: profiles, error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", ids)
+      .eq("approval_status", "pending");
+    if (profileError) throw new Error(profileError.message);
+
+    return {
+      pals: (profiles ?? []).map((p) => ({
+        userId: p.id,
+        name: p.full_name?.trim() || "New Pat Pal",
+      })),
+    };
+  });
+
 export const listTrialCodes = createServerFn({ method: "GET" })
   .middleware([...serverAuth])
   .handler(async ({ context }) => {

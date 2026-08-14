@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useStaffRole } from "@/hooks/use-staff-role";
+import { useSession } from "@/lib/session";
 import { showLocalNotification } from "@/lib/local-notifications";
 import { playMessageChime } from "@/lib/message-chime";
 
@@ -10,59 +11,60 @@ export type PendingPalAlert = {
   name: string;
 };
 
-const DISMISS_KEY = "dismissed-pal-alerts";
-
-function loadDismissed(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = sessionStorage.getItem(DISMISS_KEY);
-    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveDismissed(ids: Set<string>) {
-  sessionStorage.setItem(DISMISS_KEY, JSON.stringify([...ids]));
-}
-
-/** Sticky live alert for admins until they tap Review. */
+/** Sticky live alert: shown on admin login until they tap Review. */
 export function useSignupNotifications() {
-  const { isStaff } = useStaffRole();
+  const { isStaff, loading: staffLoading } = useStaffRole();
+  const { user } = useSession();
   const [alerts, setAlerts] = useState<PendingPalAlert[]>([]);
+  const dismissedRef = useRef(new Set<string>());
+  const lastHydratedUser = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isStaff) {
+    dismissedRef.current = new Set();
+    lastHydratedUser.current = null;
+    setAlerts([]);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (staffLoading) return;
+    if (!isStaff || !user?.id) {
       setAlerts([]);
       return;
     }
 
     let cancelled = false;
-    const dismissed = loadDismissed();
 
     async function hydrate() {
-      const { data: pals } = await supabase
-        .from("pat_pals")
-        .select("user_id")
-        .eq("is_approved", false);
-      if (cancelled || !pals?.length) return;
-
-      const ids = pals.map((p) => p.user_id);
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, full_name, approval_status")
-        .in("id", ids)
-        .eq("approval_status", "pending");
-      if (cancelled) return;
-
-      setAlerts(
-        (profiles ?? [])
-          .filter((p) => !dismissed.has(p.id))
-          .map((p) => ({
-            userId: p.id,
-            name: p.full_name?.trim() || "New Pat Pal",
-          })),
-      );
+      try {
+        const { listPendingPatPals } = await import("@/lib/admin.functions");
+        const { pals } = await listPendingPatPals();
+        if (cancelled) return;
+        const unseen = pals.filter((p) => !dismissedRef.current.has(p.userId));
+        setAlerts(unseen);
+        const isFreshLogin = lastHydratedUser.current !== user.id;
+        lastHydratedUser.current = user.id;
+        if (unseen.length > 0 && isFreshLogin) {
+          playMessageChime();
+          if (document.hidden) {
+            const first = unseen[0];
+            void showLocalNotification({
+              title:
+                unseen.length === 1
+                  ? "New Pat Pal pending approval"
+                  : `${unseen.length} Pat Pals pending approval`,
+              body:
+                unseen.length === 1
+                  ? `${first.name} signed up and is waiting for approval.`
+                  : unseen.map((a) => a.name).join(", "),
+              url: "/admin?tab=pals",
+              tag: "signup-pending",
+              requireInteraction: true,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[signup-alert] hydrate failed:", err);
+      }
     }
 
     void hydrate();
@@ -79,7 +81,7 @@ export function useSignupNotifications() {
         async (payload) => {
           const row = payload.new as { user_id?: string };
           if (!row.user_id) return;
-          if (loadDismissed().has(row.user_id)) return;
+          if (dismissedRef.current.has(row.user_id)) return;
 
           const { data: profile } = await supabase
             .from("profiles")
@@ -89,13 +91,10 @@ export function useSignupNotifications() {
           if (cancelled) return;
 
           const name = profile?.full_name?.trim() || "New Pat Pal";
-          const title = "New Pat Pal pending approval";
-          const preview = `${name} signed up and is waiting for approval.`;
-
           playMessageChime();
           void showLocalNotification({
-            title,
-            body: preview,
+            title: "New Pat Pal pending approval",
+            body: `${name} signed up and is waiting for approval.`,
             url: "/admin?tab=pals",
             tag: `signup-${row.user_id}`,
             requireInteraction: true,
@@ -114,12 +113,10 @@ export function useSignupNotifications() {
       cancelled = true;
       void supabase.removeChannel(channel);
     };
-  }, [isStaff]);
+  }, [isStaff, staffLoading, user?.id]);
 
   function dismissAll() {
-    const ids = loadDismissed();
-    for (const alert of alerts) ids.add(alert.userId);
-    saveDismissed(ids);
+    for (const alert of alerts) dismissedRef.current.add(alert.userId);
     setAlerts([]);
   }
 

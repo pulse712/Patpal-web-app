@@ -126,7 +126,7 @@ export const saveMyProfile = createServerFn({ method: "POST" })
 
     let categorySlugs: string[] = [];
     if (data.isListable) {
-      categorySlugs = await resolveValidCategorySlugs(supabaseAdmin, data.categorySlugs);
+      categorySlugs = await resolveValidCategorySlugs(supabaseAdmin as never, data.categorySlugs);
     }
 
     const profilePayload = {

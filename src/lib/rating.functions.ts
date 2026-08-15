@@ -97,6 +97,7 @@ export const submitRating = createServerFn({ method: "POST" })
         );
       }
 
+      // Legacy schema only (no rater_id/ratee_id). Prod already has those columns.
       const { error: legacyError } = await supabaseAdmin.from("ratings").upsert(
         {
           session_id: data.sessionId,
@@ -104,7 +105,7 @@ export const submitRating = createServerFn({ method: "POST" })
           pal_id: session.pal_id,
           stars: data.stars,
           comment: data.comment ?? null,
-        },
+        } as never,
         { onConflict: "session_id" },
       );
       if (legacyError) throw new Error(legacyError.message);

@@ -61,10 +61,12 @@ GRANT SELECT, INSERT, UPDATE ON public.pal_schedules TO authenticated;
 GRANT ALL ON public.pal_schedules TO service_role;
 ALTER TABLE public.pal_schedules ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "pal_schedules read" ON public.pal_schedules;
 CREATE POLICY "pal_schedules read"
   ON public.pal_schedules FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "pal_schedules upsert own" ON public.pal_schedules;
 CREATE POLICY "pal_schedules upsert own"
   ON public.pal_schedules FOR INSERT TO authenticated
   WITH CHECK (
@@ -73,6 +75,7 @@ CREATE POLICY "pal_schedules upsert own"
     OR public.has_role(auth.uid(), 'super_admin')
   );
 
+DROP POLICY IF EXISTS "pal_schedules update own" ON public.pal_schedules;
 CREATE POLICY "pal_schedules update own"
   ON public.pal_schedules FOR UPDATE TO authenticated
   USING (
@@ -90,10 +93,12 @@ GRANT SELECT, INSERT, UPDATE ON public.session_bookings TO authenticated;
 GRANT ALL ON public.session_bookings TO service_role;
 ALTER TABLE public.session_bookings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "session_bookings read own" ON public.session_bookings;
 CREATE POLICY "session_bookings read own"
   ON public.session_bookings FOR SELECT TO authenticated
   USING (auth.uid() = pal_id OR auth.uid() = client_id);
 
+DROP POLICY IF EXISTS "session_bookings insert client" ON public.session_bookings;
 CREATE POLICY "session_bookings insert client"
   ON public.session_bookings FOR INSERT TO authenticated
   WITH CHECK (
@@ -101,6 +106,7 @@ CREATE POLICY "session_bookings insert client"
     AND EXISTS (SELECT 1 FROM public.pat_pals p WHERE p.user_id = pal_id AND p.is_approved = true)
   );
 
+DROP POLICY IF EXISTS "session_bookings update participants" ON public.session_bookings;
 CREATE POLICY "session_bookings update participants"
   ON public.session_bookings FOR UPDATE TO authenticated
   USING (auth.uid() = pal_id OR auth.uid() = client_id)

@@ -8,11 +8,12 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { MessageCircle, DollarSign, Star, Clock, Bell } from "lucide-react";
-import { useIsOnline } from "@/lib/presence";
+import { MessageCircle, DollarSign, Star, Clock, Bell, CalendarDays } from "lucide-react";
 import { checkPalAccess } from "@/lib/pal-guard";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { iosNeedsHomeScreenInstall } from "@/lib/push-support";
+import { isAcceptingCalls } from "@/lib/availability";
+import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/_authenticated/pal-dashboard")({
   beforeLoad: async () => {
@@ -39,9 +40,8 @@ function PalDashboard() {
   const [price, setPrice] = useState<string>("");
   const [headline, setHeadline] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
-  // Must be called unconditionally — before any early returns
-  const livePresence = useIsOnline(user?.id ?? null);
   const push = usePushNotifications();
 
   useEffect(() => {
@@ -107,6 +107,22 @@ function PalDashboard() {
     toast.success("Profile updated");
   }
 
+  async function setAcceptingCalls(on: boolean) {
+    if (!user || !pal) return;
+    setToggling(true);
+    const next = on ? "available" : "offline";
+    const { error } = await supabase
+      .from("pat_pals")
+      .update({ availability: next })
+      .eq("user_id", user.id);
+    setToggling(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setPal({ ...pal, availability: next });
+  }
+
   if (loading || isPal === null) {
     return (
       <AppShell>
@@ -139,17 +155,27 @@ function PalDashboard() {
           <h1 className="text-2xl font-bold">Your dashboard</h1>
           <div className="mt-3 flex items-center gap-2 text-xs">
             <span
-              className={`inline-block h-2 w-2 rounded-full ${livePresence ? "bg-success" : "bg-white/40"}`}
+              className={`inline-block h-2 w-2 rounded-full ${isAcceptingCalls(pal?.availability) ? "bg-success" : "bg-white/40"}`}
             />
             <span className="opacity-90">
-              {livePresence ? "You're online right now" : "You appear offline"}
+              {isAcceptingCalls(pal?.availability)
+                ? "Available for calls"
+                : "Away — clients won't see you as online"}
             </span>
           </div>
-          <div className="mt-4 rounded-xl bg-white/15 px-4 py-3 backdrop-blur">
-            <p className="text-xs opacity-80">Status</p>
-            <p className="text-sm font-semibold">
-              {livePresence ? "You're online — clients can call you" : "You appear offline"}
-            </p>
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-white/15 px-4 py-3 backdrop-blur">
+            <div>
+              <p className="text-xs opacity-80">Accepting calls</p>
+              <p className="text-sm font-semibold">
+                Stays on when you switch to WhatsApp or another app
+              </p>
+            </div>
+            <Switch
+              checked={isAcceptingCalls(pal?.availability)}
+              disabled={toggling || !pal}
+              onCheckedChange={(v) => void setAcceptingCalls(v)}
+              aria-label="Accepting calls"
+            />
           </div>
         </header>
 
@@ -232,6 +258,12 @@ function PalDashboard() {
 
         <Card className="space-y-2 p-4">
           <h2 className="font-semibold">Quick actions</h2>
+          <Button variant="outline" asChild className="w-full justify-start">
+            <Link to="/calendar">
+              <CalendarDays className="mr-2 h-4 w-4" />
+              Calendar and bookings
+            </Link>
+          </Button>
           <Button variant="outline" asChild className="w-full justify-start">
             <Link to="/chats">Open chats</Link>
           </Button>

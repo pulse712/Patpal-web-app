@@ -12,21 +12,8 @@ let channel: RealtimeChannel | null = null;
 let currentUserId: string | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-// How often we refresh our own presence timestamp, and how long a peer can
-// go without a heartbeat before we treat them as offline client-side. This
-// covers ungraceful disconnects (crash, force-quit, network loss) where the
-// realtime server's own leave detection can lag behind reality.
+// How often we refresh our own presence timestamp while the tab is active.
 const HEARTBEAT_MS = 25_000;
-const STALE_MS = 90_000;
-
-// Per-peer bookkeeping for staleness. We deliberately do NOT compare against
-// each peer's self-reported `online_at` directly (their device clock may be
-// wrong/skewed). Instead we only trust that their payload *changed* — a sign
-// a fresh heartbeat/track actually arrived — and stamp that moment with OUR
-// own clock. `lastReportedOnlineAt` lets us detect a real change; `lastSeenAt`
-// is what staleness is measured against.
-const lastReportedOnlineAt = new Map<string, string>();
-const lastSeenAt = new Map<string, number>();
 
 function emit() {
   // Freeze a new reference so useSyncExternalStore detects the change.
@@ -40,53 +27,37 @@ function resyncFromChannel() {
     string,
     Array<{ user_id?: string; online_at?: string }>
   >;
-  const now = Date.now();
   const present = new Set<string>();
   for (const key of Object.keys(state)) {
     for (const p of state[key]) {
       const id = p?.user_id ?? key;
-      if (!id) continue;
-      present.add(id);
-      const reported = p?.online_at ?? "";
-      // Only bump "last seen" when the peer's own payload actually changed
-      // (a real new heartbeat from them) or we've never seen them before —
-      // not just because some unrelated peer's event re-delivered the same
-      // cached snapshot to us.
-      if (reported !== lastReportedOnlineAt.get(id) || !lastSeenAt.has(id)) {
-        lastReportedOnlineAt.set(id, reported);
-        lastSeenAt.set(id, now);
-      }
+      if (id) present.add(id);
     }
   }
-  for (const id of lastSeenAt.keys()) {
-    if (!present.has(id)) {
-      lastSeenAt.delete(id);
-      lastReportedOnlineAt.delete(id);
-    }
-  }
-
-  const next = new Set<string>();
-  for (const [id, seenAt] of lastSeenAt) {
-    if (now - seenAt <= STALE_MS) next.add(id);
-  }
-  onlineSet = next;
+  // Anyone still in the Realtime snapshot is online. Do not prune on a
+  // frozen heartbeat — that is what happens when a Pal switches to WhatsApp.
+  onlineSet = present;
   emit();
 }
 
-// Closing/navigating away from the tab is the common case, not a crash —
-// broadcast an immediate "leave" so peers don't have to wait out the
-// STALE_MS fallback below (which exists for the true ungraceful-disconnect
-// case: crash, force-quit, killed background tab, network loss). Browsers
-// give unload handlers very little time to do async work, but `untrack()`
-// just sends one message over the already-open Realtime socket, so this is
-// a reasonable best effort. `pagehide` fires more reliably than `unload`
-// across mobile browsers (notably iOS Safari); `beforeunload` is a backstop.
+async function refreshMyPresence() {
+  if (!channel || !currentUserId) return;
+  await channel.track({ user_id: currentUserId, online_at: new Date().toISOString() });
+  resyncFromChannel();
+}
+
+// Do not untrack on pagehide — mobile browsers fire that when switching apps.
+// beforeunload covers an actual desktop tab close.
 if (typeof window !== "undefined") {
-  const untrackOnUnload = () => {
+  window.addEventListener("beforeunload", () => {
     if (channel) void channel.untrack();
-  };
-  window.addEventListener("pagehide", untrackOnUnload);
-  window.addEventListener("beforeunload", untrackOnUnload);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void refreshMyPresence();
+  });
+  window.addEventListener("pageshow", () => {
+    void refreshMyPresence();
+  });
 }
 
 export function setPresenceUser(userId: string | null) {
@@ -103,8 +74,6 @@ export function setPresenceUser(userId: string | null) {
     supabase.removeChannel(prev);
     channel = null;
     onlineSet = new Set();
-    lastSeenAt.clear();
-    lastReportedOnlineAt.clear();
     emit();
   }
   if (!userId) return;
@@ -124,7 +93,7 @@ export function setPresenceUser(userId: string | null) {
         if (heartbeatTimer) clearInterval(heartbeatTimer);
         heartbeatTimer = setInterval(() => {
           void ch.track({ user_id: userId, online_at: new Date().toISOString() });
-          resyncFromChannel(); // also prunes any peers that went stale
+          resyncFromChannel();
         }, HEARTBEAT_MS);
       }
     });

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ShieldCheck, LayoutDashboard } from "lucide-react";
+import { ShieldCheck, LayoutDashboard, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useStaffRole } from "@/hooks/use-staff-role";
@@ -97,6 +97,18 @@ export function AdminStaffProfileSection() {
             </div>
             <div className="text-xs text-muted-foreground">
               Users, analytics, trial codes, promo banners
+            </div>
+          </div>
+        </Link>
+        <Link
+          to="/calendar"
+          className="flex w-full items-center gap-3 p-3.5 text-left hover:bg-muted/50"
+        >
+          <CalendarDays className="h-5 w-5 text-primary" />
+          <div className="flex-1">
+            <span className="text-sm font-semibold">Calendars</span>
+            <div className="text-xs text-muted-foreground">
+              Set staff and Pat Pal booking hours
             </div>
           </div>
         </Link>

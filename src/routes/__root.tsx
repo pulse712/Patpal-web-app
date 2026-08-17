@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { getOgImageUrl } from "@/lib/app-url";
 import { supabase } from "@/integrations/supabase/client";
 import { setPresenceUser } from "@/lib/presence";
+import { bindAppAudioUnlock } from "@/lib/app-audio";
 import {
   isChunkLoadError,
   reloadForStaleChunkOnce,
@@ -212,6 +213,8 @@ function RootComponent() {
         .catch((err) => console.error("SW registration failed:", err));
     }
 
+    const unbindAudio = bindAppAudioUnlock();
+
     supabase.auth.getSession().then(({ data }) => {
       setPresenceUser(data.session?.user.id ?? null);
     });
@@ -226,6 +229,7 @@ function RootComponent() {
       window.removeEventListener("error", handleWindowError);
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
       clearGuard();
+      unbindAudio();
       sub.subscription.unsubscribe();
     };
   }, [router, queryClient]);

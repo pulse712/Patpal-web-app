@@ -4,8 +4,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
-import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users } from "lucide-react";
-import { useIsOnline, useOnlineUsers } from "@/lib/presence";
+import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users, CalendarDays } from "lucide-react";
+import { isAcceptingCalls } from "@/lib/availability";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getTeamMembers, type TeamMember } from "@/lib/team.functions";
 import { AdminStaffBanner, AdminStaffHeaderButton } from "@/components/AdminStaffLinks";
@@ -46,14 +46,13 @@ type Pal = {
   availability: string;
 };
 
-/** Online Pat Pals only — presence-based, excludes admin/team profiles. */
-function isOnlinePatPal(
-  pal: { user_id: string; is_team: boolean },
-  onlineIds: Set<string>,
+/** Pat Pals who left Available on — not tied to the app being in the foreground. */
+function isListedAvailable(
+  pal: { user_id: string; is_team: boolean; availability: string },
   adminIds: Set<string>,
 ): boolean {
   if (adminIds.has(pal.user_id) || pal.is_team) return false;
-  return onlineIds.has(pal.user_id);
+  return isAcceptingCalls(pal.availability);
 }
 
 function Home() {
@@ -72,7 +71,6 @@ function Home() {
       image_url: string | null;
     }[]
   >([]);
-  const onlineIds = useOnlineUsers();
 
   useEffect(() => {
     (async () => {
@@ -204,14 +202,14 @@ function Home() {
   const online = useMemo(
     () =>
       allPals
-        .filter((pal) => isOnlinePatPal(pal, onlineIds, adminIds))
+        .filter((pal) => isListedAvailable(pal, adminIds))
         .sort((a, b) => {
           const rank = (availability: string) =>
             availability === "available" ? 0 : availability === "busy" ? 1 : 2;
           return rank(a.availability) - rank(b.availability);
         })
         .slice(0, 6),
-    [allPals, onlineIds, adminIds],
+    [allPals, adminIds],
   );
 
   if (loading) {
@@ -240,6 +238,13 @@ function Home() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AdminStaffHeaderButton />
+          <Link
+            to="/calendar"
+            className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-semibold text-foreground"
+          >
+            <CalendarDays className="h-4 w-4 shrink-0" />
+            Calendar
+          </Link>
           <Link
             to="/wallet"
             search={{ payment: undefined }}
@@ -432,7 +437,7 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 
 function TeamRow({ pal }: { pal: TeamMember }) {
   const name = pal.full_name?.trim() || "Team member";
-  const isOnline = useIsOnline(pal.user_id);
+  const isOnline = isAcceptingCalls(pal.availability);
   const roleLabel = pal.role === "super_admin" ? "Super Admin" : "Admin";
 
   return (
@@ -481,7 +486,7 @@ function PresenceDot({ online }: { online: boolean }) {
 
 function PalRow({ pal }: { pal: Pal }) {
   const name = pal.full_name ?? "Pat Pal";
-  const isOnline = useIsOnline(pal.user_id);
+  const isOnline = isAcceptingCalls(pal.availability);
   return (
     <Link
       to="/pal/$palId"

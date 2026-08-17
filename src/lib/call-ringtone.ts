@@ -1,27 +1,24 @@
-/** Softer call ringtone (file if present, else pleasant Web Audio tones). */
+/** Incoming call ringtone (client MP3 if present, else Web Audio fallback). */
+
+import { getRingtoneElement, RINGTONE_SRC, unlockAppAudio } from "@/lib/app-audio";
 
 let audioEl: HTMLAudioElement | null = null;
 let audioCtx: AudioContext | null = null;
 let intervalId: ReturnType<typeof setInterval> | null = null;
-// Bumped by stopCallRingtone() so a late-arriving async fallback (the
-// audioEl.play() promise can reject well after the call was answered/
-// declined/ended) knows it's been superseded and must not start a
-// Web Audio loop with nothing left to ever stop it.
 let generation = 0;
-
-const RINGTONE_SRC = "/sounds/ringtone.mp3";
+let usingSharedEl = false;
 
 function playSoftPair() {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
-  const freqs = [523.25, 659.25]; // C5 / E5 — soft chime pair, not a siren
+  const freqs = [523.25, 659.25];
   for (const [i, frequency] of freqs.entries()) {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = "sine";
     osc.frequency.value = frequency;
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.06, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
     osc.connect(gain);
     gain.connect(audioCtx.destination);
@@ -32,19 +29,20 @@ function playSoftPair() {
 
 export function startCallRingtone() {
   stopCallRingtone();
+  unlockAppAudio();
   const myGeneration = generation;
 
   try {
-    const el = new Audio(RINGTONE_SRC);
+    const shared = getRingtoneElement();
+    const el = shared ?? new Audio(RINGTONE_SRC);
+    usingSharedEl = !!shared;
     el.loop = true;
-    el.volume = 0.55;
+    el.volume = 0.9;
+    el.currentTime = 0;
     audioEl = el;
     const playPromise = el.play();
     if (playPromise) {
       void playPromise.catch(() => {
-        // Missing file or autoplay block — fall back to Web Audio. Only if
-        // this start() is still current: stopCallRingtone() may have already
-        // run (call answered/declined/ended) by the time this rejects.
         if (myGeneration !== generation) return;
         if (audioEl === el) audioEl = null;
         startWebAudioRingtone(myGeneration);
@@ -68,16 +66,18 @@ function startWebAudioRingtone(myGeneration: number) {
 }
 
 export function stopCallRingtone() {
-  generation++; // invalidate any in-flight startCallRingtone() fallback
+  generation++;
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
   }
   if (audioEl) {
     audioEl.pause();
-    audioEl.src = "";
+    audioEl.currentTime = 0;
+    if (!usingSharedEl) audioEl.src = "";
     audioEl = null;
   }
+  usingSharedEl = false;
   if (audioCtx) {
     void audioCtx.close();
     audioCtx = null;

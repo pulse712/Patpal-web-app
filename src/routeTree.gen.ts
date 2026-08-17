@@ -16,6 +16,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as BrowseRouteImport } from './routes/browse'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedCalendarRouteImport } from './routes/_authenticated/calendar'
 import { Route as AuthenticatedChatsRouteImport } from './routes/_authenticated/chats'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedPalDashboardRouteImport } from './routes/_authenticated/pal-dashboard'
@@ -60,6 +61,11 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedCalendarRoute = AuthenticatedCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedChatsRoute = AuthenticatedChatsRouteImport.update({
@@ -127,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/browse': typeof BrowseRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/calendar': typeof AuthenticatedCalendarRoute
   '/chats': typeof AuthenticatedChatsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/pal-dashboard': typeof AuthenticatedPalDashboardRoute
@@ -146,6 +153,7 @@ export interface FileRoutesByTo {
   '/browse': typeof BrowseRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/calendar': typeof AuthenticatedCalendarRoute
   '/chats': typeof AuthenticatedChatsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/pal-dashboard': typeof AuthenticatedPalDashboardRoute
@@ -167,6 +175,7 @@ export interface FileRoutesById {
   '/browse': typeof BrowseRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/calendar': typeof AuthenticatedCalendarRoute
   '/_authenticated/chats': typeof AuthenticatedChatsRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/pal-dashboard': typeof AuthenticatedPalDashboardRoute
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
     | '/browse'
     | '/reset-password'
     | '/admin'
+    | '/calendar'
     | '/chats'
     | '/home'
     | '/pal-dashboard'
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/browse'
     | '/reset-password'
     | '/admin'
+    | '/calendar'
     | '/chats'
     | '/home'
     | '/pal-dashboard'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/browse'
     | '/reset-password'
     | '/_authenticated/admin'
+    | '/_authenticated/calendar'
     | '/_authenticated/chats'
     | '/_authenticated/home'
     | '/_authenticated/pal-dashboard'
@@ -302,6 +314,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/calendar': {
+      id: '/_authenticated/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof AuthenticatedCalendarRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/chats': {
@@ -386,6 +405,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedCalendarRoute: typeof AuthenticatedCalendarRoute
   AuthenticatedChatsRoute: typeof AuthenticatedChatsRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedPalDashboardRoute: typeof AuthenticatedPalDashboardRoute
@@ -396,6 +416,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedCalendarRoute: AuthenticatedCalendarRoute,
   AuthenticatedChatsRoute: AuthenticatedChatsRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedPalDashboardRoute: AuthenticatedPalDashboardRoute,

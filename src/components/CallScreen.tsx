@@ -161,8 +161,15 @@ async function createMicrophoneTrack(
     await primeMediaPermission({ audio: true });
   }
 
+  const processing = {
+    AEC: true,
+    AGC: true,
+    ANS: true,
+    encoderConfig: "speech_standard" as const,
+  };
+
   try {
-    return await AgoraRTC.createMicrophoneAudioTrack();
+    return await AgoraRTC.createMicrophoneAudioTrack(processing);
   } catch (err) {
     if (!isMediaDeviceError(err)) {
       throw new Error(mediaAccessError(err, "microphone"));
@@ -173,7 +180,10 @@ async function createMicrophoneTrack(
   for (const mic of mics) {
     if (!mic.deviceId) continue;
     try {
-      return await AgoraRTC.createMicrophoneAudioTrack({ microphoneId: mic.deviceId });
+      return await AgoraRTC.createMicrophoneAudioTrack({
+        ...processing,
+        microphoneId: mic.deviceId,
+      });
     } catch {
       /* try next device */
     }

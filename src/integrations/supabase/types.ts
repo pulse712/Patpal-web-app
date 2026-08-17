@@ -211,6 +211,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      pal_schedules: {
+        Row: {
+          hours: Json;
+          pal_id: string;
+          timezone: string;
+          updated_at: string;
+        };
+        Insert: {
+          hours?: Json;
+          pal_id: string;
+          timezone?: string;
+          updated_at?: string;
+        };
+        Update: {
+          hours?: Json;
+          pal_id?: string;
+          timezone?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       profile_contacts: {
         Row: {
           phone: string | null;
@@ -442,6 +463,39 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      session_bookings: {
+        Row: {
+          client_id: string;
+          created_at: string;
+          ends_at: string;
+          id: string;
+          notes: string | null;
+          pal_id: string;
+          starts_at: string;
+          status: string;
+        };
+        Insert: {
+          client_id: string;
+          created_at?: string;
+          ends_at: string;
+          id?: string;
+          notes?: string | null;
+          pal_id: string;
+          starts_at: string;
+          status?: string;
+        };
+        Update: {
+          client_id?: string;
+          created_at?: string;
+          ends_at?: string;
+          id?: string;
+          notes?: string | null;
+          pal_id?: string;
+          starts_at?: string;
+          status?: string;
+        };
+        Relationships: [];
       };
       trial_codes: {
         Row: {

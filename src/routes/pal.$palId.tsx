@@ -4,16 +4,6 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -29,23 +19,14 @@ import {
   Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useIsOnline } from "@/lib/presence";
+import { isAcceptingCalls } from "@/lib/availability";
 import { fetchPublicProfile } from "@/lib/public-profiles";
 import { getWalletBalance } from "@/lib/session.functions";
 import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
 import { listPalReviews, type PalReview } from "@/lib/rating.functions";
 import { CallScreen } from "@/components/CallScreen";
+import { BookingDialog } from "@/components/BookingDialog";
 import { isMissingColumnError } from "@/lib/postgrest-utils";
-
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
-type Day = (typeof DAYS)[number];
-type DaySchedule = { enabled: boolean; start: string; end: string };
-type Schedule = Record<Day, DaySchedule>;
-
-const DEFAULT_SCHEDULE: Schedule = DAYS.reduce((acc, d) => {
-  acc[d] = { enabled: d !== "Sat" && d !== "Sun", start: "09:00", end: "17:00" };
-  return acc;
-}, {} as Schedule);
 
 export const Route = createFileRoute("/pal/$palId")({
   head: () => ({
@@ -107,13 +88,12 @@ function labelForSlug(slug: string) {
 
 function PalProfile() {
   const { palId } = Route.useParams();
-  const palPresenceOnline = useIsOnline(palId);
   const navigate = useNavigate();
   const [pal, setPal] = useState<Pal | null>(null);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState<"chat" | "audio" | "video" | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [schedule, setSchedule] = useState<Schedule>(DEFAULT_SCHEDULE);
   const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
   const [callConversationId, setCallConversationId] = useState("");
   const [callerName, setCallerName] = useState("Someone");
@@ -122,23 +102,10 @@ function PalProfile() {
   const [reviews, setReviews] = useState<PalReview[]>([]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(`pal-schedule:${palId}`);
-      if (raw) setSchedule({ ...DEFAULT_SCHEDULE, ...JSON.parse(raw) });
-    } catch {
-      /* ignore */
-    }
-  }, [palId]);
-
-  function updateDay(day: Day, patch: Partial<DaySchedule>) {
-    setSchedule((s) => ({ ...s, [day]: { ...s[day], ...patch } }));
-  }
-
-  function saveSchedule() {
-    localStorage.setItem(`pal-schedule:${palId}`, JSON.stringify(schedule));
-    setScheduleOpen(false);
-    toast.success("Availability saved");
-  }
+    void supabase.auth.getSession().then(({ data }) => {
+      setViewerId(data.session?.user.id ?? null);
+    });
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -330,7 +297,8 @@ function PalProfile() {
   }
 
   const name = pal.profiles?.full_name ?? "Pat Pal";
-  const isOnline = palPresenceOnline;
+  const isOnline = isAcceptingCalls(pal.availability);
+  const isOwnProfile = viewerId === palId;
   const ratingAvg = Number(pal.rating_avg ?? 0);
   const ratingCount = pal.rating_count ?? 0;
 
@@ -392,7 +360,7 @@ function PalProfile() {
             <BadgeCheck className="h-5 w-5 text-primary" />
           </div>
           <p className="mt-1 text-xs font-medium text-muted-foreground">
-            {isOnline ? "Online now" : "Offline"}
+            {isOnline ? "Available" : "Away"}
           </p>
           <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-semibold text-accent">
             <Crown className="h-3 w-3" /> {TIER_LABEL[pal.tier ?? ""] ?? "Supporter"}
@@ -456,13 +424,23 @@ function PalProfile() {
               >
                 <MessageCircle className="h-4 w-4" /> Chat
               </Button>
-              <Button
-                onClick={() => setScheduleOpen(true)}
-                variant="outline"
-                className="h-11 rounded-xl font-semibold"
-              >
-                <Calendar className="h-4 w-4" /> Schedule
-              </Button>
+              {isOwnProfile ? (
+                <Button
+                  onClick={() => navigate({ to: "/calendar" })}
+                  variant="outline"
+                  className="h-11 rounded-xl font-semibold"
+                >
+                  <Calendar className="h-4 w-4" /> Edit hours
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => setScheduleOpen(true)}
+                  variant="outline"
+                  className="h-11 rounded-xl font-semibold"
+                >
+                  <Calendar className="h-4 w-4" /> Book
+                </Button>
+              )}
             </div>
           </div>
         </section>
@@ -575,58 +553,12 @@ function PalProfile() {
           )}
         </section>
 
-        {/* Schedule dialog */}
-        <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Set availability</DialogTitle>
-              <DialogDescription>
-                Choose the days and hours you're available for sessions.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2.5 py-1">
-              {DAYS.map((day) => {
-                const d = schedule[day];
-                return (
-                  <div
-                    key={day}
-                    className="flex items-center gap-3 rounded-lg border border-border p-2.5"
-                  >
-                    <Switch
-                      checked={d.enabled}
-                      onCheckedChange={(v) => updateDay(day, { enabled: v })}
-                      aria-label={`Toggle ${day}`}
-                    />
-                    <span className="w-10 text-sm font-semibold">{day}</span>
-                    <div className="ml-auto flex items-center gap-1.5">
-                      <Input
-                        type="time"
-                        value={d.start}
-                        disabled={!d.enabled}
-                        onChange={(e) => updateDay(day, { start: e.target.value })}
-                        className="h-9 w-[110px]"
-                      />
-                      <span className="text-xs text-muted-foreground">to</span>
-                      <Input
-                        type="time"
-                        value={d.end}
-                        disabled={!d.enabled}
-                        onChange={(e) => updateDay(day, { end: e.target.value })}
-                        className="h-9 w-[110px]"
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setScheduleOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={saveSchedule}>Save availability</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <BookingDialog
+          palId={palId}
+          palName={name}
+          open={scheduleOpen}
+          onOpenChange={setScheduleOpen}
+        />
       </AppShell>
     </>
   );

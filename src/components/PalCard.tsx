@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { useIsOnline } from "@/lib/presence";
+import { isAcceptingCalls } from "@/lib/availability";
 
 export type PalCardProfile = {
   full_name: string | null;
@@ -21,7 +21,7 @@ export type PalCardData = {
 
 export function PalCard({ pal }: { pal: PalCardData }) {
   const name = pal.profiles?.full_name?.trim() || "Pat Pal";
-  const isOnline = useIsOnline(pal.user_id);
+  const isOnline = isAcceptingCalls(pal.availability);
   const summary =
     pal.headline?.trim() ||
     pal.profiles?.bio?.trim() ||

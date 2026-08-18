@@ -28,7 +28,8 @@ import {
   Send,
   SwitchCamera,
   X,
-  ArrowLeft,
+  GripHorizontal,
+  Gift,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,11 +46,13 @@ import {
   declineIncomingCall,
   markSessionConnected,
   getActiveSessionBilling,
+  grantComplimentaryMinutes,
 } from "@/lib/session.functions";
 import { RatingModal } from "@/components/RatingModal";
 import { CallTopUpPayment } from "@/components/CallTopUpPayment";
 import { startCallRingtone, stopCallRingtone } from "@/lib/call-ringtone";
 import { useConversationMessages, sendConversationMessage } from "@/lib/conversation-messages";
+import { useStaffRole } from "@/hooks/use-staff-role";
 
 type CallKind = "audio" | "video";
 
@@ -110,6 +113,49 @@ const TOP_UP_PRESETS = [
 ];
 
 type AgoraSdk = typeof import("agora-rtc-sdk-ng").default;
+
+const CHAT_PAD = 12;
+const CHAT_CONTROLS_RESERVE = 176;
+
+function chatPanelSize() {
+  if (typeof window === "undefined") return { w: 320, h: 320 };
+  return {
+    w: Math.min(320, Math.max(240, window.innerWidth - CHAT_PAD * 2)),
+    h: Math.min(340, Math.round(window.innerHeight * 0.42)),
+  };
+}
+
+function clampChatPos(x: number, y: number) {
+  if (typeof window === "undefined") return { x, y };
+  const { w, h } = chatPanelSize();
+  const maxX = Math.max(CHAT_PAD, window.innerWidth - w - CHAT_PAD);
+  const maxY = Math.max(CHAT_PAD, window.innerHeight - h - CHAT_PAD);
+  return {
+    x: Math.min(Math.max(CHAT_PAD, x), maxX),
+    y: Math.min(Math.max(CHAT_PAD, y), maxY),
+  };
+}
+
+function snapChatToCorner(x: number, y: number) {
+  if (typeof window === "undefined") return { x, y };
+  const { w, h } = chatPanelSize();
+  const left = CHAT_PAD;
+  const right = Math.max(CHAT_PAD, window.innerWidth - w - CHAT_PAD);
+  const top = CHAT_PAD + 48;
+  const bottom = Math.max(CHAT_PAD, window.innerHeight - h - CHAT_CONTROLS_RESERVE);
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  return {
+    x: cx < window.innerWidth / 2 ? left : right,
+    y: cy < window.innerHeight / 2 ? top : bottom,
+  };
+}
+
+function defaultChatPos() {
+  if (typeof window === "undefined") return { x: CHAT_PAD, y: CHAT_PAD };
+  const { h } = chatPanelSize();
+  return clampChatPos(CHAT_PAD, window.innerHeight - h - CHAT_CONTROLS_RESERVE);
+}
 
 function mediaAccessError(err: unknown, device: "microphone" | "camera"): string {
   const message = err instanceof Error ? err.message : String(err);
@@ -285,6 +331,8 @@ export function CallScreen({
   onEnd,
 }: CallScreenProps) {
   const isCallee = role === "callee";
+  const { isStaff } = useStaffRole();
+  const [isTeamPal, setIsTeamPal] = useState(false);
   // ── Agora state ──────────────────────────────────────────────────────────
   const [status, setStatus] = useState<"connecting" | "connected" | "ended">("connecting");
   const [muted, setMuted] = useState(false);
@@ -313,6 +361,16 @@ export function CallScreen({
   const [chatUnread, setChatUnread] = useState(0);
   const [meId, setMeId] = useState<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const [chatPos, setChatPos] = useState<{ x: number; y: number } | null>(null);
+  const chatDragRef = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+  const [giftedMinutes, setGiftedMinutes] = useState<3 | 5 | null>(null);
+  const [gifting, setGifting] = useState(false);
+  const lastCompRef = useRef(0);
 
   // ── Front/back camera switch ─────────────────────────────────────────────
   const camerasRef = useRef<MediaDeviceInfo[]>([]);
@@ -375,10 +433,11 @@ export function CallScreen({
     return generation !== joinGenerationRef.current;
   }
 
-  function offerRatingIfEligible(): boolean {
-    if (!wasConnectedRef.current || !sessionIdRef.current) return false;
+  function offerRatingIfEligible(sessionId?: string | null): boolean {
+    const sid = sessionId || ratingSessionIdRef.current || sessionIdRef.current;
+    if (!wasConnectedRef.current || !sid) return false;
     if (elapsedRef.current < MIN_RATING_SECONDS) return false;
-    ratingSessionIdRef.current = sessionIdRef.current;
+    ratingSessionIdRef.current = sid;
     setShowRating(true);
     return true;
   }
@@ -763,13 +822,20 @@ export function CallScreen({
         return;
       }
       if (
-        billing.billableSecondsRemaining >= baseline + purchasedSeconds - 2 ||
+        billing.billableSecondsRemaining + elapsedRef.current >=
+          baseline + purchasedSeconds - 2 ||
         billing.balanceSeconds >= (balanceSec ?? 0) + purchasedSeconds - 2
       ) {
-        billableCapRef.current = billing.billableSecondsRemaining;
+        // billableSecondsRemaining is netted against elapsed time already
+        // (server subtracts time-since-connect); billableCapRef is tracked
+        // as a running total from connection start (the realtime sessions
+        // subscription below and giftMinutes() both add to it that way), so
+        // convert back to that convention instead of resetting elapsed — a
+        // later realtime sync would otherwise overwrite this with the raw
+        // column value while elapsed kept counting, overstating remaining
+        // time by however long the call had already run.
+        billableCapRef.current = billing.billableSecondsRemaining + elapsedRef.current;
         setBalanceSec(billing.balanceSeconds);
-        setElapsed(0);
-        elapsedRef.current = 0;
         return;
       }
       await new Promise((r) => setTimeout(r, 1000));
@@ -857,10 +923,11 @@ export function CallScreen({
     // on wasConnectedRef here meant a remote hangup before we'd confirmed
     // our own connection skipped cleanup entirely, leaving the session
     // dangling until the separate ringing-timeout auto-recovery kicked in.
+    const endedSessionId = sessionIdRef.current;
     await cleanupSession(wasConnectedRef.current);
     await leaveChannel();
 
-    if (offerRatingIfEligible()) return;
+    if (offerRatingIfEligible(endedSessionId)) return;
     onEnd();
   }, [leaveChannel, onEnd, remoteName, isCallee]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -902,9 +969,25 @@ export function CallScreen({
           filter: `id=eq.${sessionId}`,
         },
         (payload) => {
-          const row = payload.new as { status?: string };
+          const row = payload.new as {
+            status?: string;
+            remaining_seconds_at_start?: number;
+            complimentary_seconds?: number;
+          };
           if (row.status === "ended" || row.status === "cancelled") {
             endCallRemotelyRef.current();
+            return;
+          }
+          if (typeof row.remaining_seconds_at_start === "number") {
+            billableCapRef.current = row.remaining_seconds_at_start;
+          }
+          if (row.complimentary_seconds && row.complimentary_seconds > lastCompRef.current) {
+            lastCompRef.current = row.complimentary_seconds;
+            const mins = Math.round(row.complimentary_seconds / 60);
+            if (mins === 3 || mins === 5) setGiftedMinutes(mins);
+            if (isPayingClient) {
+              toast.success(`Staff added ${mins} free minutes to this call.`);
+            }
           }
         },
       )
@@ -915,17 +998,18 @@ export function CallScreen({
       window.clearInterval(poll);
       void supabase.removeChannel(channel);
     };
-  }, [watchSessionId]);
+  }, [watchSessionId, isPayingClient]);
 
   async function handleEnd() {
     if (hasEndedRef.current) return; // prevent double-end from race conditions
     hasEndedRef.current = true;
     setStatus("ended");
 
+    const endedSessionId = sessionIdRef.current;
     await cleanupSession(true);
     await leaveChannel();
 
-    if (offerRatingIfEligible()) return;
+    if (offerRatingIfEligible(endedSessionId)) return;
     onEnd();
   }
 
@@ -1083,8 +1167,21 @@ export function CallScreen({
 
   useEffect(() => {
     showChatRef.current = showChat;
-    if (showChat) setChatUnread(0);
+    if (showChat) {
+      setChatUnread(0);
+      setChatPos((pos) => pos ?? defaultChatPos());
+    }
   }, [showChat]);
+
+  useEffect(() => {
+    if (isPayingClient) return;
+    void supabase
+      .from("pat_pals")
+      .select("is_team")
+      .eq("user_id", palId)
+      .maybeSingle()
+      .then(({ data }) => setIsTeamPal(!!data?.is_team));
+  }, [isPayingClient, palId]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setMeId(data.session?.user.id ?? null));
@@ -1189,6 +1286,55 @@ export function CallScreen({
     const state = dragStateRef.current;
     dragStateRef.current = null;
     if (state && !state.moved) setMinimized(false);
+  }
+
+  function handleChatPointerDown(e: React.PointerEvent) {
+    if ((e.target as HTMLElement).closest("button")) return;
+    const origin = chatPos ?? defaultChatPos();
+    chatDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: origin.x,
+      originY: origin.y,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function handleChatPointerMove(e: React.PointerEvent) {
+    const state = chatDragRef.current;
+    if (!state) return;
+    setChatPos(
+      clampChatPos(
+        state.originX + (e.clientX - state.startX),
+        state.originY + (e.clientY - state.startY),
+      ),
+    );
+  }
+
+  function handleChatPointerUp() {
+    const state = chatDragRef.current;
+    chatDragRef.current = null;
+    if (!state) return;
+    setChatPos((pos) => snapChatToCorner(pos?.x ?? state.originX, pos?.y ?? state.originY));
+  }
+
+  async function giftMinutes(minutes: 3 | 5) {
+    const sid = sessionIdRef.current;
+    if (!sid || giftedMinutes || gifting) return;
+    setGifting(true);
+    try {
+      await grantComplimentaryMinutes({ data: { sessionId: sid, minutes } });
+      lastCompRef.current = minutes * 60;
+      setGiftedMinutes(minutes);
+      if (billableCapRef.current != null) {
+        billableCapRef.current += minutes * 60;
+      }
+      toast.success(`Added ${minutes} free minutes`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add minutes");
+    } finally {
+      setGifting(false);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1355,6 +1501,33 @@ export function CallScreen({
             {inGrace ? `Ending in ${graceRemaining}s` : `${fmt(Math.max(0, remaining))} left`}
           </div>
         )}
+        {!isPayingClient && (isStaff || isTeamPal) && billingActive && (
+          <div className="mt-1 flex items-center gap-1.5 rounded-full bg-black/50 px-2 py-1">
+            <Gift className="h-3.5 w-3.5 text-primary" />
+            {giftedMinutes ? (
+              <span className="text-[11px] font-semibold">+{giftedMinutes} min added</span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={gifting}
+                  onClick={() => void giftMinutes(3)}
+                  className="rounded-full px-2 py-0.5 text-[11px] font-semibold hover:bg-white/10 disabled:opacity-50"
+                >
+                  +3 min
+                </button>
+                <button
+                  type="button"
+                  disabled={gifting}
+                  onClick={() => void giftMinutes(5)}
+                  className="rounded-full px-2 py-0.5 text-[11px] font-semibold hover:bg-white/10 disabled:opacity-50"
+                >
+                  +5 min
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── 2-minute warning / top-up modal ──────────────────────────── */}
@@ -1463,15 +1636,23 @@ export function CallScreen({
 
       {/* ── In-call chat panel ───────────────────────────────────────── */}
       {showChat && conversationId && (
-        <div className="absolute inset-x-4 bottom-28 z-10 flex h-80 flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 shadow-2xl md:inset-x-auto md:left-auto md:right-4 md:top-20 md:h-auto md:w-96">
-          <div className="flex items-center justify-between border-b border-white/10 px-2 py-2">
-            <button
-              onClick={() => setShowChat(false)}
-              aria-label="Back to call"
-              className="grid h-8 w-8 place-items-center rounded-full text-white hover:bg-white/10"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
+        <div
+          style={{
+            left: (chatPos ?? defaultChatPos()).x,
+            top: (chatPos ?? defaultChatPos()).y,
+            width: chatPanelSize().w,
+            height: chatPanelSize().h,
+          }}
+          className="absolute z-10 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 shadow-2xl"
+        >
+          <div
+            onPointerDown={handleChatPointerDown}
+            onPointerMove={handleChatPointerMove}
+            onPointerUp={handleChatPointerUp}
+            onPointerCancel={handleChatPointerUp}
+            className="flex touch-none select-none items-center justify-between border-b border-white/10 px-2 py-2 cursor-grab active:cursor-grabbing"
+          >
+            <GripHorizontal className="h-4 w-4 text-white/50" />
             <span className="text-sm font-semibold text-white">Chat</span>
             <button
               onClick={() => setShowChat(false)}
@@ -1616,6 +1797,7 @@ export function CallScreen({
           sessionId={ratingSessionIdRef.current}
           rateeName={remoteName}
           durationMinutes={Math.max(1, Math.round(elapsedRef.current / 60))}
+          offerTip={isPayingClient}
           onDone={finishAfterCall}
         />
       )}

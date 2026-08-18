@@ -165,6 +165,34 @@ export const Route = createFileRoute("/api/stripe/webhook")({
               return new Response("Top-up wallet update failed", { status: 500 });
             }
           }
+
+          if (intent.metadata?.source === "session_tip") {
+            const userId = intent.metadata?.user_id;
+            const palId = intent.metadata?.pal_id;
+            const sessionId = intent.metadata?.session_id;
+            const amountCents =
+              intent.amount_received ?? parseInt(intent.metadata?.amount_cents ?? "0", 10);
+
+            if (!userId || !palId || !sessionId || !amountCents) {
+              console.error("[Stripe webhook] Tip missing metadata:", intent.metadata);
+              return new Response("Tip missing metadata", { status: 500 });
+            }
+
+            const { error: tipErr } = await supabaseAdmin.from("session_tips").upsert(
+              {
+                session_id: sessionId,
+                client_id: userId,
+                pal_id: palId,
+                amount_cents: amountCents,
+                stripe_reference: intent.id,
+              },
+              { onConflict: "stripe_reference" },
+            );
+            if (tipErr) {
+              console.error("[Stripe webhook] session_tips insert error:", tipErr);
+              return new Response("Tip save failed", { status: 500 });
+            }
+          }
         }
 
         if (event.type === "charge.refunded") {

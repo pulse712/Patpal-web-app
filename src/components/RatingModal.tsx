@@ -1,21 +1,24 @@
 /**
  * RatingModal
  * Post-session rating sheet — appears after a call ends.
- * Shows star selector + optional comment. Submits via server fn.
+ * Clients then see a tip prompt.
  */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Star, Loader2, X } from "lucide-react";
+import { Star, Loader2, X, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { submitRating } from "@/lib/rating.functions";
+import { createTipIntent, TIP_PRESETS } from "@/lib/tip.functions";
+import { CallTopUpPayment } from "@/components/CallTopUpPayment";
 
 interface RatingModalProps {
   sessionId: string;
   rateeName: string;
   durationMinutes: number;
+  offerTip?: boolean;
   onDone: () => void;
 }
 
@@ -25,13 +28,16 @@ export function RatingModal({
   sessionId,
   rateeName,
   durationMinutes,
+  offerTip = false,
   onDone,
 }: RatingModalProps) {
   const [stars, setStars] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [step, setStep] = useState<"rate" | "tip" | "pay" | "done">("rate");
+  const [tipCents, setTipCents] = useState<number | null>(null);
+  const [tipSecret, setTipSecret] = useState<string | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -40,6 +46,16 @@ export function RatingModal({
 
   const active = hovered || stars;
 
+  function goAfterRating() {
+    if (offerTip) {
+      setStep("tip");
+      setBusy(false);
+      return;
+    }
+    setStep("done");
+    setTimeout(onDone, 1500);
+  }
+
   async function submit() {
     if (!stars) return;
     setBusy(true);
@@ -47,32 +63,111 @@ export function RatingModal({
       await submitRating({
         data: { sessionId, stars, comment: comment.trim() || undefined },
       });
-      setDone(true);
       toast.success("Thanks for your feedback!");
-      setTimeout(onDone, 1500);
+      goAfterRating();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save rating");
       setBusy(false);
     }
   }
 
+  async function startTip(cents: number) {
+    setBusy(true);
+    try {
+      const { clientSecret } = await createTipIntent({ data: { sessionId, cents } });
+      setTipCents(cents);
+      setTipSecret(clientSecret);
+      setStep("pay");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not start tip");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!portalTarget) return null;
 
+  const amountLabel = tipCents ? `$${(tipCents / 100).toFixed(tipCents % 100 === 0 ? 0 : 2)}` : "";
+
   return createPortal(
-    /* Backdrop — portaled to body so CallScreen text-white cannot leak in */
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 px-4 pb-8">
       <div className="w-full max-w-md rounded-2xl bg-background text-foreground shadow-2xl overflow-hidden">
-        {done ? (
+        {step === "done" ? (
           <div className="flex flex-col items-center gap-3 py-10">
             <div className="grid h-14 w-14 place-items-center rounded-full bg-primary/10">
               <Star className="h-7 w-7 fill-primary text-primary" />
             </div>
-            <p className="text-lg font-bold">Rating saved!</p>
-            <p className="text-sm text-muted-foreground">Thanks for helping the community.</p>
+            <p className="text-lg font-bold">Thank you!</p>
+            <p className="text-sm text-muted-foreground">Your feedback helps the community.</p>
           </div>
+        ) : step === "tip" || step === "pay" ? (
+          <>
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <p className="font-bold text-base leading-tight">Send a tip</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Optional thank-you for {rateeName}
+                </p>
+              </div>
+              <button
+                onClick={onDone}
+                aria-label="Skip tip"
+                className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-5 py-6 space-y-4">
+              {step === "pay" && tipSecret ? (
+                <CallTopUpPayment
+                  clientSecret={tipSecret}
+                  amountLabel={amountLabel}
+                  theme="stripe"
+                  description={`Pay ${amountLabel} as a tip for ${rateeName}.`}
+                  onSuccess={() => {
+                    toast.success("Tip sent — thank you!");
+                    setStep("done");
+                    setTimeout(onDone, 1500);
+                  }}
+                  onCancel={() => {
+                    setTipSecret(null);
+                    setStep("tip");
+                  }}
+                />
+              ) : (
+                <>
+                  <div className="flex justify-center">
+                    <div className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
+                      <Heart className="h-6 w-6" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {TIP_PRESETS.map((p) => (
+                      <button
+                        key={p.cents}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void startTip(p.cents)}
+                        className="flex-1 rounded-xl border border-border py-3 text-sm font-semibold hover:border-primary hover:bg-primary/5"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full h-11"
+                    onClick={onDone}
+                    disabled={busy}
+                  >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "No tip"}
+                  </Button>
+                </>
+              )}
+            </div>
+          </>
         ) : (
           <>
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <div>
                 <p className="font-bold text-base leading-tight">Rate your session</p>
@@ -81,7 +176,7 @@ export function RatingModal({
                 </p>
               </div>
               <button
-                onClick={onDone}
+                onClick={() => (offerTip ? setStep("tip") : onDone())}
                 aria-label="Skip rating"
                 className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
               >
@@ -90,11 +185,7 @@ export function RatingModal({
             </div>
 
             <div className="px-5 py-6 space-y-5">
-              {/* Stars — hover on container avoids gap flicker; fixed label height stops layout jump */}
-              <div
-                className="flex flex-col items-center gap-3"
-                onMouseLeave={() => setHovered(0)}
-              >
+              <div className="flex flex-col items-center gap-3" onMouseLeave={() => setHovered(0)}>
                 <div className="flex gap-1" role="group" aria-label="Star rating">
                   {[1, 2, 3, 4, 5].map((s) => (
                     <button
@@ -128,7 +219,6 @@ export function RatingModal({
                 </p>
               </div>
 
-              {/* Optional comment */}
               <div>
                 <Textarea
                   placeholder="Leave a comment (optional)"
@@ -143,12 +233,11 @@ export function RatingModal({
                 </p>
               </div>
 
-              {/* Actions */}
               <div className="flex gap-2">
                 <Button
                   variant="outline"
                   className="flex-1 h-11 text-foreground"
-                  onClick={onDone}
+                  onClick={() => (offerTip ? setStep("tip") : onDone())}
                   disabled={busy}
                 >
                   Skip

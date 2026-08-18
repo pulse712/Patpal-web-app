@@ -10,14 +10,18 @@ type CallTopUpPaymentProps = {
   amountLabel: string;
   onSuccess: () => void;
   onCancel: () => void;
+  description?: string;
+  theme?: "night" | "stripe";
 };
 
-/** Stripe Payment Element for mid-call top-up (card entry in-call). */
+/** Stripe Payment Element for mid-call top-up or post-call tips. */
 export function CallTopUpPayment({
   clientSecret,
   amountLabel,
   onSuccess,
   onCancel,
+  description,
+  theme = "night",
 }: CallTopUpPaymentProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stripeRef = useRef<Stripe | null>(null);
@@ -42,7 +46,7 @@ export function CallTopUpPayment({
       stripeRef.current = stripe;
       const elements = stripe.elements({
         clientSecret,
-        appearance: { theme: "night", variables: { colorPrimary: "#0EA5A0" } },
+        appearance: { theme, variables: { colorPrimary: "#0EA5A0" } },
       });
       elementsRef.current = elements;
       paymentElement = elements.create("payment");
@@ -56,7 +60,7 @@ export function CallTopUpPayment({
       mounted = false;
       paymentElement?.destroy();
     };
-  }, [clientSecret]);
+  }, [clientSecret, theme]);
 
   async function handlePay() {
     const stripe = stripeRef.current;
@@ -85,13 +89,17 @@ export function CallTopUpPayment({
 
   return (
     <div className="mt-4 space-y-3">
-      <p className="text-xs text-gray-400">Pay {amountLabel} to add time to this call.</p>
+      <p className={theme === "night" ? "text-xs text-gray-400" : "text-xs text-muted-foreground"}>
+        {description ?? `Pay ${amountLabel} to add time to this call.`}
+      </p>
       <div ref={containerRef} className="min-h-[120px] rounded-lg bg-white/5 p-2" />
       <div className="flex gap-2">
         <Button
           type="button"
           variant="outline"
-          className="flex-1 border-white/20 text-white hover:bg-white/10"
+          className={
+            theme === "night" ? "flex-1 border-white/20 text-white hover:bg-white/10" : "flex-1"
+          }
           disabled={busy}
           onClick={onCancel}
         >

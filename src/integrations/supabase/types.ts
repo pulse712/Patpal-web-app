@@ -418,6 +418,7 @@ export type Database = {
           pal_id: string;
           price_cents_per_minute: number;
           remaining_seconds_at_start: number;
+          complimentary_seconds: number;
           seconds_used: number;
           started_at: string;
           status: Database["public"]["Enums"]["session_status"];
@@ -434,6 +435,7 @@ export type Database = {
           pal_id: string;
           price_cents_per_minute: number;
           remaining_seconds_at_start?: number;
+          complimentary_seconds?: number;
           seconds_used?: number;
           started_at?: string;
           status?: Database["public"]["Enums"]["session_status"];
@@ -450,6 +452,7 @@ export type Database = {
           pal_id?: string;
           price_cents_per_minute?: number;
           remaining_seconds_at_start?: number;
+          complimentary_seconds?: number;
           seconds_used?: number;
           started_at?: string;
           status?: Database["public"]["Enums"]["session_status"];
@@ -463,6 +466,36 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      session_tips: {
+        Row: {
+          amount_cents: number;
+          client_id: string;
+          created_at: string;
+          id: string;
+          pal_id: string;
+          session_id: string;
+          stripe_reference: string | null;
+        };
+        Insert: {
+          amount_cents: number;
+          client_id: string;
+          created_at?: string;
+          id?: string;
+          pal_id: string;
+          session_id: string;
+          stripe_reference?: string | null;
+        };
+        Update: {
+          amount_cents?: number;
+          client_id?: string;
+          created_at?: string;
+          id?: string;
+          pal_id?: string;
+          session_id?: string;
+          stripe_reference?: string | null;
+        };
+        Relationships: [];
       };
       session_bookings: {
         Row: {
@@ -691,6 +724,14 @@ export type Database = {
           p_actor_id: string;
         };
         Returns: undefined;
+      };
+      grant_complimentary_minutes: {
+        Args: {
+          p_session_id: string;
+          p_actor_id: string;
+          p_minutes: number;
+        };
+        Returns: number;
       };
     };
     Enums: {

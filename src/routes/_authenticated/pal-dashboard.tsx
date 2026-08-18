@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,12 +9,13 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { MessageCircle, DollarSign, Star, Clock, Bell, CalendarDays } from "lucide-react";
+import { MessageCircle, DollarSign, Star, Clock, Bell, CalendarDays, Heart } from "lucide-react";
 import { checkPalAccess } from "@/lib/pal-guard";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { iosNeedsHomeScreenInstall } from "@/lib/push-support";
 import { isAcceptingCalls, setAcceptingCallsPreference } from "@/lib/availability";
 import { Switch } from "@/components/ui/switch";
+import { listPalTips, type PalTipRow } from "@/lib/tip.functions";
 
 export const Route = createFileRoute("/_authenticated/pal-dashboard")({
   beforeLoad: async () => {
@@ -34,9 +36,12 @@ type PalRow = {
 
 function PalDashboard() {
   const { user, loading } = useSession();
+  const listPalTipsFn = useServerFn(listPalTips);
   const [pal, setPal] = useState<PalRow | null>(null);
   const [isPal, setIsPal] = useState<boolean | null>(null);
   const [stats, setStats] = useState({ sessions: 0, minutes: 0, earnings: 0, unread: 0 });
+  const [tips, setTips] = useState<PalTipRow[]>([]);
+  const [tipsTotalCents, setTipsTotalCents] = useState(0);
   const [price, setPrice] = useState<string>("");
   const [headline, setHeadline] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -83,8 +88,17 @@ function PalDashboard() {
         earnings: Math.round(totalCents * PAL_SHARE),
         unread: 0,
       });
+
+      try {
+        const tipData = await listPalTipsFn();
+        setTips(tipData.tips);
+        setTipsTotalCents(tipData.totalCents);
+      } catch {
+        setTips([]);
+        setTipsTotalCents(0);
+      }
     })();
-  }, [user, loading]);
+  }, [user, loading, listPalTipsFn]);
 
   async function saveProfile() {
     if (!user) return;
@@ -230,6 +244,43 @@ function PalDashboard() {
             }
           />
         </div>
+
+        <Card className="space-y-3 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="flex items-center gap-2 font-semibold">
+              <Heart className="h-4 w-4 text-primary" /> Tips
+            </h2>
+            {tipsTotalCents > 0 && (
+              <span className="text-sm font-semibold text-primary">
+                ${(tipsTotalCents / 100).toFixed(2)}
+              </span>
+            )}
+          </div>
+          {tips.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Tips from clients show here after they rate a session.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {tips.map((tip) => (
+                <li
+                  key={tip.id}
+                  className="flex items-center justify-between rounded-xl border border-border px-3 py-2"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{tip.clientName}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {new Date(tip.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <span className="text-sm font-bold text-primary">
+                    ${(tip.amountCents / 100).toFixed(2)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
 
         <Card className="space-y-3 p-4">
           <h2 className="font-semibold">Profile</h2>

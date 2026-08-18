@@ -516,6 +516,28 @@ export const getActiveSessionBilling = createServerFn({ method: "GET" })
     };
   });
 
+/** Staff-only: add 3 or 5 free minutes to the current call, once. */
+export const grantComplimentaryMinutes = createServerFn({ method: "POST" })
+  .middleware([...serverAuth])
+  .validator((data: unknown) =>
+    z
+      .object({
+        sessionId: z.string().uuid(),
+        minutes: z.union([z.literal(3), z.literal(5)]),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: seconds, error } = await supabaseAdmin.rpc("grant_complimentary_minutes", {
+      p_session_id: data.sessionId,
+      p_actor_id: context.userId,
+      p_minutes: data.minutes,
+    });
+    if (error) throw new Error(error.message);
+    return { seconds: Number(seconds ?? data.minutes * 60), minutes: data.minutes };
+  });
+
 // ─── Cancel session without billing (caller hang-up before connect) ──────────
 export const cancelSession = createServerFn({ method: "POST" })
   .middleware([...serverAuth])

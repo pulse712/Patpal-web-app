@@ -19,7 +19,7 @@ import {
   Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isAcceptingCalls } from "@/lib/availability";
+import { isAcceptingCalls, availabilityLabel } from "@/lib/availability";
 import { fetchPublicProfile } from "@/lib/public-profiles";
 import { getWalletBalance } from "@/lib/session.functions";
 import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
@@ -360,7 +360,7 @@ function PalProfile() {
             <BadgeCheck className="h-5 w-5 text-primary" />
           </div>
           <p className="mt-1 text-xs font-medium text-muted-foreground">
-            {isOnline ? "Available" : "Away"}
+            {availabilityLabel(pal.availability)}
           </p>
           <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-semibold text-accent">
             <Crown className="h-3 w-3" /> {TIER_LABEL[pal.tier ?? ""] ?? "Supporter"}

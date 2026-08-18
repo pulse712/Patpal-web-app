@@ -53,7 +53,7 @@ export function PalCard({ pal }: { pal: PalCardData }) {
               "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card",
               isOnline ? "bg-success" : "bg-muted-foreground/40",
             )}
-            aria-label={isOnline ? "Online" : "Offline"}
+            aria-label={isOnline ? "Available" : "Away"}
           />
         </div>
         <div className="min-w-0 flex-1">
@@ -67,7 +67,7 @@ export function PalCard({ pal }: { pal: PalCardData }) {
               isOnline ? "text-success" : "text-muted-foreground",
             )}
           >
-            {isOnline ? "● Online now" : "○ Offline"}
+            {isAcceptingCalls(pal.availability) ? "● Available" : "○ Away"}
           </p>
         </div>
       </div>

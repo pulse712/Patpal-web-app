@@ -1,6 +1,6 @@
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { EDITOR_DAYS, type DayHours, type EditorDay, type WeeklyHours } from "@/lib/schedule";
+import { EDITOR_DAYS, normalizeTimeString, type DayHours, type EditorDay, type WeeklyHours } from "@/lib/schedule";
 
 export function WeeklyHoursEditor({
   hours,
@@ -30,7 +30,7 @@ export function WeeklyHoursEditor({
                 type="time"
                 value={d.start}
                 disabled={!d.enabled}
-                onChange={(e) => updateDay(day, { start: e.target.value })}
+                onChange={(e) => updateDay(day, { start: normalizeTimeString(e.target.value) })}
                 className="h-9 w-[110px]"
               />
               <span className="text-xs text-muted-foreground">to</span>
@@ -38,7 +38,7 @@ export function WeeklyHoursEditor({
                 type="time"
                 value={d.end}
                 disabled={!d.enabled}
-                onChange={(e) => updateDay(day, { end: e.target.value })}
+                onChange={(e) => updateDay(day, { end: normalizeTimeString(e.target.value) })}
                 className="h-9 w-[110px]"
               />
             </div>

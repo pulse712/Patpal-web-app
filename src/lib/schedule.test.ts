@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildOpenSlots, DEFAULT_WEEKLY_HOURS, hoursToRows, rowsToHours } from "./schedule";
+import {
+  buildOpenSlots,
+  DEFAULT_WEEKLY_HOURS,
+  hoursToRows,
+  normalizeTimeString,
+  rowsToHours,
+} from "./schedule";
 
 describe("schedule hours", () => {
   it("round-trips enabled weekdays", () => {
@@ -9,6 +15,18 @@ describe("schedule hours", () => {
     expect(back.Mon.enabled).toBe(true);
     expect(back.Sat.enabled).toBe(false);
     expect(back.Mon.start).toBe("09:00");
+  });
+
+  it("maps stored weekday numbers to editor days", () => {
+    const back = rowsToHours([{ weekday: 1, start: "09:00", end: "17:00" }]);
+    expect(back.Mon).toEqual({ enabled: true, start: "09:00", end: "17:00" });
+    expect(back.Tue.enabled).toBe(false);
+  });
+
+  it("normalizes time strings from browsers and Postgres", () => {
+    expect(normalizeTimeString("9:00")).toBe("09:00");
+    expect(normalizeTimeString("09:00:00")).toBe("09:00");
+    expect(normalizeTimeString(" 17:30:00 ")).toBe("17:30");
   });
 
   it("builds future weekday slots and skips booked starts", () => {

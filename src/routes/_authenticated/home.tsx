@@ -46,7 +46,7 @@ type Pal = {
   availability: string;
 };
 
-/** Pat Pals who left Available on — not tied to the app being in the foreground. */
+/** Pat Pals who turned on Accepting calls on their dashboard. */
 function isListedAvailable(
   pal: { user_id: string; is_team: boolean; availability: string },
   adminIds: Set<string>,
@@ -341,11 +341,11 @@ function Home() {
 
       {/* Online now + Top rated — side by side on large screens */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:px-5">
-        {/* Online now */}
+        {/* Available now */}
         <section className="px-5 pt-6 lg:px-0">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm font-bold">
-              <span className="inline-block h-2 w-2 rounded-full bg-success" /> Online now
+              <span className="inline-block h-2 w-2 rounded-full bg-success" /> Available now
             </h3>
             <Link to="/browse" className="text-xs font-semibold text-primary">
               See all
@@ -354,7 +354,7 @@ function Home() {
           {online.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
               <Users className="mx-auto mb-1 h-5 w-5 opacity-60" />
-              No Pals online right now.
+              No Pals are accepting calls right now.
             </div>
           ) : (
             <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
@@ -456,7 +456,7 @@ function TeamRow({ pal }: { pal: TeamMember }) {
             <span
               className={`text-[11px] font-medium ${isOnline ? "text-success" : "text-muted-foreground"}`}
             >
-              {isOnline ? "● Online now" : "○ Offline"}
+              {isOnline ? "● Available" : "○ Away"}
             </span>
           </div>
           <p className="mt-1.5 text-sm leading-snug text-muted-foreground">
@@ -479,7 +479,7 @@ function PresenceDot({ online }: { online: boolean }) {
       className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
         online ? "bg-success" : "bg-muted-foreground/50"
       }`}
-      aria-label={online ? "Online" : "Offline"}
+      aria-label={online ? "Available" : "Away"}
     />
   );
 }
@@ -514,11 +514,7 @@ function PalRow({ pal }: { pal: Pal }) {
           ${(pal.price_cents_per_minute / 100).toFixed(0)}/min
         </p>
         {isOnline ? (
-          <p className="text-[10px] font-medium text-success">
-            {pal.availability === "available" || pal.availability === "busy"
-              ? "Online now"
-              : "Online"}
-          </p>
+          <p className="text-[10px] font-medium text-success">Available</p>
         ) : pal.rating_avg ? (
           <p className="flex items-center justify-end gap-0.5 text-[10px] text-muted-foreground">
             <Star className="h-2.5 w-2.5 fill-accent text-accent" />

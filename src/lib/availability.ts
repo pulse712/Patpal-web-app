@@ -1,4 +1,8 @@
-/** Pal is taking calls. Independent of whether the app is in the foreground. */
+/** Pat Pal is accepting calls (toggle on dashboard). Not the same as in-app presence. */
 export function isAcceptingCalls(availability: string | null | undefined): boolean {
   return availability === "available" || availability === "busy";
+}
+
+export function availabilityLabel(availability: string | null | undefined): string {
+  return isAcceptingCalls(availability) ? "Available" : "Away";
 }

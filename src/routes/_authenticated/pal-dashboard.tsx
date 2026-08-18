@@ -160,7 +160,7 @@ function PalDashboard() {
             <span className="opacity-90">
               {isAcceptingCalls(pal?.availability)
                 ? "Available for calls"
-                : "Away — clients won't see you as online"}
+                : "Away — clients won't see you as available"}
             </span>
           </div>
           <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-white/15 px-4 py-3 backdrop-blur">

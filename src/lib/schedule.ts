@@ -39,11 +39,21 @@ export type StoredHoursRow = {
   end: string;
 };
 
+const JS_DAY_TO_EDITOR: Record<number, EditorDay> = {
+  0: "Sun",
+  1: "Mon",
+  2: "Tue",
+  3: "Wed",
+  4: "Thu",
+  5: "Fri",
+  6: "Sat",
+};
+
 export function hoursToRows(hours: WeeklyHours): StoredHoursRow[] {
   return EDITOR_DAYS.filter((day) => hours[day].enabled).map((day) => ({
     weekday: EDITOR_TO_JS_DAY[day],
-    start: hours[day].start,
-    end: hours[day].end,
+    start: normalizeTimeString(hours[day].start),
+    end: normalizeTimeString(hours[day].end),
   }));
 }
 
@@ -58,15 +68,32 @@ export function rowsToHours(rows: StoredHoursRow[] | null | undefined): WeeklyHo
     Sun: { ...DEFAULT_WEEKLY_HOURS.Sun, enabled: false },
   };
   for (const row of rows ?? []) {
-    const label = WEEKDAY_LABELS[row.weekday];
-    if (!label) continue;
-    next[label] = { enabled: true, start: row.start, end: row.end };
+    const day = JS_DAY_TO_EDITOR[row.weekday];
+    if (!day) continue;
+    next[day] = {
+      enabled: true,
+      start: normalizeTimeString(row.start),
+      end: normalizeTimeString(row.end),
+    };
   }
   return next;
 }
 
+export function normalizeTimeString(value: string): string {
+  const trimmed = value.trim();
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(trimmed);
+  if (!match) return trimmed;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) {
+    return trimmed;
+  }
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 export function parseHm(value: string): { hour: number; minute: number } | null {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+  const normalized = normalizeTimeString(value);
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(normalized);
   if (!match) return null;
   return { hour: Number(match[1]), minute: Number(match[2]) };
 }

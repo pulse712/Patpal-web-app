@@ -173,7 +173,7 @@ export const setUserApprovalStatus = createServerFn({ method: "POST" })
     if (data.status === "approved") {
       await supabaseAdmin
         .from("pat_pals")
-        .update({ is_approved: true, availability: "available", updated_at: new Date().toISOString() })
+        .update({ is_approved: true, availability: "offline", updated_at: new Date().toISOString() })
         .eq("user_id", data.userId);
     }
 
@@ -464,7 +464,7 @@ export const setPatPalApproved = createServerFn({ method: "POST" })
       .from("pat_pals")
       .update({
         is_approved: data.isApproved,
-        availability: data.isApproved ? "available" : "offline",
+        availability: "offline",
         updated_at: now,
       })
       .eq("user_id", data.userId);
@@ -616,7 +616,7 @@ export const setUserRole = createServerFn({ method: "POST" })
       await supabaseAdmin
         .from("pat_pals")
         .upsert(
-          { user_id: data.userId, is_approved: true, availability: "available" },
+          { user_id: data.userId, is_approved: true, availability: "offline" },
           { onConflict: "user_id" },
         );
       await supabaseAdmin

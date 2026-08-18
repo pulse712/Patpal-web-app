@@ -5,7 +5,9 @@ import {
   BOOKING_HORIZON_DAYS,
   SLOT_MINUTES,
   buildOpenSlots,
+  EDITOR_DAYS,
   hoursToRows,
+  normalizeTimeString,
   parseHm,
   rowsToHours,
   type StoredHoursRow,
@@ -29,8 +31,10 @@ function parseStoredHours(raw: unknown): StoredHoursRow[] {
     const rec = item as Record<string, unknown>;
     if (typeof rec.weekday !== "number" || rec.weekday < 0 || rec.weekday > 6) continue;
     if (typeof rec.start !== "string" || typeof rec.end !== "string") continue;
-    if (!parseHm(rec.start) || !parseHm(rec.end)) continue;
-    out.push({ weekday: rec.weekday, start: rec.start, end: rec.end });
+    const start = normalizeTimeString(rec.start);
+    const end = normalizeTimeString(rec.end);
+    if (!parseHm(start) || !parseHm(end)) continue;
+    out.push({ weekday: rec.weekday, start, end });
   }
   return out;
 }
@@ -86,16 +90,21 @@ export const savePalSchedule = createServerFn({ method: "POST" })
     }
 
     const hours = data.hours as WeeklyHours;
-    for (const day of Object.values(hours)) {
+    for (const dayName of EDITOR_DAYS) {
+      const day = hours[dayName];
       if (!day.enabled) continue;
-      if (!parseHm(day.start) || !parseHm(day.end)) {
-        throw new Error("Use hours in 24-hour HH:MM format.");
+      const start = normalizeTimeString(day.start);
+      const end = normalizeTimeString(day.end);
+      if (!parseHm(start) || !parseHm(end)) {
+        throw new Error(`${dayName}: use hours like 9:00 AM as 09:00 (24-hour).`);
       }
-      const a = parseHm(day.start)!;
-      const b = parseHm(day.end)!;
+      const a = parseHm(start)!;
+      const b = parseHm(end)!;
       if (a.hour * 60 + a.minute >= b.hour * 60 + b.minute) {
-        throw new Error("End time must be after start time.");
+        throw new Error(`${dayName}: end time must be after start time.`);
       }
+      day.start = start;
+      day.end = end;
     }
 
     const rows = hoursToRows(hours);

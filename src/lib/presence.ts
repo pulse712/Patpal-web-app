@@ -95,6 +95,14 @@ export function setPresenceUser(userId: string | null) {
           void ch.track({ user_id: userId, online_at: new Date().toISOString() });
           resyncFromChannel();
         }, HEARTBEAT_MS);
+        return;
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        window.setTimeout(() => {
+          if (currentUserId !== userId || channel !== ch) return;
+          currentUserId = null;
+          setPresenceUser(userId);
+        }, 2_000);
       }
     });
   channel = ch;

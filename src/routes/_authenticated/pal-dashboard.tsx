@@ -12,7 +12,7 @@ import { MessageCircle, DollarSign, Star, Clock, Bell, CalendarDays } from "luci
 import { checkPalAccess } from "@/lib/pal-guard";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { iosNeedsHomeScreenInstall } from "@/lib/push-support";
-import { isAcceptingCalls } from "@/lib/availability";
+import { isAcceptingCalls, setAcceptingCallsPreference } from "@/lib/availability";
 import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/_authenticated/pal-dashboard")({
@@ -111,12 +111,14 @@ function PalDashboard() {
     if (!user || !pal) return;
     setToggling(true);
     const next = on ? "available" : "offline";
+    setAcceptingCallsPreference(on);
     const { error } = await supabase
       .from("pat_pals")
       .update({ availability: next })
       .eq("user_id", user.id);
     setToggling(false);
     if (error) {
+      setAcceptingCallsPreference(isAcceptingCalls(pal.availability));
       toast.error(error.message);
       return;
     }

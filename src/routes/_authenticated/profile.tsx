@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
+import { signOutUser } from "@/lib/availability";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -187,7 +188,7 @@ function Profile() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await signOutUser();
     navigate({ to: "/auth", replace: true });
   }
 
@@ -215,7 +216,7 @@ function Profile() {
     setDeleting(true);
     try {
       await deleteAccountFn();
-      await supabase.auth.signOut();
+      await signOutUser();
       toast.success("Account deleted");
       navigate({ to: "/auth", replace: true });
     } catch (e) {

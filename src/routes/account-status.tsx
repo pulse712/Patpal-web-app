@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { Loader2, Clock, ShieldAlert, UserX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { signOutUser } from "@/lib/availability";
 import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/BrandLogo";
 
@@ -35,7 +36,7 @@ function AccountStatusPage() {
   useEffect(() => {
     // Message already provided by login redirect — keep it and clear session.
     if (search.status) {
-      void supabase.auth.signOut();
+      void signOutUser();
       return;
     }
 
@@ -69,13 +70,13 @@ function AccountStatusPage() {
         } catch (err) {
           console.error("[account-status] ensureMyProfile failed:", err);
           setStatus("pending");
-          void supabase.auth.signOut();
+          void signOutUser();
           return;
         }
         if (cancelled) return;
         if (result.deleted) {
           setStatus("deleted");
-          void supabase.auth.signOut();
+          void signOutUser();
           return;
         }
         const { data: healed } = await supabase
@@ -86,17 +87,17 @@ function AccountStatusPage() {
         if (cancelled) return;
         if (!healed || healed.is_active === false) {
           setStatus("banned");
-          void supabase.auth.signOut();
+          void signOutUser();
           return;
         }
         if (healed.approval_status === "rejected") {
           setStatus("rejected");
-          void supabase.auth.signOut();
+          void signOutUser();
           return;
         }
         if (healed.approval_status !== "approved") {
           setStatus("pending");
-          void supabase.auth.signOut();
+          void signOutUser();
           return;
         }
         navigate({ to: "/home", replace: true });
@@ -105,17 +106,17 @@ function AccountStatusPage() {
 
       if (profile.is_active === false) {
         setStatus("banned");
-        void supabase.auth.signOut();
+        void signOutUser();
         return;
       }
       if (profile.approval_status === "rejected") {
         setStatus("rejected");
-        void supabase.auth.signOut();
+        void signOutUser();
         return;
       }
       if (profile.approval_status === "pending") {
         setStatus("pending");
-        void supabase.auth.signOut();
+        void signOutUser();
         return;
       }
 
@@ -130,7 +131,7 @@ function AccountStatusPage() {
   }, [navigate, search.status]);
 
   async function handleBackToAuth() {
-    await supabase.auth.signOut();
+    await signOutUser();
     navigate({ to: "/auth", replace: true });
   }
 

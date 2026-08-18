@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { signOutUser } from "@/lib/availability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -178,7 +179,7 @@ function LoginForm() {
     if (!gate.allowed) {
       if (gate.reason === "unknown") {
         toast.error("Could not verify your account status. Please try again.");
-        await supabase.auth.signOut();
+        await signOutUser();
         return;
       }
       navigate({

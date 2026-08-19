@@ -15,7 +15,7 @@ import {
   History,
 } from "lucide-react";
 import { isAcceptingCalls } from "@/lib/availability";
-import { useOnlineUsers, useIsOnline } from "@/lib/presence";
+import { useIsOnline } from "@/lib/presence";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getTeamMembers, type TeamMember } from "@/lib/team.functions";
 import { AdminStaffBanner, AdminStaffHeaderButton } from "@/components/AdminStaffLinks";
@@ -66,7 +66,6 @@ function isListedAvailable(
 }
 
 function Home() {
-  const onlineUsers = useOnlineUsers();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [balanceSeconds, setBalanceSeconds] = useState(0);
@@ -210,12 +209,17 @@ function Home() {
 
   const adminIds = useMemo(() => new Set(team.map((t) => t.user_id)), [team]);
 
-  const online = useMemo(
+  const available = useMemo(
     () =>
       allPals
-        .filter((pal) => isListedAvailable(pal, adminIds) && onlineUsers.has(pal.user_id))
+        .filter((pal) => isListedAvailable(pal, adminIds))
+        .sort((a, b) => {
+          const rank = (availability: string) =>
+            availability === "available" ? 0 : availability === "busy" ? 1 : 2;
+          return rank(a.availability) - rank(b.availability);
+        })
         .slice(0, 6),
-    [allPals, adminIds, onlineUsers],
+    [allPals, adminIds],
   );
 
   if (loading) {
@@ -358,20 +362,20 @@ function Home() {
         <section className="px-5 pt-6 lg:px-0">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm font-bold">
-              <span className="inline-block h-2 w-2 rounded-full bg-success" /> Online now
+              <span className="inline-block h-2 w-2 rounded-full bg-success" /> Available now
             </h3>
             <Link to="/browse" className="text-xs font-semibold text-primary">
               See all
             </Link>
           </div>
-          {online.length === 0 ? (
+          {available.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
               <Users className="mx-auto mb-1 h-5 w-5 opacity-60" />
-              No Pals are online right now.
+              No Pals are accepting calls right now.
             </div>
           ) : (
             <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
-              {online.map((p) => (
+              {available.map((p) => (
                 <PalRow key={p.user_id} pal={p} />
               ))}
             </div>
@@ -499,7 +503,7 @@ function PresenceDot({ online }: { online: boolean }) {
 
 function PalRow({ pal }: { pal: Pal }) {
   const name = pal.full_name ?? "Pat Pal";
-  const isOnline = useIsOnline(pal.user_id);
+  const isOnline = isAcceptingCalls(pal.availability);
   return (
     <Link
       to="/pal/$palId"
@@ -527,7 +531,7 @@ function PalRow({ pal }: { pal: Pal }) {
           ${(pal.price_cents_per_minute / 100).toFixed(0)}/min
         </p>
         {isOnline ? (
-          <p className="text-[10px] font-medium text-success">Online</p>
+          <p className="text-[10px] font-medium text-success">Available</p>
         ) : pal.rating_avg ? (
           <p className="flex items-center justify-end gap-0.5 text-[10px] text-muted-foreground">
             <Star className="h-2.5 w-2.5 fill-accent text-accent" />

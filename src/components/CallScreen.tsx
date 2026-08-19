@@ -1293,6 +1293,7 @@ export function CallScreen({
   useEffect(() => {
     if (!conversationId) return;
     setViewingConversation(conversationId, showChat);
+    if (showChat) toast.dismiss(`msg-${conversationId}`);
     return () => setViewingConversation(conversationId, false);
   }, [conversationId, showChat]);
 

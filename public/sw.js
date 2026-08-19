@@ -143,7 +143,7 @@ self.addEventListener("push", (event) => {
         data: data.url ? { url: data.url } : undefined,
         vibrate: isIncomingCall ? [300, 100, 300, 100, 300] : [200, 100, 200],
         requireInteraction: isIncomingCall || !!data.requireInteraction,
-        renotify: isIncomingCall,
+        renotify: true,
       });
     })(),
   );

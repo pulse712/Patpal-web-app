@@ -16,6 +16,7 @@ import {
   sendConversationMessage,
 } from "@/lib/conversation-messages";
 import { setViewingConversation } from "@/lib/local-notifications";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/chat/$conversationId")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -50,6 +51,7 @@ function Chat() {
 
   useEffect(() => {
     setViewingConversation(conversationId, true);
+    toast.dismiss(`msg-${conversationId}`);
     return () => setViewingConversation(conversationId, false);
   }, [conversationId]);
 

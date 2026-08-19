@@ -48,6 +48,7 @@ export const notifyNewMessage = createServerFn({ method: "POST" })
       url: `/chat/${data.conversationId}`,
       tag: `msg-${data.conversationId}`,
       senderId: userId,
+      requireInteraction: true,
     });
 
     return { ok: true };

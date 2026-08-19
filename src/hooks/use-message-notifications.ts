@@ -76,12 +76,16 @@ export function useMessageNotifications(userId: string | null) {
               body: preview,
               url,
               tag: `msg-${msg.conversation_id}`,
+              requireInteraction: true,
             });
             return;
           }
 
           toast.message(title, {
+            id: `msg-${msg.conversation_id}`,
             description: preview,
+            duration: Infinity,
+            closeButton: true,
             action: {
               label: "Open",
               onClick: () => {

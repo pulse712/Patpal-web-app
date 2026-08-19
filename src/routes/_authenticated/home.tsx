@@ -14,8 +14,7 @@ import {
   CalendarDays,
   History,
 } from "lucide-react";
-import { isAcceptingCalls } from "@/lib/availability";
-import { useIsOnline } from "@/lib/presence";
+import { useOnlineUsers, useIsOnline } from "@/lib/presence";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getTeamMembers, type TeamMember } from "@/lib/team.functions";
 import { AdminStaffBanner, AdminStaffHeaderButton } from "@/components/AdminStaffLinks";
@@ -56,16 +55,17 @@ type Pal = {
   availability: string;
 };
 
-/** Pat Pals who turned on Accepting calls on their dashboard. */
-function isListedAvailable(
-  pal: { user_id: string; is_team: boolean; availability: string },
+/** Approved marketplace Pat Pals (team/admin accounts have their own section). */
+function isMarketplacePal(
+  pal: { user_id: string; is_team: boolean },
   adminIds: Set<string>,
 ): boolean {
   if (adminIds.has(pal.user_id) || pal.is_team) return false;
-  return isAcceptingCalls(pal.availability);
+  return true;
 }
 
 function Home() {
+  const onlineUsers = useOnlineUsers();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [balanceSeconds, setBalanceSeconds] = useState(0);
@@ -212,14 +212,9 @@ function Home() {
   const available = useMemo(
     () =>
       allPals
-        .filter((pal) => isListedAvailable(pal, adminIds))
-        .sort((a, b) => {
-          const rank = (availability: string) =>
-            availability === "available" ? 0 : availability === "busy" ? 1 : 2;
-          return rank(a.availability) - rank(b.availability);
-        })
-        .slice(0, 6),
-    [allPals, adminIds],
+        .filter((pal) => isMarketplacePal(pal, adminIds) && onlineUsers.has(pal.user_id))
+        .slice(0, 5),
+    [allPals, adminIds, onlineUsers],
   );
 
   if (loading) {
@@ -371,7 +366,7 @@ function Home() {
           {available.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
               <Users className="mx-auto mb-1 h-5 w-5 opacity-60" />
-              No Pals are accepting calls right now.
+              No approved Pat Pals are online right now.
             </div>
           ) : (
             <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
@@ -503,7 +498,7 @@ function PresenceDot({ online }: { online: boolean }) {
 
 function PalRow({ pal }: { pal: Pal }) {
   const name = pal.full_name ?? "Pat Pal";
-  const isOnline = isAcceptingCalls(pal.availability);
+  const isOnline = useIsOnline(pal.user_id);
   return (
     <Link
       to="/pal/$palId"
@@ -531,7 +526,7 @@ function PalRow({ pal }: { pal: Pal }) {
           ${(pal.price_cents_per_minute / 100).toFixed(0)}/min
         </p>
         {isOnline ? (
-          <p className="text-[10px] font-medium text-success">Available</p>
+          <p className="text-[10px] font-medium text-success">Online</p>
         ) : pal.rating_avg ? (
           <p className="flex items-center justify-end gap-0.5 text-[10px] text-muted-foreground">
             <Star className="h-2.5 w-2.5 fill-accent text-accent" />

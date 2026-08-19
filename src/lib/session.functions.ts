@@ -5,6 +5,7 @@ import { serverAuth } from "@/lib/server-auth";
 import { z } from "zod";
 import { computeTopUpSeconds } from "@/lib/billing-utils";
 import { hasPlatformStaffRole, resolveWalletAccess } from "@/lib/billing-guard";
+import type { CallDirection, CallOutcome } from "@/lib/call-history";
 
 async function fetchWalletBalance(userId: string): Promise<number> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -469,6 +470,7 @@ export const declineIncomingCall = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin.rpc("cancel_session_before_connect", {
       p_session_id: data.sessionId,
       p_actor_id: context.userId,
+      p_end_reason: "declined",
     });
 
     if (error) throw new Error(error.message);
@@ -561,8 +563,91 @@ export const cancelSession = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin.rpc("cancel_session_before_connect", {
       p_session_id: data.sessionId,
       p_actor_id: context.userId,
+      p_end_reason: "no_answer",
     });
 
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+// ─── Call history ──────────────────────────────────────────────────────────
+export type CallHistoryRow = {
+  id: string;
+  conversationId: string | null;
+  otherId: string;
+  otherName: string;
+  otherAvatarUrl: string | null;
+  otherIsPal: boolean;
+  kind: "audio" | "video";
+  direction: CallDirection;
+  outcome: CallOutcome;
+  startedAt: string;
+  durationSeconds: number;
+};
+
+export const listCallHistory = createServerFn({ method: "GET" })
+  .middleware([...serverAuth])
+  .handler(async ({ context }): Promise<{ calls: CallHistoryRow[] }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { getCallDirection, getCallDurationSeconds, getCallOutcome, getOtherParticipantId } =
+      await import("@/lib/call-history");
+
+    const { data, error } = await supabaseAdmin
+      .from("sessions")
+      .select(
+        "id, conversation_id, client_id, pal_id, initiated_by, kind, status, started_at, connected_at, ended_at, seconds_used, end_reason",
+      )
+      .or(`client_id.eq.${context.userId},pal_id.eq.${context.userId}`)
+      .in("kind", ["audio", "video"])
+      .order("started_at", { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+
+    const rows = data ?? [];
+    const otherIds = [
+      ...new Set(rows.map((r) => (r.client_id === context.userId ? r.pal_id : r.client_id))),
+    ];
+
+    const [{ data: profiles }, { data: pals }] = await Promise.all([
+      supabaseAdmin.from("profiles").select("id, full_name, avatar_url").in("id", otherIds),
+      supabaseAdmin.from("pat_pals").select("user_id").in("user_id", otherIds),
+    ]);
+    const nameById = new Map(
+      (profiles ?? []).map((p) => [p.id, p.full_name?.trim() || "Pat My Back user"]),
+    );
+    const avatarById = new Map((profiles ?? []).map((p) => [p.id, p.avatar_url]));
+    const palIds = new Set((pals ?? []).map((p) => p.user_id));
+
+    return {
+      calls: rows.map((r) => {
+        const session = {
+          id: r.id,
+          conversation_id: r.conversation_id,
+          client_id: r.client_id,
+          pal_id: r.pal_id,
+          initiated_by: r.initiated_by,
+          kind: r.kind as "audio" | "video",
+          status: r.status,
+          started_at: r.started_at,
+          connected_at: r.connected_at,
+          ended_at: r.ended_at,
+          seconds_used: r.seconds_used,
+          end_reason: r.end_reason,
+        } as const;
+        const otherId = getOtherParticipantId(session, context.userId);
+        return {
+          id: r.id,
+          conversationId: r.conversation_id,
+          otherId,
+          otherName: nameById.get(otherId) || "Pat My Back user",
+          otherAvatarUrl: avatarById.get(otherId) ?? null,
+          otherIsPal: palIds.has(otherId),
+          kind: r.kind as "audio" | "video",
+          direction: getCallDirection(session, context.userId),
+          outcome: getCallOutcome(session, context.userId),
+          startedAt: r.started_at,
+          durationSeconds: getCallDurationSeconds(session),
+        };
+      }),
+    };
   });

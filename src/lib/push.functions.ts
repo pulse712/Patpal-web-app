@@ -7,6 +7,7 @@ export type PushPayload = {
   tag?: string;
   requireInteraction?: boolean;
   senderId?: string;
+  conversationId?: string;
 };
 
 function readEnv(name: string): string | undefined {

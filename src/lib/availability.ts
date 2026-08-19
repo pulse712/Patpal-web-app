@@ -14,33 +14,14 @@ export function availabilityLabel(availability: string | null | undefined): stri
 
 export function setAcceptingCallsPreference(on: boolean) {
   try {
-    if (on) localStorage.removeItem(ACCEPTING_PREF_KEY);
-    else localStorage.setItem(ACCEPTING_PREF_KEY, "0");
+    localStorage.setItem(ACCEPTING_PREF_KEY, on ? "1" : "0");
   } catch {
     // private mode
   }
 }
 
-function wantsToAcceptCalls() {
-  try {
-    return localStorage.getItem(ACCEPTING_PREF_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-/** Logged-in Pals show as available unless they turned Accepting calls off. */
-export async function syncPalAvailabilityForSession(userId: string | null) {
-  if (!userId || !wantsToAcceptCalls()) return;
-  await supabase
-    .from("pat_pals")
-    .update({ availability: "available" })
-    .eq("user_id", userId)
-    .eq("availability", "offline");
-}
-
 export async function markPalOffline(userId: string) {
-  setAcceptingCallsPreference(true);
+  setAcceptingCallsPreference(false);
   await supabase.from("pat_pals").update({ availability: "offline" }).eq("user_id", userId);
 }
 

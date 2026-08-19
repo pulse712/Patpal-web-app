@@ -17,6 +17,7 @@ import { Route as BrowseRouteImport } from './routes/browse'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedCalendarRouteImport } from './routes/_authenticated/calendar'
+import { Route as AuthenticatedCallsRouteImport } from './routes/_authenticated/calls'
 import { Route as AuthenticatedChatsRouteImport } from './routes/_authenticated/chats'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedPalDashboardRouteImport } from './routes/_authenticated/pal-dashboard'
@@ -66,6 +67,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
 const AuthenticatedCalendarRoute = AuthenticatedCalendarRouteImport.update({
   id: '/calendar',
   path: '/calendar',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedCallsRoute = AuthenticatedCallsRouteImport.update({
+  id: '/calls',
+  path: '/calls',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedChatsRoute = AuthenticatedChatsRouteImport.update({
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calendar': typeof AuthenticatedCalendarRoute
+  '/calls': typeof AuthenticatedCallsRoute
   '/chats': typeof AuthenticatedChatsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/pal-dashboard': typeof AuthenticatedPalDashboardRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calendar': typeof AuthenticatedCalendarRoute
+  '/calls': typeof AuthenticatedCallsRoute
   '/chats': typeof AuthenticatedChatsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/pal-dashboard': typeof AuthenticatedPalDashboardRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/calendar': typeof AuthenticatedCalendarRoute
+  '/_authenticated/calls': typeof AuthenticatedCallsRoute
   '/_authenticated/chats': typeof AuthenticatedChatsRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/pal-dashboard': typeof AuthenticatedPalDashboardRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/admin'
     | '/calendar'
+    | '/calls'
     | '/chats'
     | '/home'
     | '/pal-dashboard'
@@ -218,6 +228,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/admin'
     | '/calendar'
+    | '/calls'
     | '/chats'
     | '/home'
     | '/pal-dashboard'
@@ -239,6 +250,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/_authenticated/admin'
     | '/_authenticated/calendar'
+    | '/_authenticated/calls'
     | '/_authenticated/chats'
     | '/_authenticated/home'
     | '/_authenticated/pal-dashboard'
@@ -321,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/calendar'
       fullPath: '/calendar'
       preLoaderRoute: typeof AuthenticatedCalendarRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/calls': {
+      id: '/_authenticated/calls'
+      path: '/calls'
+      fullPath: '/calls'
+      preLoaderRoute: typeof AuthenticatedCallsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/chats': {
@@ -406,6 +425,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedCalendarRoute: typeof AuthenticatedCalendarRoute
+  AuthenticatedCallsRoute: typeof AuthenticatedCallsRoute
   AuthenticatedChatsRoute: typeof AuthenticatedChatsRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedPalDashboardRoute: typeof AuthenticatedPalDashboardRoute
@@ -417,6 +437,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedCalendarRoute: AuthenticatedCalendarRoute,
+  AuthenticatedCallsRoute: AuthenticatedCallsRoute,
   AuthenticatedChatsRoute: AuthenticatedChatsRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedPalDashboardRoute: AuthenticatedPalDashboardRoute,

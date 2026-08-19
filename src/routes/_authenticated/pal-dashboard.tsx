@@ -9,7 +9,16 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { MessageCircle, DollarSign, Star, Clock, Bell, CalendarDays, Heart } from "lucide-react";
+import {
+  MessageCircle,
+  DollarSign,
+  Star,
+  Clock,
+  Bell,
+  CalendarDays,
+  Heart,
+  History,
+} from "lucide-react";
 import { checkPalAccess } from "@/lib/pal-guard";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { iosNeedsHomeScreenInstall } from "@/lib/push-support";
@@ -67,6 +76,7 @@ function PalDashboard() {
         .eq("user_id", user.id)
         .maybeSingle();
       if (palRow) {
+        setAcceptingCallsPreference(isAcceptingCalls(palRow.availability));
         setPal(palRow as PalRow);
         setPrice(String((palRow.price_cents_per_minute ?? 0) / 100));
         setHeadline(palRow.headline ?? "");
@@ -196,15 +206,17 @@ function PalDashboard() {
         </header>
 
         {(iosNeedsHomeScreenInstall() ||
-          (!push.subscribed && push.permission !== "denied" && push.permission !== "unsupported")) && (
+          (!push.subscribed &&
+            push.permission !== "denied" &&
+            push.permission !== "unsupported")) && (
           <Card className="flex items-start gap-3 border-primary/30 bg-primary/5 p-4">
             <Bell className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
               <p className="font-semibold">Get chat and call alerts on this device</p>
               {iosNeedsHomeScreenInstall() ? (
                 <p className="mt-1 text-sm text-muted-foreground">
-                  On iPhone, tap Share → Add to Home Screen, open Pat My Back from that icon,
-                  then enable notifications. Alerts do not work from a Safari tab.
+                  On iPhone, tap Share → Add to Home Screen, open Pat My Back from that icon, then
+                  enable notifications. Alerts do not work from a Safari tab.
                 </p>
               ) : (
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -315,6 +327,12 @@ function PalDashboard() {
             <Link to="/calendar">
               <CalendarDays className="mr-2 h-4 w-4" />
               Calendar and bookings
+            </Link>
+          </Button>
+          <Button variant="outline" asChild className="w-full justify-start">
+            <Link to="/calls">
+              <History className="mr-2 h-4 w-4" />
+              Call history
             </Link>
           </Button>
           <Button variant="outline" asChild className="w-full justify-start">

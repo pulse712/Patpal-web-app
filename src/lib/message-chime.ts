@@ -34,7 +34,7 @@ function playWebAudioChime() {
       osc.type = "sine";
       osc.frequency.value = frequency;
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.09, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.22, now + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
       osc.connect(gain);
       gain.connect(ctx.destination);

@@ -16,6 +16,7 @@ import {
   sendConversationMessage,
 } from "@/lib/conversation-messages";
 import { setViewingConversation } from "@/lib/local-notifications";
+import { MessageBubble } from "@/components/MessageBubble";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/chat/$conversationId")({
@@ -209,16 +210,11 @@ function Chat() {
               const mine = m.sender_id === me;
               return (
                 <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
-                  <div
-                    className={cn(
-                      "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
-                      mine
-                        ? "bg-primary text-primary-foreground rounded-br-sm"
-                        : "bg-muted text-foreground rounded-bl-sm",
-                    )}
-                  >
-                    {m.body}
-                  </div>
+                  <MessageBubble
+                    body={m.body}
+                    createdAt={m.created_at}
+                    mine={mine}
+                  />
                 </div>
               );
             })}

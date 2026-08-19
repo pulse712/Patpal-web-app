@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { isAcceptingCalls } from "@/lib/availability";
+import { useIsOnline } from "@/lib/presence";
 
 export type PalCardProfile = {
   full_name: string | null;
@@ -21,7 +22,8 @@ export type PalCardData = {
 
 export function PalCard({ pal }: { pal: PalCardData }) {
   const name = pal.profiles?.full_name?.trim() || "Pat Pal";
-  const isOnline = isAcceptingCalls(pal.availability);
+  const isOnline = useIsOnline(pal.user_id);
+  const acceptingCalls = isAcceptingCalls(pal.availability);
   const summary =
     pal.headline?.trim() ||
     pal.profiles?.bio?.trim() ||
@@ -53,7 +55,7 @@ export function PalCard({ pal }: { pal: PalCardData }) {
               "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card",
               isOnline ? "bg-success" : "bg-muted-foreground/40",
             )}
-            aria-label={isOnline ? "Available" : "Away"}
+            aria-label={isOnline ? "Online" : "Offline"}
           />
         </div>
         <div className="min-w-0 flex-1">
@@ -67,7 +69,8 @@ export function PalCard({ pal }: { pal: PalCardData }) {
               isOnline ? "text-success" : "text-muted-foreground",
             )}
           >
-            {isAcceptingCalls(pal.availability) ? "● Available" : "○ Away"}
+            {isOnline ? "● Online" : "○ Offline"}
+            {acceptingCalls ? " · Available for calls" : ""}
           </p>
         </div>
       </div>

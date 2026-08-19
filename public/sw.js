@@ -147,8 +147,26 @@ self.addEventListener("push", (event) => {
 
       const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
       const hasVisibleClient = windowClients.some((client) => client.visibilityState === "visible");
-      // Visible tab already shows the in-app toast / incoming-call overlay.
-      if (hasVisibleClient && !isIncomingCall) return;
+      // Visible tab already shows the in-app toast / incoming-call overlay —
+      // driven off Supabase Realtime, which can silently drop its socket
+      // without an obvious reconnect signal. Forward the push payload to
+      // the visible tab(s) too, so the page's own toast+chime don't depend
+      // solely on Realtime having actually delivered the INSERT.
+      if (hasVisibleClient && !isIncomingCall) {
+        if (data.conversationId && data.senderId) {
+          for (const client of windowClients) {
+            if (client.visibilityState === "visible") {
+              client.postMessage({
+                type: "message-push",
+                conversationId: data.conversationId,
+                senderId: data.senderId,
+                preview: data.body,
+              });
+            }
+          }
+        }
+        return;
+      }
 
       await self.registration.showNotification(data.title, {
         body: data.body,

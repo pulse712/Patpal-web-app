@@ -14,7 +14,6 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { getOgImageUrl } from "@/lib/app-url";
 import { supabase } from "@/integrations/supabase/client";
 import { setPresenceUser } from "@/lib/presence";
-import { syncPalAvailabilityForSession } from "@/lib/availability";
 import { bindAppAudioUnlock } from "@/lib/app-audio";
 import {
   isChunkLoadError,
@@ -223,13 +222,11 @@ function RootComponent() {
     supabase.auth.getSession().then(({ data }) => {
       const userId = data.session?.user.id ?? null;
       setPresenceUser(userId);
-      void syncPalAvailabilityForSession(userId);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       const userId = session?.user.id ?? null;
       setPresenceUser(userId);
-      if (event === "SIGNED_IN") void syncPalAvailabilityForSession(userId);
       router.invalidate();
       if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
     });

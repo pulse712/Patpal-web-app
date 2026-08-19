@@ -412,6 +412,7 @@ export type Database = {
           conversation_id: string | null;
           cost_cents: number;
           ended_at: string | null;
+          end_reason: string | null;
           id: string;
           initiated_by: string;
           kind: Database["public"]["Enums"]["session_kind"];
@@ -429,6 +430,7 @@ export type Database = {
           conversation_id?: string | null;
           cost_cents?: number;
           ended_at?: string | null;
+          end_reason?: string | null;
           id?: string;
           initiated_by: string;
           kind: Database["public"]["Enums"]["session_kind"];
@@ -446,6 +448,7 @@ export type Database = {
           conversation_id?: string | null;
           cost_cents?: number;
           ended_at?: string | null;
+          end_reason?: string | null;
           id?: string;
           initiated_by?: string;
           kind?: Database["public"]["Enums"]["session_kind"];
@@ -654,6 +657,7 @@ export type Database = {
         Args: {
           p_session_id: string;
           p_actor_id: string;
+          p_end_reason?: string | null;
         };
         Returns: undefined;
       };

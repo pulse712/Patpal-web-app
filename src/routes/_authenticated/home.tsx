@@ -4,8 +4,18 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
-import { Clock, ArrowRight, Phone, Star, BadgeCheck, Users, CalendarDays } from "lucide-react";
+import {
+  Clock,
+  ArrowRight,
+  Phone,
+  Star,
+  BadgeCheck,
+  Users,
+  CalendarDays,
+  History,
+} from "lucide-react";
 import { isAcceptingCalls } from "@/lib/availability";
+import { useOnlineUsers, useIsOnline } from "@/lib/presence";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 import { getTeamMembers, type TeamMember } from "@/lib/team.functions";
 import { AdminStaffBanner, AdminStaffHeaderButton } from "@/components/AdminStaffLinks";
@@ -56,6 +66,7 @@ function isListedAvailable(
 }
 
 function Home() {
+  const onlineUsers = useOnlineUsers();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [balanceSeconds, setBalanceSeconds] = useState(0);
@@ -202,14 +213,9 @@ function Home() {
   const online = useMemo(
     () =>
       allPals
-        .filter((pal) => isListedAvailable(pal, adminIds))
-        .sort((a, b) => {
-          const rank = (availability: string) =>
-            availability === "available" ? 0 : availability === "busy" ? 1 : 2;
-          return rank(a.availability) - rank(b.availability);
-        })
+        .filter((pal) => isListedAvailable(pal, adminIds) && onlineUsers.has(pal.user_id))
         .slice(0, 6),
-    [allPals, adminIds],
+    [allPals, adminIds, onlineUsers],
   );
 
   if (loading) {
@@ -238,6 +244,13 @@ function Home() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AdminStaffHeaderButton />
+          <Link
+            to="/calls"
+            className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-semibold text-foreground"
+          >
+            <History className="h-4 w-4 shrink-0" />
+            Calls
+          </Link>
           <Link
             to="/calendar"
             className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-semibold text-foreground"
@@ -345,7 +358,7 @@ function Home() {
         <section className="px-5 pt-6 lg:px-0">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm font-bold">
-              <span className="inline-block h-2 w-2 rounded-full bg-success" /> Available now
+              <span className="inline-block h-2 w-2 rounded-full bg-success" /> Online now
             </h3>
             <Link to="/browse" className="text-xs font-semibold text-primary">
               See all
@@ -354,7 +367,7 @@ function Home() {
           {online.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
               <Users className="mx-auto mb-1 h-5 w-5 opacity-60" />
-              No Pals are accepting calls right now.
+              No Pals are online right now.
             </div>
           ) : (
             <div className="divide-y divide-border overflow-hidden rounded-2xl bg-card shadow-card">
@@ -437,7 +450,7 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 
 function TeamRow({ pal }: { pal: TeamMember }) {
   const name = pal.full_name?.trim() || "Team member";
-  const isOnline = isAcceptingCalls(pal.availability);
+  const isOnline = useIsOnline(pal.user_id);
   const roleLabel = pal.role === "super_admin" ? "Super Admin" : "Admin";
 
   return (
@@ -456,7 +469,7 @@ function TeamRow({ pal }: { pal: TeamMember }) {
             <span
               className={`text-[11px] font-medium ${isOnline ? "text-success" : "text-muted-foreground"}`}
             >
-              {isOnline ? "● Available" : "○ Away"}
+              {isOnline ? "● Online" : "○ Offline"}
             </span>
           </div>
           <p className="mt-1.5 text-sm leading-snug text-muted-foreground">
@@ -479,14 +492,14 @@ function PresenceDot({ online }: { online: boolean }) {
       className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
         online ? "bg-success" : "bg-muted-foreground/50"
       }`}
-      aria-label={online ? "Available" : "Away"}
+      aria-label={online ? "Online" : "Offline"}
     />
   );
 }
 
 function PalRow({ pal }: { pal: Pal }) {
   const name = pal.full_name ?? "Pat Pal";
-  const isOnline = isAcceptingCalls(pal.availability);
+  const isOnline = useIsOnline(pal.user_id);
   return (
     <Link
       to="/pal/$palId"
@@ -514,7 +527,7 @@ function PalRow({ pal }: { pal: Pal }) {
           ${(pal.price_cents_per_minute / 100).toFixed(0)}/min
         </p>
         {isOnline ? (
-          <p className="text-[10px] font-medium text-success">Available</p>
+          <p className="text-[10px] font-medium text-success">Online</p>
         ) : pal.rating_avg ? (
           <p className="flex items-center justify-end gap-0.5 text-[10px] text-muted-foreground">
             <Star className="h-2.5 w-2.5 fill-accent text-accent" />

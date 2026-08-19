@@ -53,6 +53,7 @@ import { CallTopUpPayment } from "@/components/CallTopUpPayment";
 import { startCallRingtone, stopCallRingtone } from "@/lib/call-ringtone";
 import { useConversationMessages, sendConversationMessage } from "@/lib/conversation-messages";
 import { setViewingConversation } from "@/lib/local-notifications";
+import { MessageBubble } from "@/components/MessageBubble";
 import { useStaffRole } from "@/hooks/use-staff-role";
 
 type CallKind = "audio" | "video";
@@ -1796,16 +1797,12 @@ export function CallScreen({
               const mine = m.sender_id === meId;
               return (
                 <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
-                  <div
-                    className={cn(
-                      "max-w-[80%] rounded-2xl px-3 py-1.5 text-sm",
-                      mine
-                        ? "bg-primary text-white rounded-br-sm"
-                        : "bg-white/10 text-white rounded-bl-sm",
-                    )}
-                  >
-                    {m.body}
-                  </div>
+                  <MessageBubble
+                    body={m.body}
+                    createdAt={m.created_at}
+                    mine={mine}
+                    variant="call"
+                  />
                 </div>
               );
             })}

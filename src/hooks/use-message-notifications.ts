@@ -1,9 +1,6 @@
 import { useEffect, useRef } from "react";
-import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchPublicProfile } from "@/lib/public-profiles";
-import { isViewingConversation, showLocalNotification } from "@/lib/local-notifications";
-import { playMessageChime } from "@/lib/message-chime";
+import { alertIncomingMessage } from "@/lib/message-notification-handler";
 
 type MessageRow = {
   id: string;
@@ -18,6 +15,7 @@ export function useMessageNotifications(userId: string | null) {
 
   useEffect(() => {
     if (!userId) return;
+    const uid = userId; // narrowed, stable reference for the closures below
 
     const myConversations = new Set<string>();
 
@@ -25,25 +23,26 @@ export function useMessageNotifications(userId: string | null) {
       const { data } = await supabase
         .from("conversations")
         .select("id")
-        .or(`client_id.eq.${userId},pal_id.eq.${userId}`);
+        .or(`client_id.eq.${uid},pal_id.eq.${uid}`);
       myConversations.clear();
       for (const row of data ?? []) myConversations.add(row.id);
     }
 
-    async function resolveSenderName(senderId: string) {
-      const cached = senderNamesRef.current.get(senderId);
-      if (cached) return cached;
-
-      const profile = await fetchPublicProfile(senderId);
-      const name = profile?.full_name?.trim() || "Someone";
-      senderNamesRef.current.set(senderId, name);
-      return name;
-    }
-
     void loadMyConversations();
 
+    function onMessage(msg: MessageRow) {
+      if (!myConversations.has(msg.conversation_id)) {
+        void loadMyConversations().then(() => {
+          if (!myConversations.has(msg.conversation_id)) return;
+          void alertIncomingMessage(uid, msg, senderNamesRef.current);
+        });
+        return;
+      }
+      void alertIncomingMessage(uid, msg, senderNamesRef.current);
+    }
+
     const channel = supabase
-      .channel(`message-notifications:${userId}`)
+      .channel(`message-notifications:${uid}`)
       .on(
         "postgres_changes",
         {
@@ -51,48 +50,8 @@ export function useMessageNotifications(userId: string | null) {
           schema: "public",
           table: "messages",
         },
-        async (payload) => {
-          const msg = payload.new as MessageRow;
-          // Sender never gets an alert for their own message.
-          if (!msg.sender_id || msg.sender_id === userId) return;
-
-          if (!myConversations.has(msg.conversation_id)) {
-            await loadMyConversations();
-            if (!myConversations.has(msg.conversation_id)) return;
-          }
-
-          if (isViewingConversation(msg.conversation_id)) return;
-
-          const senderName = await resolveSenderName(msg.sender_id);
-          const preview = msg.body.length > 80 ? `${msg.body.slice(0, 80)}…` : msg.body;
-          const url = `/chat/${msg.conversation_id}`;
-          const title = `New message from ${senderName}`;
-
-          playMessageChime();
-
-          if (document.hidden) {
-            void showLocalNotification({
-              title,
-              body: preview,
-              url,
-              tag: `msg-${msg.conversation_id}`,
-              requireInteraction: true,
-            });
-            return;
-          }
-
-          toast.message(title, {
-            id: `msg-${msg.conversation_id}`,
-            description: preview,
-            duration: Infinity,
-            closeButton: true,
-            action: {
-              label: "Open",
-              onClick: () => {
-                window.location.href = url;
-              },
-            },
-          });
+        (payload) => {
+          onMessage(payload.new as MessageRow);
         },
       )
       .on(
@@ -112,7 +71,30 @@ export function useMessageNotifications(userId: string | null) {
       )
       .subscribe();
 
+    // Backup when Web Push is suppressed because a visible tab is open.
+    function onServiceWorkerMessage(event: MessageEvent) {
+      const data = event.data as
+        | {
+            type?: string;
+            conversationId?: string;
+            senderId?: string;
+            preview?: string;
+          }
+        | undefined;
+      if (data?.type !== "message-push") return;
+      if (!data.conversationId || !data.senderId || !data.preview) return;
+      onMessage({
+        id: `push-${Date.now()}`,
+        conversation_id: data.conversationId,
+        sender_id: data.senderId,
+        body: data.preview,
+      });
+    }
+
+    navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage);
+
     return () => {
+      navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage);
       supabase.removeChannel(channel);
     };
   }, [userId]);

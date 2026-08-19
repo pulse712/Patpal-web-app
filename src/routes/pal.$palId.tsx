@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isAcceptingCalls, availabilityLabel } from "@/lib/availability";
+import { useIsOnline } from "@/lib/presence";
 import { fetchPublicProfile } from "@/lib/public-profiles";
 import { getWalletBalance } from "@/lib/session.functions";
 import { preloadAgoraSdk, preloadCallMedia } from "@/lib/agora-prewarm";
@@ -88,6 +89,7 @@ function labelForSlug(slug: string) {
 
 function PalProfile() {
   const { palId } = Route.useParams();
+  const isOnline = useIsOnline(palId);
   const navigate = useNavigate();
   const [pal, setPal] = useState<Pal | null>(null);
   const [viewerId, setViewerId] = useState<string | null>(null);
@@ -297,7 +299,7 @@ function PalProfile() {
   }
 
   const name = pal.profiles?.full_name ?? "Pat Pal";
-  const isOnline = isAcceptingCalls(pal.availability);
+  const acceptingCalls = isAcceptingCalls(pal.availability);
   const isOwnProfile = viewerId === palId;
   const ratingAvg = Number(pal.rating_avg ?? 0);
   const ratingCount = pal.rating_count ?? 0;
@@ -360,7 +362,8 @@ function PalProfile() {
             <BadgeCheck className="h-5 w-5 text-primary" />
           </div>
           <p className="mt-1 text-xs font-medium text-muted-foreground">
-            {availabilityLabel(pal.availability)}
+            {isOnline ? "Online" : "Offline"}
+            {acceptingCalls ? ` · ${availabilityLabel(pal.availability)} for calls` : ""}
           </p>
           <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-semibold text-accent">
             <Crown className="h-3 w-3" /> {TIER_LABEL[pal.tier ?? ""] ?? "Supporter"}

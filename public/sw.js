@@ -24,16 +24,47 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE_NAME && key !== PUSH_USER_CACHE)
+            .map((key) => caches.delete(key)),
+        ),
+      )
       .then(() => self.clients.claim()),
   );
 });
 
+// In-memory fast path only — the SW instance holding this is killed after
+// ~30s idle and respawned fresh (currentUserId back to null) on the next
+// push, which is exactly when a backgrounded/closed tab is most likely to
+// receive one. Persist to Cache Storage too so a freshly spawned worker can
+// still recover who's signed in on this device.
 let currentUserId = null;
+const PUSH_USER_CACHE = "patmyback-push-user";
+const PUSH_USER_KEY = "https://patmyback.internal/push-user";
+
+async function setStoredPushUser(userId) {
+  const cache = await caches.open(PUSH_USER_CACHE);
+  if (userId) await cache.put(PUSH_USER_KEY, new Response(JSON.stringify({ userId })));
+  else await cache.delete(PUSH_USER_KEY);
+}
+
+async function getStoredPushUser() {
+  try {
+    const cache = await caches.open(PUSH_USER_CACHE);
+    const res = await cache.match(PUSH_USER_KEY);
+    if (!res) return null;
+    return (await res.json()).userId ?? null;
+  } catch {
+    return null;
+  }
+}
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SET_PUSH_USER") {
     currentUserId = event.data.userId ?? null;
+    event.waitUntil(setStoredPushUser(currentUserId));
   }
 });
 
@@ -94,8 +125,9 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
       // Never alert the sender on this device (shared/test logins, stale subscriptions).
-      if (!isIncomingCall && data.senderId && currentUserId && data.senderId === currentUserId) {
-        return;
+      if (!isIncomingCall && data.senderId) {
+        const uid = currentUserId ?? (await getStoredPushUser());
+        if (uid && data.senderId === uid) return;
       }
 
       const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });

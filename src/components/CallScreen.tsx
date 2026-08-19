@@ -200,15 +200,16 @@ function readCameraFacingMode(track: ICameraVideo): CameraFacingMode | null {
 
 /** Prefer the two physical cameras on mobile; on desktop keep every distinct device. */
 function pickSwitchableCameras(cams: MediaDeviceInfo[]): MediaDeviceInfo[] {
-  const unique = cams.filter((c, i, arr) => c.deviceId && arr.findIndex((x) => x.deviceId === c.deviceId) === i);
+  const unique = cams.filter(
+    (c, i, arr) => c.deviceId && arr.findIndex((x) => x.deviceId === c.deviceId) === i,
+  );
   if (!isMobileVideoDevice() || unique.length <= 2) return unique;
 
   const front =
     unique.find((c) => /front|user|face|selfie/i.test(c.label)) ??
     unique.find((c) => !/back|rear|environment|wide|ultra|tele|depth|dual/i.test(c.label));
   const back =
-    unique.find((c) => /back|rear|environment/i.test(c.label)) ??
-    unique.find((c) => c !== front);
+    unique.find((c) => /back|rear|environment/i.test(c.label)) ?? unique.find((c) => c !== front);
   return [front, back].filter(Boolean) as MediaDeviceInfo[];
 }
 
@@ -875,8 +876,7 @@ export function CallScreen({
         return;
       }
       if (
-        billing.billableSecondsRemaining + elapsedRef.current >=
-          baseline + purchasedSeconds - 2 ||
+        billing.billableSecondsRemaining + elapsedRef.current >= baseline + purchasedSeconds - 2 ||
         billing.balanceSeconds >= (balanceSec ?? 0) + purchasedSeconds - 2
       ) {
         // billableSecondsRemaining is netted against elapsed time already
@@ -1221,8 +1221,7 @@ export function CallScreen({
     setSwitchingCamera(true);
     try {
       if (isMobileVideoDevice()) {
-        const current =
-          facingModeRef.current ?? readCameraFacingMode(track) ?? "user";
+        const current = facingModeRef.current ?? readCameraFacingMode(track) ?? "user";
         const next: CameraFacingMode = current === "user" ? "environment" : "user";
         let active = track;
         try {

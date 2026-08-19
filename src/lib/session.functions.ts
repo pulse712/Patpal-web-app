@@ -448,7 +448,17 @@ export const getWalletBalance = createServerFn({ method: "GET" })
 // ─── Decline incoming call (Pat Pal — before connecting) ─────────────────────
 export const declineIncomingCall = createServerFn({ method: "POST" })
   .middleware([...serverAuth])
-  .validator((data: unknown) => z.object({ sessionId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) =>
+    z
+      .object({
+        sessionId: z.string().uuid(),
+        // "declined" (explicit tap) is the default so existing callers keep
+        // working; the ring-timeout path passes "no_answer" so a call
+        // nobody acted on doesn't show up in history as rejected.
+        reason: z.enum(["declined", "no_answer"]).optional().default("declined"),
+      })
+      .parse(data),
+  )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -470,7 +480,7 @@ export const declineIncomingCall = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin.rpc("cancel_session_before_connect", {
       p_session_id: data.sessionId,
       p_actor_id: context.userId,
-      p_end_reason: "declined",
+      p_end_reason: data.reason,
     });
 
     if (error) throw new Error(error.message);

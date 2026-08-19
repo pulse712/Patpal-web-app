@@ -83,7 +83,8 @@ export function useIncomingCalls(userId: string | null) {
       setIncoming(call);
       clearRingTimer();
       ringTimerRef.current = setTimeout(() => {
-        declineIncomingCall({ data: { sessionId: row.id } }).catch(() => {});
+        // Nobody acted — this is a miss, not an explicit decline.
+        declineIncomingCall({ data: { sessionId: row.id, reason: "no_answer" } }).catch(() => {});
         dismissIncoming(row.id);
       }, RING_TIMEOUT_MS);
 

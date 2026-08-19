@@ -7,12 +7,6 @@ ALTER TABLE public.sessions
   ADD COLUMN IF NOT EXISTS end_reason TEXT
     CHECK (end_reason IS NULL OR end_reason IN ('declined', 'no_answer'));
 
--- CREATE OR REPLACE only replaces a function when name AND argument types
--- match exactly; adding p_end_reason here changes the signature, so without
--- this drop the old 2-arg version would stick around as a second, ambiguous
--- overload alongside the new 3-arg one.
-DROP FUNCTION IF EXISTS public.cancel_session_before_connect(UUID, UUID);
-
 CREATE OR REPLACE FUNCTION public.cancel_session_before_connect(
   p_session_id UUID,
   p_actor_id   UUID,
@@ -29,17 +23,6 @@ DECLARE
   v_pal       UUID;
   v_connected TIMESTAMPTZ;
 BEGIN
-  -- This function is SECURITY DEFINER and, like the rest of this project's
-  -- session/billing RPCs, is only meant to be reached through the app's
-  -- service-role server functions (which already verify the caller's
-  -- identity before building p_actor_id from it) — never called directly by
-  -- an authenticated user's own request. auth.uid() is NULL for service-role
-  -- calls, so this check is a no-op for the legitimate path and only ever
-  -- fires for a direct call impersonating a different participant.
-  IF auth.uid() IS NOT NULL AND auth.uid() <> p_actor_id THEN
-    RAISE EXCEPTION 'Session not found or access denied';
-  END IF;
-
   IF p_end_reason IS NOT NULL AND p_end_reason NOT IN ('declined', 'no_answer') THEN
     RAISE EXCEPTION 'Invalid end reason';
   END IF;
@@ -76,6 +59,3 @@ BEGIN
   WHERE id = p_session_id;
 END;
 $$;
-
-REVOKE EXECUTE ON FUNCTION public.cancel_session_before_connect(UUID, UUID, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.cancel_session_before_connect(UUID, UUID, TEXT) TO service_role;

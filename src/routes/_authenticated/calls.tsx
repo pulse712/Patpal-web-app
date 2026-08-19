@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { ArrowDownLeft, ArrowUpRight, Phone, PhoneMissed, Video, History } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSession } from "@/lib/session";
+import { supabase } from "@/integrations/supabase/client";
 import { listCallHistory, type CallHistoryRow } from "@/lib/session.functions";
 import { formatCallDuration, formatCallTimestamp } from "@/lib/format-message-time";
 import { outcomeLabel } from "@/lib/call-history";
@@ -104,22 +106,52 @@ function CallRow({ call }: { call: CallHistoryRow }) {
 }
 
 function CallHistoryPage() {
+  const { user } = useSession();
   const listCallHistoryFn = useServerFn(listCallHistory);
   const [loading, setLoading] = useState(true);
   const [calls, setCalls] = useState<CallHistoryRow[]>([]);
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    async function refresh() {
       try {
         const { calls: rows } = await listCallHistoryFn();
-        setCalls(rows);
+        if (!cancelled) setCalls(rows);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Could not load call history.");
+        if (!cancelled)
+          toast.error(err instanceof Error ? err.message : "Could not load call history.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
-  }, [listCallHistoryFn]);
+    }
+
+    void refresh();
+    if (!user) return;
+
+    // A call can complete on another device while this page is open —
+    // re-fetch on any relevant sessions change so the list doesn't need a
+    // manual reload. Two filters: Realtime postgres_changes doesn't support
+    // OR, and either side of the session row can be the current user.
+    const channel = supabase
+      .channel(`call-history:${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sessions", filter: `client_id=eq.${user.id}` },
+        () => void refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sessions", filter: `pal_id=eq.${user.id}` },
+        () => void refresh(),
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [listCallHistoryFn, user]);
 
   return (
     <AppShell>

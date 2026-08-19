@@ -40,11 +40,14 @@ export const notifyNewMessage = createServerFn({ method: "POST" })
     const senderName = senderProfile?.full_name?.trim() || "Someone";
     const recipientId = userId === convo.client_id ? convo.pal_id : convo.client_id;
 
+    if (!recipientId || recipientId === userId) return { ok: false };
+
     await sendPushToUser(recipientId, {
       title: `New message from ${senderName}`,
       body: data.preview,
       url: `/chat/${data.conversationId}`,
       tag: `msg-${data.conversationId}`,
+      senderId: userId,
     });
 
     return { ok: true };

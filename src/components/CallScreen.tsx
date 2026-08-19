@@ -52,6 +52,7 @@ import { RatingModal } from "@/components/RatingModal";
 import { CallTopUpPayment } from "@/components/CallTopUpPayment";
 import { startCallRingtone, stopCallRingtone } from "@/lib/call-ringtone";
 import { useConversationMessages, sendConversationMessage } from "@/lib/conversation-messages";
+import { setViewingConversation } from "@/lib/local-notifications";
 import { useStaffRole } from "@/hooks/use-staff-role";
 
 type CallKind = "audio" | "video";
@@ -113,6 +114,7 @@ const TOP_UP_PRESETS = [
 ];
 
 type AgoraSdk = typeof import("agora-rtc-sdk-ng").default;
+type CameraFacingMode = "user" | "environment";
 
 const CHAT_PAD = 12;
 const CHAT_CONTROLS_RESERVE = 176;
@@ -180,6 +182,50 @@ function isMediaDeviceError(err: unknown): boolean {
     message.includes("PERMISSION_DENIED") ||
     message.includes("NotAllowedError")
   );
+}
+
+/** Phones/tablets where front/back switching should use facingMode, not device-id cycling. */
+function isMobileVideoDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod|Android/i.test(ua)) return true;
+  // iPadOS 13+ reports as Mac; touch points is the reliable signal there.
+  return navigator.maxTouchPoints > 1 && /MacIntel|Macintosh/i.test(navigator.platform);
+}
+
+function readCameraFacingMode(track: ICameraVideo): CameraFacingMode | null {
+  const facing = track.getMediaStreamTrack().getSettings().facingMode;
+  return facing === "user" || facing === "environment" ? facing : null;
+}
+
+/** Prefer the two physical cameras on mobile; on desktop keep every distinct device. */
+function pickSwitchableCameras(cams: MediaDeviceInfo[]): MediaDeviceInfo[] {
+  const unique = cams.filter((c, i, arr) => c.deviceId && arr.findIndex((x) => x.deviceId === c.deviceId) === i);
+  if (!isMobileVideoDevice() || unique.length <= 2) return unique;
+
+  const front =
+    unique.find((c) => /front|user|face|selfie/i.test(c.label)) ??
+    unique.find((c) => !/back|rear|environment|wide|ultra|tele|depth|dual/i.test(c.label));
+  const back =
+    unique.find((c) => /back|rear|environment/i.test(c.label)) ??
+    unique.find((c) => c !== front);
+  return [front, back].filter(Boolean) as MediaDeviceInfo[];
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 async function primeMediaPermission(constraints: MediaStreamConstraints): Promise<boolean> {
@@ -375,7 +421,8 @@ export function CallScreen({
   // ── Front/back camera switch ─────────────────────────────────────────────
   const camerasRef = useRef<MediaDeviceInfo[]>([]);
   const cameraIndexRef = useRef(0);
-  const [cameraCount, setCameraCount] = useState(0);
+  const facingModeRef = useRef<CameraFacingMode | null>(null);
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false);
   const [switchingCamera, setSwitchingCamera] = useState(false);
 
   // ── Minimize / floating pill state ──────────────────────────────────────
@@ -706,15 +753,21 @@ export function CallScreen({
       resetCallPrewarm();
 
       if (kind === "video" && video) {
+        const cameraTrack = video as unknown as ICameraVideo;
+        facingModeRef.current = readCameraFacingMode(cameraTrack);
+        const mobile = isMobileVideoDevice();
+        setCanSwitchCamera(mobile);
+
         AgoraRTC.getCameras()
           .then((cams) => {
             if (isJoinStale(generation)) return;
-            camerasRef.current = cams;
-            setCameraCount(cams.length);
+            const switchable = pickSwitchableCameras(cams);
+            camerasRef.current = switchable;
+            setCanSwitchCamera(mobile || switchable.length > 1);
             // Figure out which of the listed cameras we actually opened, so the
             // first flip goes to a genuinely different one instead of index 0.
             const activeId = video.getMediaStreamTrack().getSettings().deviceId;
-            const idx = cams.findIndex((c) => c.deviceId === activeId);
+            const idx = switchable.findIndex((c) => c.deviceId === activeId);
             cameraIndexRef.current = idx >= 0 ? idx : 0;
           })
           .catch(() => {});
@@ -1134,21 +1187,86 @@ export function CallScreen({
   // ─────────────────────────────────────────────────────────────────────────
   // Front/back camera switch
   // ─────────────────────────────────────────────────────────────────────────
+  async function replayLocalCamera(track: ILocalVideo) {
+    if (localVideoElRef.current) track.play(localVideoElRef.current);
+  }
+
+  async function replaceLocalCameraTrack(nextFacing: CameraFacingMode, cameraId?: string) {
+    const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+    const client = clientRef.current;
+    const oldTrack = localVideoRef.current;
+    const newTrack = await AgoraRTC.createCameraVideoTrack(
+      cameraId ? { cameraId } : { facingMode: nextFacing },
+    );
+    if (camOff) await newTrack.setMuted(true);
+    if (client && oldTrack) {
+      try {
+        await client.unpublish(oldTrack);
+      } catch {
+        /* already unpublished */
+      }
+    }
+    oldTrack?.stop();
+    oldTrack?.close();
+    localVideoRef.current = newTrack;
+    if (client) await client.publish(newTrack);
+    await replayLocalCamera(newTrack);
+    return newTrack as unknown as ICameraVideo;
+  }
+
   async function switchCamera() {
-    const cams = camerasRef.current;
     const track = localVideoRef.current as unknown as ICameraVideo | null;
-    if (cams.length < 2 || !track || switchingCamera) return;
+    if (!track || switchingCamera || !canSwitchCamera) return;
+
     setSwitchingCamera(true);
     try {
-      const nextIndex = (cameraIndexRef.current + 1) % cams.length;
-      await track.setDevice(cams[nextIndex].deviceId);
+      if (isMobileVideoDevice()) {
+        const current =
+          facingModeRef.current ?? readCameraFacingMode(track) ?? "user";
+        const next: CameraFacingMode = current === "user" ? "environment" : "user";
+        let active = track;
+        try {
+          // facingMode is the reliable front/rear flip on phones. Time it out
+          // so a hung setDevice cannot leave the button disabled forever.
+          await withTimeout(track.setDevice({ facingMode: next }), 4000, "setDevice");
+          await replayLocalCamera(track);
+        } catch {
+          try {
+            const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+            const switchable = pickSwitchableCameras(await AgoraRTC.getCameras());
+            camerasRef.current = switchable;
+            const target =
+              next === "user"
+                ? switchable.find((c) => /front|user|face|selfie/i.test(c.label))
+                : switchable.find((c) => /back|rear|environment/i.test(c.label));
+            active = await replaceLocalCameraTrack(next, target?.deviceId);
+          } catch {
+            active = await replaceLocalCameraTrack(next);
+          }
+        }
+        facingModeRef.current = readCameraFacingMode(active) ?? next;
+        return;
+      }
+
+      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      const switchable = pickSwitchableCameras(await AgoraRTC.getCameras());
+      camerasRef.current = switchable;
+      setCanSwitchCamera(switchable.length > 1);
+      if (switchable.length < 2) {
+        toast.error("No other camera found.");
+        return;
+      }
+
+      const nextIndex = (cameraIndexRef.current + 1) % switchable.length;
+      await withTimeout(track.setDevice(switchable[nextIndex].deviceId), 4000, "setDevice");
+      await replayLocalCamera(track);
       // Re-derive from the actual resulting device rather than trusting
       // nextIndex blindly — the initial index guess (at join time) can be
       // wrong if the browser didn't report a deviceId before the stream
       // settled, in which case this keeps future taps correct even if the
       // very first one silently landed back on the same camera.
       const activeId = track.getMediaStreamTrack().getSettings().deviceId;
-      const actualIndex = cams.findIndex((c) => c.deviceId === activeId);
+      const actualIndex = switchable.findIndex((c) => c.deviceId === activeId);
       cameraIndexRef.current = actualIndex >= 0 ? actualIndex : nextIndex;
     } catch {
       toast.error("Could not switch camera.");
@@ -1172,6 +1290,12 @@ export function CallScreen({
       setChatPos((pos) => pos ?? defaultChatPos());
     }
   }, [showChat]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    setViewingConversation(conversationId, showChat);
+    return () => setViewingConversation(conversationId, false);
+  }, [conversationId, showChat]);
 
   useEffect(() => {
     if (isPayingClient) return;
@@ -1469,7 +1593,7 @@ export function CallScreen({
           )}
         >
           <div ref={localVideoElRef} className="h-full w-full" />
-          {cameraCount > 1 && (
+          {canSwitchCamera && (
             <button
               onClick={switchCamera}
               disabled={switchingCamera}

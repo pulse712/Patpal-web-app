@@ -3,7 +3,7 @@
  * Each browser gets its own subscription (stored by endpoint in push_subscriptions).
  */
 import { getPublicEnv } from "@/lib/public-env";
-import { savePushSubscription } from "@/lib/push-subscription.functions";
+import { savePushSubscription, removePushSubscription } from "@/lib/push-subscription.functions";
 
 export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -48,5 +48,27 @@ export async function syncPushSubscriptionIfGranted(): Promise<boolean> {
   } catch (err) {
     console.warn("[Push] sync failed:", err);
     return false;
+  }
+}
+
+export function tellServiceWorkerCurrentUser(userId: string | null | undefined) {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  void navigator.serviceWorker.ready.then((reg) => {
+    const worker = reg.active ?? navigator.serviceWorker.controller;
+    worker?.postMessage({ type: "SET_PUSH_USER", userId: userId ?? null });
+  });
+}
+
+/** Drop this browser's push row so the next account (or signed-out device) is not notified. */
+export async function clearPushSubscriptionForThisBrowser(): Promise<void> {
+  if (!isPushSupported()) return;
+  tellServiceWorkerCurrentUser(null);
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    await removePushSubscription({ data: { endpoint: sub.endpoint } });
+  } catch (err) {
+    console.warn("[Push] clear on sign-out failed:", err);
   }
 }

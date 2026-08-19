@@ -15,12 +15,24 @@ export function canShowLocalNotifications(): boolean {
   return typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted";
 }
 
+const viewingConversationCounts = new Map<string, number>();
+
+/** Mark a conversation as on-screen (chat page or open in-call chat). Ref-counted. */
+export function setViewingConversation(conversationId: string | null | undefined, viewing: boolean) {
+  if (!conversationId) return;
+  const current = viewingConversationCounts.get(conversationId) ?? 0;
+  if (viewing) {
+    viewingConversationCounts.set(conversationId, current + 1);
+    return;
+  }
+  if (current <= 1) viewingConversationCounts.delete(conversationId);
+  else viewingConversationCounts.set(conversationId, current - 1);
+}
+
 export function isViewingConversation(conversationId: string): boolean {
-  return (
-    typeof window !== "undefined" &&
-    !document.hidden &&
-    window.location.pathname === `/chat/${conversationId}`
-  );
+  if (typeof window === "undefined" || document.hidden) return false;
+  if ((viewingConversationCounts.get(conversationId) ?? 0) > 0) return true;
+  return window.location.pathname === `/chat/${conversationId}`;
 }
 
 export async function showLocalNotification(

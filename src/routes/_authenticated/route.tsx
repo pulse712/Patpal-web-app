@@ -208,7 +208,7 @@ function AuthenticatedLayout() {
   return (
     <IncomingCallProvider userId={user.id}>
       <NotificationProvider userId={user.id}>
-        <PushRegistration />
+        <PushRegistration userId={user.id} />
         <IncomingCallDeepLink />
         <Outlet />
       </NotificationProvider>

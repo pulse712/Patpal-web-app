@@ -19,6 +19,17 @@ export function useMessageNotifications(userId: string | null) {
   useEffect(() => {
     if (!userId) return;
 
+    const myConversations = new Set<string>();
+
+    async function loadMyConversations() {
+      const { data } = await supabase
+        .from("conversations")
+        .select("id")
+        .or(`client_id.eq.${userId},pal_id.eq.${userId}`);
+      myConversations.clear();
+      for (const row of data ?? []) myConversations.add(row.id);
+    }
+
     async function resolveSenderName(senderId: string) {
       const cached = senderNamesRef.current.get(senderId);
       if (cached) return cached;
@@ -28,6 +39,8 @@ export function useMessageNotifications(userId: string | null) {
       senderNamesRef.current.set(senderId, name);
       return name;
     }
+
+    void loadMyConversations();
 
     const channel = supabase
       .channel(`message-notifications:${userId}`)
@@ -40,7 +53,14 @@ export function useMessageNotifications(userId: string | null) {
         },
         async (payload) => {
           const msg = payload.new as MessageRow;
-          if (msg.sender_id === userId) return;
+          // Sender never gets an alert for their own message.
+          if (!msg.sender_id || msg.sender_id === userId) return;
+
+          if (!myConversations.has(msg.conversation_id)) {
+            await loadMyConversations();
+            if (!myConversations.has(msg.conversation_id)) return;
+          }
+
           if (isViewingConversation(msg.conversation_id)) return;
 
           const senderName = await resolveSenderName(msg.sender_id);
@@ -69,6 +89,21 @@ export function useMessageNotifications(userId: string | null) {
               },
             },
           });
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "conversations",
+        },
+        (payload) => {
+          const convo = payload.new as { id?: string; client_id?: string; pal_id?: string };
+          if (!convo.id) return;
+          if (convo.client_id === userId || convo.pal_id === userId) {
+            myConversations.add(convo.id);
+          }
         },
       )
       .subscribe();

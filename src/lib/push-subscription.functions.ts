@@ -16,12 +16,17 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
-    const { error } = await supabaseAdmin
-      .from("push_subscriptions")
-      .upsert(
-        { user_id: userId, endpoint: data.endpoint, p256dh: data.p256dh, auth: data.auth },
-        { onConflict: "user_id,endpoint" },
-      );
+    // One browser endpoint belongs to the currently signed-in user only.
+    // Otherwise a shared/test device keeps the previous account's row and
+    // the sender receives the other person's message push.
+    await supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", data.endpoint);
+
+    const { error } = await supabaseAdmin.from("push_subscriptions").insert({
+      user_id: userId,
+      endpoint: data.endpoint,
+      p256dh: data.p256dh,
+      auth: data.auth,
+    });
 
     if (error) throw new Error(error.message);
 

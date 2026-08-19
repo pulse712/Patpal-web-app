@@ -6,6 +6,7 @@ export type PushPayload = {
   url?: string;
   tag?: string;
   requireInteraction?: boolean;
+  senderId?: string;
 };
 
 function readEnv(name: string): string | undefined {
@@ -15,6 +16,8 @@ function readEnv(name: string): string | undefined {
 }
 
 export async function sendPushToUser(targetUserId: string, payload: PushPayload) {
+  if (payload.senderId && payload.senderId === targetUserId) return;
+
   const vapidPublic = readEnv("VAPID_PUBLIC_KEY") ?? readEnv("VITE_VAPID_PUBLIC_KEY");
   const vapidPrivate = readEnv("VAPID_PRIVATE_KEY");
   const vapidEmail = readEnv("VAPID_EMAIL") ?? "mailto:admin@patmyback.com";

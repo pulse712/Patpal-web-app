@@ -15,6 +15,7 @@ import {
   loadOlderMessages,
   sendConversationMessage,
 } from "@/lib/conversation-messages";
+import { setViewingConversation } from "@/lib/local-notifications";
 
 export const Route = createFileRoute("/_authenticated/chat/$conversationId")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -46,6 +47,11 @@ function Chat() {
   const stickToBottomRef = useRef(true);
   const prevLastIdRef = useRef<string | null>(null);
   const isOnline = useIsOnline(otherId);
+
+  useEffect(() => {
+    setViewingConversation(conversationId, true);
+    return () => setViewingConversation(conversationId, false);
+  }, [conversationId]);
 
   useEffect(() => {
     (async () => {

@@ -29,6 +29,14 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+let currentUserId = null;
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SET_PUSH_USER") {
+    currentUserId = event.data.userId ?? null;
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -84,16 +92,28 @@ self.addEventListener("push", (event) => {
   const isIncomingCall = (data.tag ?? "").startsWith("call-");
 
   event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      tag: data.tag ?? "patmyback",
-      data: data.url ? { url: data.url } : undefined,
-      vibrate: isIncomingCall ? [300, 100, 300, 100, 300] : [200, 100, 200],
-      requireInteraction: isIncomingCall || !!data.requireInteraction,
-      renotify: isIncomingCall,
-    }),
+    (async () => {
+      // Never alert the sender on this device (shared/test logins, stale subscriptions).
+      if (!isIncomingCall && data.senderId && currentUserId && data.senderId === currentUserId) {
+        return;
+      }
+
+      const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+      const hasVisibleClient = windowClients.some((client) => client.visibilityState === "visible");
+      // Visible tab already shows the in-app toast / incoming-call overlay.
+      if (hasVisibleClient && !isIncomingCall) return;
+
+      await self.registration.showNotification(data.title, {
+        body: data.body,
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        tag: data.tag ?? "patmyback",
+        data: data.url ? { url: data.url } : undefined,
+        vibrate: isIncomingCall ? [300, 100, 300, 100, 300] : [200, 100, 200],
+        requireInteraction: isIncomingCall || !!data.requireInteraction,
+        renotify: isIncomingCall,
+      });
+    })(),
   );
 });
 

@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { clearPushSubscriptionForThisBrowser } from "@/lib/push-client";
 
 const ACCEPTING_PREF_KEY = "patpal-accepting-calls";
 
@@ -50,6 +51,11 @@ export async function signOutUser() {
   if (userId) {
     try {
       await markPalOffline(userId);
+    } catch {
+      // still sign out
+    }
+    try {
+      await clearPushSubscriptionForThisBrowser();
     } catch {
       // still sign out
     }

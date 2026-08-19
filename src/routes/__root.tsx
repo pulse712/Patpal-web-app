@@ -193,6 +193,10 @@ function RootComponent() {
     }
     window.addEventListener("error", handleWindowError);
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    function handleSwMessage(event: MessageEvent) {
+      if (event.data?.type === "STALE_ASSETS") reloadForStaleChunkOnce();
+    }
+    navigator.serviceWorker?.addEventListener("message", handleSwMessage);
     const clearGuard = clearStaleChunkGuardAfterDelay();
 
     // Register service worker for PWA support
@@ -233,6 +237,7 @@ function RootComponent() {
       window.removeEventListener("vite:preloadError", handlePreloadError);
       window.removeEventListener("error", handleWindowError);
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      navigator.serviceWorker?.removeEventListener("message", handleSwMessage);
       clearGuard();
       unbindAudio();
       sub.subscription.unsubscribe();

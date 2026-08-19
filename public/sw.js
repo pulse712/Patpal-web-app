@@ -1,7 +1,8 @@
 // Pat My Back — Service Worker
 // Keep HTML + hashed /assets on network so deploys never 404 stale bundles.
 
-const CACHE_NAME = "patmyback-v4";
+const CACHE_NAME = "patmyback-v5";
+const PUSH_USER_CACHE = "patmyback-push-user";
 
 const PRECACHE_URLS = ["/manifest.webmanifest", "/favicon.png", "/logo.png", "/icons/icon-192.png", "/icons/icon-512.png"];
 
@@ -9,6 +10,18 @@ const NETWORK_ONLY = ["/api/", "/assets/", "supabase.co", "stripe.com", "agora.i
 
 function isNetworkOnly(url) {
   return NETWORK_ONLY.some((pattern) => url.includes(pattern));
+}
+
+async function fetchAndWatchAssets(request, init) {
+  const response = await fetch(request, init);
+  if (response.status !== 404) return response;
+  const path = new URL(request.url).pathname;
+  if (!path.includes("/assets/") && !/\.(js|css|mjs)$/.test(path)) return response;
+  const windowClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of windowClients) {
+    client.postMessage({ type: "STALE_ASSETS" });
+  }
+  return response;
 }
 
 self.addEventListener("install", (event) => {
@@ -41,7 +54,6 @@ self.addEventListener("activate", (event) => {
 // receive one. Persist to Cache Storage too so a freshly spawned worker can
 // still recover who's signed in on this device.
 let currentUserId = null;
-const PUSH_USER_CACHE = "patmyback-push-user";
 const PUSH_USER_KEY = "https://patmyback.internal/push-user";
 
 async function setStoredPushUser(userId) {
@@ -74,20 +86,23 @@ self.addEventListener("fetch", (event) => {
 
   if (request.method !== "GET") return;
   if (!url.protocol.startsWith("http")) return;
+
+  // Always hit the network for HTML and hashed JS so a new deploy cannot
+  // keep serving yesterday's index (which would 404 on the new /assets).
+  const noStore = { cache: "no-store" };
+
   if (isNetworkOnly(request.url)) {
-    event.respondWith(fetch(request));
+    event.respondWith(fetchAndWatchAssets(request, noStore));
     return;
   }
 
-  // Never cache HTML navigations — always fetch latest shell + asset manifest.
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request));
+    event.respondWith(fetch(request, noStore));
     return;
   }
 
-  // Hashed bundles (legacy paths without /assets prefix).
   if (url.pathname.match(/\.(js|css|mjs)$/)) {
-    event.respondWith(fetch(request));
+    event.respondWith(fetchAndWatchAssets(request, noStore));
     return;
   }
 

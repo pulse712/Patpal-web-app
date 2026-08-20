@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
@@ -72,6 +72,10 @@ function Home() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [allPals, setAllPals] = useState<Pal[]>([]);
+  const allPalsRef = useRef<Pal[]>([]);
+  useEffect(() => {
+    allPalsRef.current = allPals;
+  }, [allPals]);
   const [topRated, setTopRated] = useState<Pal[]>([]);
   const [banners, setBanners] = useState<
     {
@@ -180,27 +184,83 @@ function Home() {
     })();
   }, []);
 
-  // Keep availability in sync when Pals toggle accepting calls while this page is open.
+  // Keep the marketplace list in sync while this page stays open: pick up
+  // Pals approved (or de-listed) after the initial fetch, not just
+  // availability toggles on ones we already loaded.
   useEffect(() => {
     const channel = supabase
       .channel("home-pat-pals-availability")
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "pat_pals" },
-        (payload) => {
-          const row = payload.new as { user_id: string; availability: string };
-          setAllPals((prev) =>
-            prev.map((p) =>
-              p.user_id === row.user_id ? { ...p, availability: row.availability } : p,
-            ),
+      .on("postgres_changes", { event: "*", schema: "public", table: "pat_pals" }, (payload) => {
+        const row = payload.new as {
+          user_id: string;
+          availability: string;
+          is_approved?: boolean;
+          headline?: string | null;
+          price_cents_per_minute?: number;
+          tier?: string;
+          is_team?: boolean;
+          rating_avg?: number | null;
+          rating_count?: number | null;
+        };
+        if (!row?.user_id) return;
+
+        if (row.is_approved === false) {
+          setAllPals((prev) => prev.filter((p) => p.user_id !== row.user_id));
+          setTeam((prev) => prev.filter((t) => t.user_id !== row.user_id));
+          return;
+        }
+
+        setTeam((prev) =>
+          prev.map((t) =>
+            t.user_id === row.user_id ? { ...t, availability: row.availability } : t,
+          ),
+        );
+
+        setAllPals((prev) => {
+          if (!prev.some((p) => p.user_id === row.user_id)) return prev;
+          return prev.map((p) =>
+            p.user_id === row.user_id
+              ? {
+                  ...p,
+                  availability: row.availability,
+                  headline: row.headline ?? p.headline,
+                  price_cents_per_minute: row.price_cents_per_minute ?? p.price_cents_per_minute,
+                  tier: row.tier ?? p.tier,
+                  is_team: row.is_team ?? p.is_team,
+                  rating_avg: row.rating_avg ?? p.rating_avg,
+                  rating_count: row.rating_count ?? p.rating_count,
+                }
+              : p,
           );
-          setTeam((prev) =>
-            prev.map((t) =>
-              t.user_id === row.user_id ? { ...t, availability: row.availability } : t,
-            ),
-          );
-        },
-      )
+        });
+
+        // Newly approved (or newly created, already-approved) Pal we
+        // haven't loaded yet — fetch their profile and add them in.
+        if (row.is_approved && !allPalsRef.current.some((p) => p.user_id === row.user_id)) {
+          void fetchPublicProfiles([row.user_id]).then((names) => {
+            const info = names.get(row.user_id);
+            setAllPals((prev) =>
+              prev.some((p) => p.user_id === row.user_id)
+                ? prev
+                : [
+                    ...prev,
+                    {
+                      user_id: row.user_id,
+                      headline: row.headline ?? null,
+                      price_cents_per_minute: row.price_cents_per_minute ?? 0,
+                      tier: row.tier ?? "trusted",
+                      is_team: row.is_team ?? false,
+                      rating_avg: row.rating_avg ?? null,
+                      rating_count: row.rating_count ?? null,
+                      full_name: info?.full_name ?? null,
+                      avatar_url: info?.avatar_url ?? null,
+                      availability: row.availability,
+                    },
+                  ],
+            );
+          });
+        }
+      })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
